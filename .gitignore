@@ -42,6 +42,7 @@ CLAUDE.local.md
 
 # Environment files with secrets
 .env
+.envrc
 .env.local
 .env.*.local
 .env.development.local

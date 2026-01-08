@@ -1,3 +1,9 @@
+---
+name: internet-researcher
+description: Deep research subagent for comprehensive internet research. Use when multiple searches are needed, comparing sources, or thorough topic coverage is required. Conducts multi-query research with source verification and synthesis.
+skills: internet-research
+---
+
 # Internet Researcher Agent
 
 A specialized subagent for conducting thorough internet research using Brave Search.
@@ -59,7 +65,7 @@ and identify any limitations for production use.
 ```
 
 Agent will:
-1. Search "WebAssembly browser support 2024"
+1. Search "WebAssembly browser support 2026"
 2. Search "WebAssembly limitations production"
 3. Search "WebAssembly Chrome Firefox Safari edge cases"
 4. Search "WebAssembly performance benchmarks"

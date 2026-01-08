@@ -1,3 +1,8 @@
+---
+name: internet-research
+description: Expert internet research using Brave Search. Use when the user needs current information beyond knowledge cutoff, real-time data (prices, stats, news), fact verification, documentation lookups, latest package versions, or current events.
+---
+
 # Internet Research Skill
 
 This skill provides Claude Code with expert-level internet research capabilities using the Brave Search MCP server.
@@ -40,7 +45,7 @@ Search for local businesses and places.
 
 ### Step 1: Formulate Effective Queries
 - Be specific: "Next.js 14 app router migration guide" > "nextjs help"
-- Include year for current info: "React best practices 2024"
+- Include year for current info: "React best practices 2026"
 - Use quotes for exact phrases: `"useEffect cleanup function"`
 
 ### Step 2: Execute Search
@@ -63,8 +68,8 @@ Use mcp__brave-search__brave_web_search with your query
 
 | User Request | Effective Query |
 |-------------|-----------------|
-| "What's new in React?" | "React 19 new features 2024" |
-| "Best Node.js framework" | "Node.js framework comparison 2024 express fastify" |
+| "What's new in React?" | "React 19 new features 2026" |
+| "Best Node.js framework" | "Node.js framework comparison 2026 express fastify" |
 | "How to deploy to Vercel" | "Vercel deployment guide Next.js" |
 | "Latest TypeScript version" | "TypeScript latest version release" |
 

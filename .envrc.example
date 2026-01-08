@@ -1,0 +1,53 @@
+# claude-code-config/.envrc.example
+#
+# Copy this file to .envrc and run `direnv allow` to enable automatic
+# environment variable loading when entering this directory.
+#
+# =============================================================================
+# INSTALLATION BY PLATFORM
+# =============================================================================
+#
+# macOS:
+#   brew install direnv
+#   echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc
+#
+# Ubuntu/Debian:
+#   sudo apt install direnv
+#   echo 'eval "$(direnv hook bash)"' >> ~/.bashrc
+#
+# Windows (choose one):
+#   Option 1 - Winget (recommended):
+#     winget install direnv
+#
+#   Option 2 - Manual:
+#     Download direnv.windows-amd64.exe from https://github.com/direnv/direnv/releases
+#     Rename to direnv.exe and add to PATH
+#
+#   Shell hook for Git Bash (~/.bashrc):
+#     eval "$(direnv hook bash)"
+#
+# =============================================================================
+# ALTERNATIVE OPTIONS (if direnv doesn't work for you)
+# =============================================================================
+#
+# Option A: Manual source (Unix/Git Bash/WSL)
+#   source .env
+#
+# Option B: PowerShell native (Windows)
+#   Get-Content .env | ForEach-Object {
+#     if ($_ -match '^([^#][^=]+)=(.*)$') {
+#       [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process')
+#     }
+#   }
+#
+# Option C: Export one-liner (Unix/Git Bash)
+#   export $(grep -v '^#' .env | xargs)
+#
+# Option D: Node.js dotenv (if using Node.js)
+#   npm install -g dotenv-cli
+#   dotenv -- claude
+#
+# =============================================================================
+
+# Automatically load .env file in this directory
+dotenv
