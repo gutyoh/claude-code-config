@@ -150,7 +150,7 @@ You should see:
 > /agents
 ```
  
-You should see `internet-researcher` and `pr-creator`.
+You should see `internet-researcher`, `pr-creator`, and `data-scientist`.
  
 **Test the Brave Search MCP:**
 ```
@@ -222,7 +222,8 @@ claude-code-config/
 │   │       └── SKILL.md
 │   ├── agents/                    # Subagents for Task tool
 │   │   ├── internet-researcher.md
-│   │   └── pr-creator.md
+│   │   ├── pr-creator.md
+│   │   └── data-scientist.md
 │   └── commands/                  # Custom slash commands
 │       ├── web-search.md
 │       ├── brave-search.md
