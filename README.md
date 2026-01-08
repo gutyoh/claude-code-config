@@ -77,7 +77,7 @@ cd claude-code-config
  
 ### Step 2: Run the Setup Script
  
-The setup script creates symlinks from this repo to `~/.claude/`. If you ever move the repo, just re-run the script.
+The setup script creates symlinks and **automatically configures MCP servers** in user scope. Safe to re-run if you move the repo.
  
 **macOS / Linux / WSL / Git Bash:**
  
@@ -94,33 +94,12 @@ The setup script creates symlinks from this repo to `~/.claude/`. If you ever mo
 The script will:
 - Create `~/.claude/` if it doesn't exist
 - Symlink `commands/`, `skills/`, `agents/`, `hooks/` to your global config
-- Show next steps for MCP and environment variables
+- **Add Brave Search MCP server to user scope** (available in all projects)
+- Check for required environment variables
  
 > **Note:** Symlinks keep everything in sync. When you `git pull` updates, your global config updates automatically.
  
-### Step 3: Configure MCP Servers (User Scope)
- 
-MCP servers need to be added to your **user scope** in `~/.claude.json` (not the project `.mcp.json`).
- 
-**Add the Brave Search MCP server:**
- 
-```bash
-claude mcp add brave-search --scope user \
-  -e BRAVE_API_KEY='${BRAVE_API_KEY}' \
-  -- npx -y @brave/brave-search-mcp-server
-```
- 
-This stores the MCP config in `~/.claude.json` under your user scope, making it available in **all projects**.
- 
-**Verify it was added:**
- 
-```bash
-claude mcp list
-```
- 
-You should see `brave-search` listed with scope `user`.
- 
-### Step 4: Set Environment Variables
+### Step 3: Set Environment Variables
  
 Add your API keys to your shell profile (`~/.bashrc`, `~/.zshrc`, or `~/.profile`):
  
@@ -140,7 +119,7 @@ source ~/.zshrc
 2. Under **User variables**, click **New**
 3. Set `BRAVE_API_KEY` with your API key value
  
-### Step 5: Verify Installation
+### Step 4: Verify Installation
  
 Start Claude Code in **any project** and verify everything works:
  
@@ -149,16 +128,23 @@ cd ~/some-other-project
 claude
 ```
  
+**Check MCP servers:**
+```bash
+claude mcp list
+```
+
+You should see `brave-search` listed with scope `user`.
+
 **Check available commands:**
 ```
 > /help
 ```
- 
+
 You should see:
 - `/web-search` (user)
 - `/brave-search` (user)
 - `/pr` (user)
- 
+
 **Check available agents:**
 ```
 > /agents
@@ -171,7 +157,7 @@ You should see `internet-researcher` and `pr-creator`.
 > /brave-search latest Claude Code features
 ```
  
-### Step 6: Keep Your Config Updated
+### Step 5: Keep Your Config Updated
  
 Since you cloned a Git repo, pull updates regularly:
  
