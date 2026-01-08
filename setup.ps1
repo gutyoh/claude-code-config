@@ -24,18 +24,48 @@ if (-not (Test-Path $ClaudeDir)) {
 
 Write-Host "Step 1: Creating symlinks..." -ForegroundColor Yellow
 
+# Function to safely create symlink without circular references
+function Create-SafeSymlink {
+    param (
+        [string]$Source,
+        [string]$Target,
+        [string]$Name
+    )
+
+    # Resolve real paths to detect if we're IN the repo
+    $ClaudeReal = (Resolve-Path $ClaudeDir -ErrorAction SilentlyContinue).Path
+    $RepoClaudeReal = (Resolve-Path "$RepoDir\.claude" -ErrorAction SilentlyContinue).Path
+
+    # If ~/.claude IS the repo's .claude directory, skip symlink creation
+    if ($ClaudeReal -eq $RepoClaudeReal) {
+        Write-Host "  + $ClaudeDir\$Name (same as repo, no symlink needed)" -ForegroundColor Green
+        return
+    }
+
+    # Check if symlink already exists and points to correct location
+    if (Test-Path $Target) {
+        $item = Get-Item $Target -Force
+        if ($item.LinkType -eq "SymbolicLink") {
+            $currentTarget = $item.Target
+            if ($currentTarget -eq $Source) {
+                Write-Host "  + $ClaudeDir\$Name -> $Source (already configured)" -ForegroundColor Green
+                return
+            }
+        }
+        # Remove existing (file, directory, or wrong symlink)
+        Remove-Item $Target -Force -Recurse -ErrorAction SilentlyContinue
+    }
+
+    # Create fresh symlink
+    New-Item -ItemType SymbolicLink -Path $Target -Target $Source -Force | Out-Null
+    Write-Host "  + $ClaudeDir\$Name -> $Source" -ForegroundColor Green
+}
+
 # Create symlinks
-New-Item -ItemType SymbolicLink -Path "$ClaudeDir\commands" -Target "$RepoDir\.claude\commands" -Force | Out-Null
-Write-Host "  + $ClaudeDir\commands -> $RepoDir\.claude\commands" -ForegroundColor Green
-
-New-Item -ItemType SymbolicLink -Path "$ClaudeDir\skills" -Target "$RepoDir\.claude\skills" -Force | Out-Null
-Write-Host "  + $ClaudeDir\skills -> $RepoDir\.claude\skills" -ForegroundColor Green
-
-New-Item -ItemType SymbolicLink -Path "$ClaudeDir\agents" -Target "$RepoDir\.claude\agents" -Force | Out-Null
-Write-Host "  + $ClaudeDir\agents -> $RepoDir\.claude\agents" -ForegroundColor Green
-
-New-Item -ItemType SymbolicLink -Path "$ClaudeDir\hooks" -Target "$RepoDir\.claude\hooks" -Force | Out-Null
-Write-Host "  + $ClaudeDir\hooks -> $RepoDir\.claude\hooks" -ForegroundColor Green
+Create-SafeSymlink -Source "$RepoDir\.claude\commands" -Target "$ClaudeDir\commands" -Name "commands"
+Create-SafeSymlink -Source "$RepoDir\.claude\skills" -Target "$ClaudeDir\skills" -Name "skills"
+Create-SafeSymlink -Source "$RepoDir\.claude\agents" -Target "$ClaudeDir\agents" -Name "agents"
+Create-SafeSymlink -Source "$RepoDir\.claude\hooks" -Target "$ClaudeDir\hooks" -Name "hooks"
 
 Write-Host ""
 Write-Host "Step 2: Configuring MCP servers (user scope)..." -ForegroundColor Yellow

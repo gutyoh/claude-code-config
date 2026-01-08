@@ -18,20 +18,44 @@ echo ""
 # Create ~/.claude if it doesn't exist
 mkdir -p ~/.claude
 
+# Function to safely create symlink without circular references
+create_symlink() {
+    local source="$1"
+    local target="$2"
+    local name="$3"
+
+    # Resolve the real path of ~/.claude to detect if we're IN the repo
+    local claude_real=$(cd ~/.claude && pwd -P)
+    local repo_claude_real=$(cd "$REPO_DIR/.claude" && pwd -P)
+
+    # If ~/.claude IS the repo's .claude directory, skip symlink creation
+    if [ "$claude_real" = "$repo_claude_real" ]; then
+        echo "  ✓ ~/.claude/$name (same as repo, no symlink needed)"
+        return 0
+    fi
+
+    # Check if symlink already exists and points to correct location
+    if [ -L "$target" ]; then
+        local current_target=$(readlink "$target")
+        if [ "$current_target" = "$source" ]; then
+            echo "  ✓ ~/.claude/$name -> $source (already configured)"
+            return 0
+        fi
+    fi
+
+    # Remove existing (file, directory, or wrong symlink) and create fresh
+    rm -rf "$target"
+    ln -s "$source" "$target"
+    echo "  ✓ ~/.claude/$name -> $source"
+}
+
 # Create symlinks
 echo "Step 1: Creating symlinks..."
 
-ln -sf "$REPO_DIR/.claude/commands" ~/.claude/commands
-echo "  ✓ ~/.claude/commands -> $REPO_DIR/.claude/commands"
-
-ln -sf "$REPO_DIR/.claude/skills" ~/.claude/skills
-echo "  ✓ ~/.claude/skills -> $REPO_DIR/.claude/skills"
-
-ln -sf "$REPO_DIR/.claude/agents" ~/.claude/agents
-echo "  ✓ ~/.claude/agents -> $REPO_DIR/.claude/agents"
-
-ln -sf "$REPO_DIR/.claude/hooks" ~/.claude/hooks
-echo "  ✓ ~/.claude/hooks -> $REPO_DIR/.claude/hooks"
+create_symlink "$REPO_DIR/.claude/commands" ~/.claude/commands "commands"
+create_symlink "$REPO_DIR/.claude/skills" ~/.claude/skills "skills"
+create_symlink "$REPO_DIR/.claude/agents" ~/.claude/agents "agents"
+create_symlink "$REPO_DIR/.claude/hooks" ~/.claude/hooks "hooks"
 
 echo ""
 
