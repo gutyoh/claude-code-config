@@ -1,0 +1,63 @@
+# Claude Code Configuration Repository
+# Language detection and line ending settings
+
+# ============================================
+# Language Statistics Override
+# ============================================
+# Mark documentation files - exclude from language stats
+*.md linguist-documentation
+CLAUDE.md linguist-documentation
+README.md linguist-documentation
+
+# Mark configuration files properly
+*.json linguist-language=JSON
+.mcp.json linguist-language=JSON
+
+# Mark YAML files
+*.yml linguist-language=YAML
+*.yaml linguist-language=YAML
+
+# Shell scripts - mark but don't dominate stats
+*.sh linguist-language=Shell
+
+# Mark example files as documentation
+*.example linguist-documentation
+
+# ============================================
+# Line Ending Normalization
+# ============================================
+# Auto detect text files and normalize line endings
+* text=auto
+
+# Force LF for shell scripts (cross-platform compatibility)
+*.sh text eol=lf
+
+# Force LF for markdown files
+*.md text eol=lf
+
+# Force LF for JSON files
+*.json text eol=lf
+
+# Force LF for YAML files
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# ============================================
+# Binary Files
+# ============================================
+# Images
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg binary
+
+# ============================================
+# Git Diff Settings
+# ============================================
+# Use markdown diff for .md files
+*.md diff=markdown
+
+# Use JSON diff for config files
+*.json diff=json
