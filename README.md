@@ -1,11 +1,11 @@
 # Claude Code Portable Configuration
-
+ 
 A portable, Git-versioned configuration repository for Claude Code that works seamlessly across macOS, Linux, and Windows.
-
+ 
 ## What This Repository Contains
-
+ 
 This repo provides a complete, portable Claude Code setup including:
-
+ 
 | Component | Location | Purpose |
 |-----------|----------|---------|
 | **MCP Servers** | `.mcp.json` | External tool integrations (Brave Search, etc.) |
@@ -15,48 +15,215 @@ This repo provides a complete, portable Claude Code setup including:
 | **Hooks** | `.claude/hooks/` | Git and workflow automation |
 | **Settings** | `.claude/settings.json` | Claude Code configuration with hooks |
 | **Project Context** | `CLAUDE.md` | Shared project knowledge and conventions |
-
-## Quick Start
-
+ 
+## Installation Options
+ 
+You have **two options** for using this configuration:
+ 
+| Option | Use Case | Scope |
+|--------|----------|-------|
+| **[Global Install](#global-installation-recommended)** | Use across ALL your projects | User scope (`~/.claude/`) |
+| **[Project Install](#project-installation)** | Use only in this directory | Project scope (`.claude/`) |
+ 
+---
+ 
+## Global Installation (Recommended)
+ 
+Follow these steps to make this configuration available across **all projects** on your machine. This is ideal if you want your Claude Code setup to follow you everywhere.
+ 
+### Prerequisites
+ 
+1. **Claude Code installed** (via any method):
+   ```bash
+   # macOS/Linux (recommended)
+   curl -fsSL https://claude.ai/install.sh | bash
+ 
+   # Or via Homebrew
+   brew install --cask claude-code
+ 
+   # Or via npm (requires Node.js 18+)
+   npm install -g @anthropic-ai/claude-code
+   ```
+ 
+2. **jq installed** (required for the git rebase hook):
+   ```bash
+   # macOS
+   brew install jq
+ 
+   # Ubuntu/Debian
+   sudo apt-get install jq
+ 
+   # Windows (via Chocolatey)
+   choco install jq
+   ```
+ 
+3. **Git installed** (to clone this repo)
+ 
+### Step 1: Clone This Repository
+ 
+Choose a location to store your centralized config. We recommend `~/repos/` or `~/projects/`:
+ 
+```bash
+# Create a repos directory if you don't have one
+mkdir -p ~/repos
+ 
+# Clone this repository
+cd ~/repos
+git clone https://github.com/YOUR_USERNAME/claude-code-config.git
+ 
+# Enter the directory
+cd claude-code-config
+```
+ 
+### Step 2: Run the Setup Script
+ 
+The setup script creates symlinks from this repo to `~/.claude/`. If you ever move the repo, just re-run the script.
+ 
+**macOS / Linux / WSL / Git Bash:**
+ 
+```bash
+./setup.sh
+```
+ 
+**Windows (PowerShell as Administrator):**
+ 
+```powershell
+.\setup.ps1
+```
+ 
+The script will:
+- Create `~/.claude/` if it doesn't exist
+- Symlink `commands/`, `skills/`, `agents/`, `hooks/` to your global config
+- Show next steps for MCP and environment variables
+ 
+> **Note:** Symlinks keep everything in sync. When you `git pull` updates, your global config updates automatically.
+ 
+### Step 3: Configure MCP Servers (User Scope)
+ 
+MCP servers need to be added to your **user scope** in `~/.claude.json` (not the project `.mcp.json`).
+ 
+**Add the Brave Search MCP server:**
+ 
+```bash
+claude mcp add brave-search --scope user \
+  -e BRAVE_API_KEY='${BRAVE_API_KEY}' \
+  -- npx -y @brave/brave-search-mcp-server
+```
+ 
+This stores the MCP config in `~/.claude.json` under your user scope, making it available in **all projects**.
+ 
+**Verify it was added:**
+ 
+```bash
+claude mcp list
+```
+ 
+You should see `brave-search` listed with scope `user`.
+ 
+### Step 4: Set Environment Variables
+ 
+Add your API keys to your shell profile (`~/.bashrc`, `~/.zshrc`, or `~/.profile`):
+ 
+```bash
+# Add to your shell profile
+echo 'export BRAVE_API_KEY="your-brave-api-key-here"' >> ~/.zshrc
+ 
+# Reload your shell
+source ~/.zshrc
+```
+ 
+**Get a free Brave API key:** https://api-dashboard.search.brave.com/
+ 
+**Windows (System Environment Variables):**
+ 
+1. Open **System Properties** → **Advanced** → **Environment Variables**
+2. Under **User variables**, click **New**
+3. Set `BRAVE_API_KEY` with your API key value
+ 
+### Step 5: Verify Installation
+ 
+Start Claude Code in **any project** and verify everything works:
+ 
+```bash
+cd ~/some-other-project
+claude
+```
+ 
+**Check available commands:**
+```
+> /help
+```
+ 
+You should see:
+- `/web-search` (user)
+- `/brave-search` (user)
+- `/pr` (user)
+ 
+**Check available agents:**
+```
+> /agents
+```
+ 
+You should see `internet-researcher` and `pr-creator`.
+ 
+**Test the Brave Search MCP:**
+```
+> /brave-search latest Claude Code features
+```
+ 
+### Step 6: Keep Your Config Updated
+ 
+Since you cloned a Git repo, pull updates regularly:
+ 
+```bash
+cd ~/repos/claude-code-config
+git pull origin main
+```
+ 
+If you used symlinks, your global config updates automatically!
+ 
+---
+ 
+## Project Installation
+ 
+Use this method if you only want the configuration in a specific project directory.
+ 
 ### 1. Clone the Repository
-
+ 
 ```bash
 git clone https://github.com/YOUR_USERNAME/claude-code-config.git
 cd claude-code-config
 ```
-
+ 
 ### 2. Set Up Environment Variables
-
+ 
 Create a `.env` file (gitignored) or export in your shell:
-
+ 
 ```bash
 # Required for Brave Search MCP
 export BRAVE_API_KEY="your-brave-api-key"
-
+ 
 # Add other API keys as needed
 ```
-
+ 
 **Get a free Brave API key:** https://api-dashboard.search.brave.com/
-
+ 
 ### 3. Start Claude Code
-
+ 
 ```bash
 claude
 ```
-
-That's it! All MCP servers, skills, commands, and hooks are automatically loaded.
-
-## Prerequisites
-
-- **jq**: Required for the git rebase hook to parse JSON
-  - macOS: `brew install jq`
-  - Ubuntu/Debian: `sudo apt-get install jq`
-  - Windows: `choco install jq` or `scoop install jq`
-
+ 
+That's it! All MCP servers, skills, commands, and hooks are automatically loaded for this project.
+ 
+---
+ 
 ## Repository Structure
-
+ 
 ```
 claude-code-config/
+├── setup.sh                       # Setup script for macOS/Linux
+├── setup.ps1                      # Setup script for Windows
 ├── .mcp.json                      # MCP server configurations
 ├── .claude/
 │   ├── settings.json              # Claude Code settings (hooks config)
@@ -79,29 +246,93 @@ claude-code-config/
 ├── .gitignore                     # Comprehensive gitignore
 └── README.md                      # This file
 ```
-
+ 
 ## Git Conventions
-
+ 
 ### Automatic `git pull --rebase`
-
+ 
 This repository includes a **PreToolUse hook** that automatically adds `--rebase` to all `git pull` commands. This ensures a clean, linear commit history.
-
+ 
 ```bash
 # What you type:
 git pull origin develop
-
+ 
 # What actually runs:
 git pull --rebase origin develop
 ```
-
+ 
 No configuration needed - the hook is automatically active when you run Claude Code in this repository.
-
-## Portability: How It Works
-
-### The Secret: Environment Variable Expansion
-
-The `.mcp.json` supports `${VAR}` syntax for secrets:
-
+ 
+## Syncing Across Machines
+ 
+The main benefit of this repo is **portability**. Here's how to sync your config across Mac, Linux, and Windows:
+ 
+### Initial Setup (First Machine)
+ 
+1. Fork this repo to your GitHub account
+2. Follow the [Global Installation](#global-installation-recommended) steps
+3. Customize commands, skills, and agents as needed
+4. Commit and push your changes
+ 
+### Setting Up Additional Machines
+ 
+1. Clone your forked repo:
+   ```bash
+   cd ~/repos
+   git clone https://github.com/YOUR_USERNAME/claude-code-config.git
+   cd claude-code-config
+   ```
+ 
+2. Run the setup script:
+   ```bash
+   ./setup.sh        # macOS/Linux
+   .\setup.ps1       # Windows (as Admin)
+   ```
+ 
+3. Add MCP servers and environment variables (Steps 3-4 from Global Installation)
+ 
+4. Done! Your config is now synced.
+ 
+### Keeping Everything in Sync
+ 
+```bash
+# On any machine, pull the latest changes
+cd ~/repos/claude-code-config
+git pull origin main
+ 
+# If using symlinks, you're done!
+# If you copied files, re-run the copy commands from Step 3
+```
+ 
+---
+ 
+## How It Works
+ 
+### Configuration Scopes
+ 
+Claude Code supports multiple configuration scopes:
+ 
+| Scope | Location | Use Case |
+|-------|----------|----------|
+| **User** | `~/.claude/` and `~/.claude.json` | Personal config across all projects |
+| **Project** | `.claude/` and `.mcp.json` | Team-shared config for one repo |
+| **Local** | `.claude/settings.local.json` | Per-machine overrides (gitignored) |
+ 
+### What Goes Where
+ 
+| Component | User Scope | Project Scope |
+|-----------|------------|---------------|
+| Commands | `~/.claude/commands/` | `.claude/commands/` |
+| Skills | `~/.claude/skills/` | `.claude/skills/` |
+| Agents | `~/.claude/agents/` | `.claude/agents/` |
+| Settings | `~/.claude/settings.json` | `.claude/settings.json` |
+| MCP Servers | `~/.claude.json` | `.mcp.json` |
+| Context | `~/.claude/CLAUDE.md` | `CLAUDE.md` |
+ 
+### Environment Variable Expansion
+ 
+MCP configs support `${VAR}` syntax for secrets:
+ 
 ```json
 {
   "mcpServers": {
@@ -115,40 +346,49 @@ The `.mcp.json` supports `${VAR}` syntax for secrets:
   }
 }
 ```
-
-**No secrets in Git!** Each developer sets their own API keys locally.
-
-### Project Scope vs User Scope
-
-| Scope | Storage | Portable? | Use Case |
-|-------|---------|-----------|----------|
-| `--scope user` | `~/.claude.json` | No | Personal global settings |
-| `--scope project` | `.mcp.json` | **Yes** | Team-shared configs |
-
-This repository uses **project scope** for everything.
-
+ 
+**No secrets in Git!** Each machine sets its own API keys locally.
+ 
+### Scope Precedence
+ 
+When the same item exists at multiple scopes, Claude Code uses this priority:
+ 
+1. **Project** overrides **User** (for project-specific needs)
+2. **User** provides defaults (for personal preferences)
+ 
+---
+ 
 ## Adding New MCP Servers
-
+ 
+**For global use (user scope):**
+ 
 ```bash
-# Add with project scope (stored in .mcp.json)
+claude mcp add server-name --scope user \
+  -e API_KEY='${API_KEY}' \
+  -- npx -y @org/mcp-server
+```
+ 
+**For project use (stored in .mcp.json):**
+ 
+```bash
 claude mcp add server-name --scope project \
   -e API_KEY='${API_KEY}' \
   -- npx -y @org/mcp-server
 ```
-
+ 
 ## Branching Strategy (GitFlow)
-
+ 
 This repository uses GitFlow with protected branches:
-
+ 
 | Branch | Purpose | Protected |
 |--------|---------|-----------|
 | `main` | Production releases | Yes (via GitHub Rulesets) |
 | `develop` | Integration | Yes (via GitHub Rulesets) |
 | `feature/*` | New features | No |
 | `hotfix/*` | Emergency fixes | No |
-
+ 
 ### Creating a Feature
-
+ 
 ```bash
 git checkout develop
 git pull origin develop          # Automatically rebases!
@@ -157,20 +397,31 @@ git checkout -b feature/my-feature
 git push -u origin feature/my-feature
 # Create PR: feature/* → develop
 ```
-
+ 
 ### Hotfix Flow
-
+ 
 ```bash
 git checkout main
 git pull origin main             # Automatically rebases!
 git checkout -b hotfix/critical-bug
 # ... fix the bug ...
 git push -u origin hotfix/critical-bug
-
+ 
 # Step 1: Create PR from hotfix/* → main
 # Step 2: After merge, create PR from main → develop to sync the fix
 ```
-
+ 
+## Official Documentation
+ 
+This configuration follows the official Claude Code documentation:
+ 
+- [Claude Code Settings](https://code.claude.com/docs/en/settings) - Configuration scopes and file locations
+- [MCP Servers](https://code.claude.com/docs/en/mcp) - Adding and configuring MCP integrations
+- [Slash Commands](https://code.claude.com/docs/en/slash-commands) - Creating custom commands
+- [Subagents](https://code.claude.com/docs/en/sub-agents) - Defining specialized agents
+- [Agent Skills](https://code.claude.com/docs/en/skills) - Creating reusable skills
+- [Common Workflows](https://code.claude.com/docs/en/common-workflows) - Best practices and examples
+ 
 ## License
-
+ 
 MIT License - Feel free to use and modify for your own projects.
