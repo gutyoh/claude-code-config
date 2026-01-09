@@ -23,7 +23,8 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   ├── agents/                  # Subagent definitions
 │   │   ├── internet-researcher.md
 │   │   ├── pr-creator.md
-│   │   └── data-scientist.md
+│   │   ├── data-scientist.md
+│   │   └── sonarqube-fixer.md
 │   └── commands/                # Custom slash commands
 │       ├── web-search.md
 │       ├── brave-search.md
@@ -43,8 +44,9 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 
 ### Agents
 - **internet-researcher**: Deep research subagent for complex queries
-- **pr-creator**: Expert PR/MR creation agent for complex pull requests
+- **pr-creator**: Expert PR/MR creation agent for complex pull requests (auto-detects GitFlow vs Trunk-based)
 - **data-scientist**: Expert data scientist for ML, deep learning, and statistical analysis
+- **sonarqube-fixer**: Expert SonarQube issue fixer for cognitive complexity, code smells, and security vulnerabilities
 
 ### Commands
 - `/web-search <query>`: Quick search using Claude's built-in WebSearch tool
