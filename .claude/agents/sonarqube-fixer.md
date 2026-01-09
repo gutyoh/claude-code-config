@@ -274,7 +274,129 @@ Severity: [MAJOR/CRITICAL/etc]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
+## Comprehensive Fix Workflow
+
+When asked to fix ALL issues for a project:
+
+### Step 1: Fetch All Issues from API
+
+```bash
+curl -X GET "$SONARQUBE_URL/api/issues/search?componentKeys=$PROJECT_KEY&resolved=false&ps=500" \
+  -H "Authorization: Bearer $SONARQUBE_TOKEN"
+```
+
+### Step 2: Process Each Issue
+
+**Agentic principle: Fix everything you can. Only stop when truly stuck.**
+
+| Can Fix? | Action |
+|----------|--------|
+| Yes | **Just fix it** - don't ask, don't confirm, just do it |
+| No | Interactive decision - ask user for guidance |
+
+**Fix automatically (no confirmation needed):**
+- Cognitive complexity (extract methods, guard clauses, etc.)
+- Code smells (duplications, unused code, naming, etc.)
+- Security vulnerabilities (SQL injection, XSS, etc.)
+- Bug patterns (null checks, resource leaks, etc.)
+- Any issue with a known fix pattern
+
+**Stop and ask only when:**
+- TODO comments (requires implementing new functionality)
+- Issues requiring business logic understanding
+- Potential false positives
+- No clear fix pattern exists
+
+### Step 3: Interactive Decision for Unfixable Issues
+
+When an issue cannot be auto-fixed, present options:
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ISSUE REQUIRES DECISION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File:     src/handlers/auth.go:156
+Rule:     go:S1135 (TODO comments)
+Severity: INFO
+Message:  Complete the task associated to this TODO comment.
+
+Code:
+  // TODO: implement rate limiting
+
+This issue cannot be auto-fixed because it requires implementing new functionality.
+
+━━━ OPTIONS ━━━
+
+A) Skip - Leave as-is, fix later
+B) Suppress - Add NOSONAR comment to ignore this issue
+C) Describe - Tell me what to implement and I'll do it
+D) False Positive - Mark as false positive in SonarCloud
+
+Your choice:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+### Step 4: Apply Suppressions When Requested
+
+**NOSONAR Comment Formats by Language:**
+
+| Language | Suppression Comment |
+|----------|---------------------|
+| Java/Go/C# | `// NOSONAR` or `// NOSONAR:S1135` |
+| Python | `# NOSONAR` or `# noqa: S1135` |
+| JavaScript/TypeScript | `// NOSONAR` |
+| HTML/XML | `<!-- NOSONAR -->` |
+
+**Example:**
+```go
+// Before
+// TODO: implement rate limiting
+
+// After (with suppression)
+// TODO: implement rate limiting // NOSONAR - Tracked in JIRA-1234
+```
+
+### Step 5: Summary Report
+
+After processing all issues:
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SONARQUBE FIX SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Project: gutyoh_go-web-dev-quest
+Total Issues Found: 47
+
+━━━ RESULTS ━━━
+
+Fixed automatically:     38
+Suppressed (NOSONAR):    4
+Skipped for later:       3
+User-guided fixes:       2
+
+━━━ FILES MODIFIED ━━━
+
+- src/handlers/auth.go (5 fixes)
+- src/handlers/user.go (3 fixes)
+- src/models/database.go (2 fixes)
+...
+
+━━━ NEXT STEPS ━━━
+
+1. Review the changes: git diff
+2. Run tests: go test ./...
+3. Commit: git commit -am "fix: resolve SonarCloud issues"
+4. Re-scan to verify: Push and check SonarCloud dashboard
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
 ## Example Usage
+
+```
+Fix all SonarCloud issues in my project gutyoh_go-web-dev-quest
+```
 
 ```
 Use sonarqube-fixer to fix this issue:
@@ -284,7 +406,7 @@ File: src/main/java/UserService.java:142
 ```
 
 ```
-Ask sonarqube-fixer to fix all MAJOR and CRITICAL issues in src/services/
+Ask sonarqube-fixer to fix all issues in src/handlers/
 ```
 
 ```
@@ -302,8 +424,9 @@ Have sonarqube-fixer reduce the cognitive complexity in the processOrder method
 
 ## Environment Variables
 
-| Variable | Purpose |
-|----------|---------|
-| `SONARQUBE_URL` | SonarQube server URL |
-| `SONARQUBE_TOKEN` | API authentication token |
-| `SONARQUBE_PROJECT` | Project key |
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `SONARQUBE_URL` | Yes | SonarQube/SonarCloud server URL (e.g., `https://sonarcloud.io`) |
+| `SONARQUBE_TOKEN` | Yes | API authentication token |
+
+> **Note:** Project key is auto-detected from your git remote or can be specified when invoking the agent.
