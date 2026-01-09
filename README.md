@@ -100,24 +100,64 @@ The script will:
 > **Note:** Symlinks keep everything in sync. When you `git pull` updates, your global config updates automatically.
  
 ### Step 3: Set Environment Variables
- 
+
 Add your API keys to your shell profile (`~/.bashrc`, `~/.zshrc`, or `~/.profile`):
- 
+
 ```bash
-# Add to your shell profile
-echo 'export BRAVE_API_KEY="your-brave-api-key-here"' >> ~/.zshrc
- 
-# Reload your shell
-source ~/.zshrc
+# Required for Brave Search
+export BRAVE_API_KEY="your-brave-api-key-here"
+
+# Optional for SonarQube integration
+export SONARQUBE_TOKEN="your-sonarqube-token-here"
+export SONARQUBE_URL="https://your-sonarqube-server.com"
 ```
- 
-**Get a free Brave API key:** https://api-dashboard.search.brave.com/
- 
+
+Then reload: `source ~/.zshrc`
+
+---
+
+## API Keys Setup
+
+### Brave Search API (Required for `/brave-search`)
+
+| | |
+|---|---|
+| **Free tier** | 2,000 searches/month |
+| **Sign up** | https://api-dashboard.search.brave.com/ |
+
+**Steps:**
+1. Go to https://api-dashboard.search.brave.com/
+2. Sign up or log in with your account
+3. Click **"Create API Key"**
+4. Copy the key and add to your shell profile
+
+### SonarQube API (Optional for `sonarqube-fixer`)
+
+| | |
+|---|---|
+| **Required for** | Fetching issues directly from SonarQube server |
+| **Works without** | Yes - just paste issue details to the agent |
+
+**Steps:**
+1. Log in to your SonarQube instance (e.g., `https://sonarqube.yourcompany.com`)
+2. Click your profile → **My Account** → **Security**
+3. Under **Generate Tokens**, enter a name and click **Generate**
+4. Copy the token immediately (it won't be shown again!)
+5. Add both variables to your shell profile:
+   ```bash
+   export SONARQUBE_TOKEN="squ_xxxxxxxxxxxxxxxxxxxx"
+   export SONARQUBE_URL="https://sonarqube.yourcompany.com"
+   ```
+
+> **Tip:** The `sonarqube-fixer` agent can also work without API access. Just paste the issue details (rule, message, file, line) and it will fix them.
+
+---
+
 **Windows (System Environment Variables):**
- 
+
 1. Open **System Properties** → **Advanced** → **Environment Variables**
 2. Under **User variables**, click **New**
-3. Set `BRAVE_API_KEY` with your API key value
+3. Add each variable (`BRAVE_API_KEY`, `SONARQUBE_TOKEN`, `SONARQUBE_URL`)
  
 ### Step 4: Verify Installation
  
@@ -149,8 +189,12 @@ You should see:
 ```
 > /agents
 ```
- 
-You should see `internet-researcher`, `pr-creator`, and `data-scientist`.
+
+You should see:
+- `internet-researcher` - Deep research using Brave Search
+- `pr-creator` - PR/MR creation with GitFlow/Trunk detection
+- `data-scientist` - ML, deep learning, statistical analysis
+- `sonarqube-fixer` - Fix SonarQube issues (requires `SONARQUBE_TOKEN`)
  
 **Test the Brave Search MCP:**
 ```
@@ -223,6 +267,7 @@ claude-code-config/
 │   ├── agents/                    # Subagents for Task tool
 │   │   ├── internet-researcher.md
 │   │   ├── pr-creator.md
+│   │   ├── sonarqube-fixer.md
 │   │   └── data-scientist.md
 │   └── commands/                  # Custom slash commands
 │       ├── web-search.md

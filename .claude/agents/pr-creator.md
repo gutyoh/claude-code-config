@@ -18,6 +18,7 @@ This agent handles complex PR/MR creation scenarios that require:
 - Thorough change categorization
 - Breaking change detection
 - Smart PR type inference
+- **Automatic branch workflow detection (GitFlow vs Trunk-based)**
 
 ## When to Use This Agent
 
@@ -32,6 +33,86 @@ Use this agent via the Task tool when:
 ## Agent Instructions
 
 When spawned, this agent will:
+
+### 0. CRITICAL: Detect Branch Workflow (MUST DO FIRST)
+
+**Before creating any PR, you MUST detect the branching strategy:**
+
+```bash
+# Check if develop branch exists
+git ls-remote --heads origin develop
+git ls-remote --heads origin main
+git ls-remote --heads origin master
+```
+
+**Decision Matrix:**
+
+| develop exists? | main/master exists? | Workflow | Action |
+|-----------------|---------------------|----------|--------|
+| Yes | Yes | **GitFlow** | Follow GitFlow rules below |
+| No | Yes | **Trunk-based** | PR directly to main/master |
+| No | No | **Error** | Ask user to specify target |
+
+**GitFlow Rules (when `develop` exists):**
+
+1. **Feature branches** (`feature/*`, `feat/*`, or any non-main/develop branch):
+   - MUST target `develop` first, NOT main
+   - Error if user tries to PR directly to main from a feature branch
+
+2. **Release flow**:
+   - After feature → develop is merged
+   - Create separate PR: develop → main (for releases)
+
+3. **Hotfix branches** (`hotfix/*`, `fix/*` from main):
+   - Can target `main` directly
+   - Then sync: main → develop
+
+**Trunk-based Rules (when NO `develop` exists):**
+
+1. All branches target `main` or `master` directly
+2. Squash merge for clean history
+
+**Implementation:**
+
+```bash
+# Check for develop branch
+if git ls-remote --heads origin develop | grep -q develop; then
+    echo "GitFlow detected - develop branch exists"
+    WORKFLOW="gitflow"
+
+    # Get current branch
+    CURRENT=$(git branch --show-current)
+
+    # If on feature branch, target must be develop
+    if [[ "$CURRENT" != "develop" && "$CURRENT" != "main" && "$CURRENT" != "master" ]]; then
+        TARGET="develop"
+        echo "Feature branch detected - targeting develop"
+    fi
+else
+    echo "Trunk-based workflow - no develop branch"
+    WORKFLOW="trunk"
+    TARGET="main"
+fi
+```
+
+**STRICT ENFORCEMENT:**
+
+If user requests a PR from a feature branch directly to main when develop exists:
+
+```
+⚠️  GitFlow Violation Detected!
+
+You have a 'develop' branch, indicating GitFlow workflow.
+Feature branches should NOT go directly to main.
+
+Correct flow:
+  1. feature/* → develop (integration)
+  2. develop → main (release)
+
+Would you like me to:
+  A) Create PR to develop instead (recommended)
+  B) Proceed to main anyway (breaks GitFlow)
+```
 
 ### 1. Detect Git Platform
 
