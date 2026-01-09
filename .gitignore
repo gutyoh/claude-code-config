@@ -36,6 +36,13 @@ CLAUDE.local.md
 .claude-session
 .claude-session.*
 
+# Symlinks created by setup scripts (machine-specific, should not be tracked)
+# These are self-referential symlinks that can be accidentally created
+.claude/agents/agents
+.claude/commands/commands
+.claude/skills/skills
+.claude/hooks/hooks
+
 # ----------------------------------------------------------------------------
 # MCP SERVERS - SENSITIVE DATA (API keys, tokens, secrets)
 # ----------------------------------------------------------------------------

@@ -2,6 +2,7 @@
 name: pr-creator
 description: Expert PR/MR creation agent for complex pull requests. Use when creating PRs with many commits, needing detailed changelogs, cross-platform support (GitHub/GitLab/Azure DevOps), or thorough analysis of changes. Handles multi-file changes and generates comprehensive PR descriptions.
 skills: pr-writing
+model: inherit
 ---
 
 # PR Creator Agent

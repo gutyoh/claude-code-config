@@ -9,8 +9,19 @@ This skill provides Claude Code with expert-level internet research capabilities
 
 ## Prerequisites
 
-- Brave Search MCP server configured in `.mcp.json`
-- `BRAVE_API_KEY` environment variable set
+- Brave Search MCP server configured in **user scope** (run `claude mcp list` to verify)
+- `BRAVE_API_KEY` environment variable set in your shell profile
+
+**Setup (if not already done):**
+```bash
+# Add MCP server to user scope (available in all projects)
+claude mcp add brave-search --scope user \
+  -e BRAVE_API_KEY='${BRAVE_API_KEY}' \
+  -- npx -y @brave/brave-search-mcp-server
+
+# Verify it's configured
+claude mcp list
+```
 
 ## When to Use This Skill
 
