@@ -149,7 +149,7 @@ Then reload: `source ~/.zshrc`
    export SONARQUBE_URL="https://sonarqube.yourcompany.com"
    ```
 
-> **Tip:** The `sonarqube-fixer` agent can also work without API access. Just paste the issue details (rule, message, file, line) and it will fix them.
+> **Tip:** The `sonarqube-fixer` agent can also work without API access. It automatically reads SonarLint issues from your IDE (PyCharm/VSCode/Cursor) via diagnostics.
 
 ---
 
@@ -194,7 +194,7 @@ You should see:
 - `internet-researcher` - Deep research using Brave Search
 - `pr-creator` - PR/MR creation with GitFlow/Trunk detection
 - `data-scientist` - ML, deep learning, statistical analysis
-- `sonarqube-fixer` - Fix SonarQube issues (requires `SONARQUBE_TOKEN`)
+- `sonarqube-fixer` - Fix SonarQube/SonarLint issues (auto-reads from IDE)
  
 **Test the Brave Search MCP:**
 ```

@@ -276,14 +276,59 @@ Severity: [MAJOR/CRITICAL/etc]
 
 ## Comprehensive Fix Workflow
 
-When asked to fix ALL issues for a project:
+### MANDATORY FIRST STEP - NO EXCEPTIONS
 
-### Step 1: Fetch All Issues from API
+**YOU MUST ALWAYS call `mcp__ide__getDiagnostics` FIRST before doing anything else.**
 
+**CRITICAL: Only fix EXPLICIT SonarQube/SonarLint issues. Never guess or infer issues from code patterns.**
+
+```
+mcp__ide__getDiagnostics(uri: "file:///path/to/file.py")
+```
+
+**DO NOT:**
+- Read the file first and guess at issues
+- Infer issues from code patterns
+- Report issues that aren't in the diagnostics output
+- Skip the diagnostics call for any reason
+
+**The diagnostics tool returns the REAL SonarLint issues from the IDE. Only those issues exist. Nothing else.**
+
+### Issue Source Priority
+
+| Priority | Source | How to Get |
+|----------|--------|------------|
+| 1st | **mcp__ide__getDiagnostics** | MUST call this first, always |
+| 2nd | **SonarQube API** | Only if diagnostics returns nothing |
+| 3rd | **User provides** | Only if user explicitly pastes an issue |
+
+### Step 1: Call getDiagnostics (REQUIRED)
+
+For a single file:
+```
+mcp__ide__getDiagnostics(uri: "file:///absolute/path/to/file.py")
+```
+
+For a directory:
+```
+1. Glob for source files
+2. Call getDiagnostics for EACH file
+3. Only report issues returned by the tool
+```
+
+**If getDiagnostics returns no issues:** Report "No SonarLint issues found in IDE diagnostics."
+
+**If getDiagnostics is unavailable:** Fall back to SonarQube API with `SONARQUBE_TOKEN`.
+
+### Step 2: SonarQube API (Fallback Only)
+
+Only use if getDiagnostics returned nothing AND credentials are set:
 ```bash
 curl -X GET "$SONARQUBE_URL/api/issues/search?componentKeys=$PROJECT_KEY&resolved=false&ps=500" \
   -H "Authorization: Bearer $SONARQUBE_TOKEN"
 ```
+
+If API returns 0 issues: "No issues found in SonarCloud. Either no scan has been run, or the code is clean. Check your IDE for SonarLint issues."
 
 ### Step 2: Process Each Issue
 
