@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "_comment": "GitFlow: Protects develop branch. PRs come from feat/*, fix/*, hotfix/* branches.",
+  "name": "develop-branch-protection",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "exclude": [],
+      "include": [
+        "refs/heads/develop"
+      ]
+    }
+  },
+  "rules": [
+    {
+      "type": "deletion",
+      "_comment": "Prevent accidental deletion of develop"
+    },
+    {
+      "type": "non_fast_forward",
+      "_comment": "Block force pushes to develop"
+    },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 0,
+        "_comment_approvals": "Set to 0 for solo dev, 1+ for teams",
+        "dismiss_stale_reviews_on_push": true,
+        "required_reviewers": [],
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": true,
+        "allowed_merge_methods": [
+          "squash",
+          "merge"
+        ],
+        "_comment_merge": "Squash for clean history, merge as fallback"
+      }
+    }
+  ],
+  "bypass_actors": [],
+  "_optional_rules": {
+    "_comment": "Enable these for enterprise setups",
+    "copilot_code_review_analysis_tools": {
+      "parameters": {
+        "tools": [
+          {"name": "CodeQL"},
+          {"name": "ESLint"},
+          {"name": "PMD"}
+        ]
+      }
+    }
+  }
+}

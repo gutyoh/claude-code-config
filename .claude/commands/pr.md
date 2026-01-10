@@ -14,7 +14,7 @@ This command analyzes your commits, generates a properly formatted PR/MR title a
 
 ## Arguments
 
-- `base-branch` (optional): Target branch for the PR/MR. Defaults to `develop`.
+- `base-branch` (optional): Target branch for the PR/MR. Defaults to `main` (trunk-based workflow).
 
 ## Behavior
 
@@ -112,7 +112,7 @@ Source branch: [current-branch]
 ## Notes
 
 - Automatically detects platform from git remote URL
-- Defaults to `develop` branch (GitFlow)
-- For hotfixes, use a two-step PR process: first `/pr main` from your hotfix branch, then after merge, checkout main and run `/pr develop` to sync the fix back
+- Defaults to `main` branch (trunk-based / GitHub Flow)
+- For GitFlow repositories with a `develop` branch, the pr-creator agent will auto-detect and target accordingly
 - Uses the `pr-writing` skill for formatting conventions
 - Terminology adapts to platform (PR for GitHub/Azure, MR for GitLab)

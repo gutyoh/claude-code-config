@@ -34,9 +34,9 @@ Use this agent via the Task tool when:
 
 When spawned, this agent will:
 
-### 0. CRITICAL: Detect Branch Workflow (MUST DO FIRST)
+### 0. Detect Branch Workflow
 
-**Before creating any PR, you MUST detect the branching strategy:**
+**Before creating any PR, detect the branching strategy:**
 
 ```bash
 # Check if develop branch exists
@@ -49,9 +49,15 @@ git ls-remote --heads origin master
 
 | develop exists? | main/master exists? | Workflow | Action |
 |-----------------|---------------------|----------|--------|
+| No | Yes | **Trunk-based** (default) | PR directly to main/master |
 | Yes | Yes | **GitFlow** | Follow GitFlow rules below |
-| No | Yes | **Trunk-based** | PR directly to main/master |
 | No | No | **Error** | Ask user to specify target |
+
+**Trunk-based Rules (DEFAULT - when NO `develop` exists):**
+
+1. All branches target `main` or `master` directly
+2. Squash merge for clean history (recommended)
+3. Feature branches are short-lived (hours to days)
 
 **GitFlow Rules (when `develop` exists):**
 
@@ -66,11 +72,6 @@ git ls-remote --heads origin master
 3. **Hotfix branches** (`hotfix/*`, `fix/*` from main):
    - Can target `main` directly
    - Then sync: main → develop
-
-**Trunk-based Rules (when NO `develop` exists):**
-
-1. All branches target `main` or `master` directly
-2. Squash merge for clean history
 
 **Implementation:**
 
@@ -95,7 +96,7 @@ else
 fi
 ```
 
-**STRICT ENFORCEMENT:**
+**GitFlow Enforcement (only when develop exists):**
 
 If user requests a PR from a feature branch directly to main when develop exists:
 

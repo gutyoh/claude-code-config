@@ -29,6 +29,13 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │       ├── web-search.md
 │       ├── brave-search.md
 │       └── pr.md
+├── branch_protection_rules/     # GitHub Ruleset templates
+│   ├── trunk-based/             # GitHub Flow (current)
+│   │   └── main-branch-protection.json
+│   ├── gitflow/                 # Enterprise workflow (archived)
+│   │   ├── main-branch-protection.json
+│   │   └── develop-branch-protection.json
+│   └── README.md
 ├── CLAUDE.md                    # This file (shared context)
 └── README.md                    # User documentation
 ```
@@ -73,27 +80,33 @@ export BRAVE_API_KEY="your-key-here"
 The `enforce-git-pull-rebase.sh` hook automatically converts:
 ```bash
 git pull origin main       # becomes: git pull --rebase origin main
-git pull origin develop    # becomes: git pull --rebase origin develop
 git pull                   # becomes: git pull --rebase
 ```
 
 This ensures a linear commit history without merge commits.
 
-### Branch Strategy (GitFlow)
+### Branch Strategy (Trunk-Based / GitHub Flow)
 
 | Branch | Purpose | Protected |
 |--------|---------|-----------|
-| `main` | Production releases | Yes |
-| `develop` | Integration | Yes |
-| `feature/*` | New features | No |
+| `main` | Production (single source of truth) | Yes |
+| `feat/*` | New features | No |
+| `fix/*` | Bug fixes | No |
 | `hotfix/*` | Emergency fixes | No |
 
 ### Workflow
 
 ```
-feature/* → PR to develop → PR to main
-hotfix/*  → PR to main → then PR main to develop
+feat/*   ──► PR to main (squash merge)
+fix/*    ──► PR to main (squash merge)
+hotfix/* ──► PR to main (squash merge)
 ```
+
+### Branch Protection Templates
+
+See `branch_protection_rules/` for ready-to-use GitHub Ruleset configurations:
+- `trunk-based/` - Current workflow (recommended for 2026)
+- `gitflow/` - Enterprise/traditional workflow (archived)
 
 ## Conventions
 

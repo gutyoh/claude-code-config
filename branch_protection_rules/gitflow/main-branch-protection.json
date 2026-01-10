@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "_comment": "GitFlow: Protects main branch. PRs come from develop only.",
+  "name": "main-branch-protection",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "exclude": [],
+      "include": [
+        "refs/heads/main"
+      ]
+    }
+  },
+  "rules": [
+    {
+      "type": "deletion",
+      "_comment": "Prevent accidental deletion of main"
+    },
+    {
+      "type": "non_fast_forward",
+      "_comment": "Block force pushes to main"
+    },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 1,
+        "_comment_approvals": "Set to 0 for solo dev, 1+ for teams",
+        "dismiss_stale_reviews_on_push": true,
+        "required_reviewers": [],
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": true,
+        "allowed_merge_methods": [
+          "merge"
+        ],
+        "_comment_merge": "GitFlow main typically uses merge commits only"
+      }
+    }
+  ],
+  "bypass_actors": []
+}
