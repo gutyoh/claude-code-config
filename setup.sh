@@ -15,6 +15,30 @@ echo "========================"
 echo "Repo location: $REPO_DIR"
 echo ""
 
+# Check prerequisites
+echo "Checking prerequisites..."
+
+if ! command -v jq &> /dev/null; then
+    echo "  ⚠ jq not found (required for IDE diagnostics hook)"
+    echo "    Install with: brew install jq  # macOS"
+    echo "                  sudo apt-get install jq  # Ubuntu/Debian"
+    echo ""
+    echo "  Setup will continue, but IDE diagnostics hook may not work."
+    echo ""
+else
+    echo "  ✓ jq installed"
+fi
+
+if ! command -v python3 &> /dev/null; then
+    echo "  ⚠ python3 not found (required for setup script)"
+    echo "    Setup cannot continue without python3."
+    exit 1
+else
+    echo "  ✓ python3 installed"
+fi
+
+echo ""
+
 # Create ~/.claude if it doesn't exist
 mkdir -p ~/.claude
 
@@ -59,8 +83,109 @@ create_symlink "$REPO_DIR/.claude/hooks" ~/.claude/hooks "hooks"
 
 echo ""
 
+# Configure hooks in global settings.json
+echo "Step 2: Configuring hooks (user scope)..."
+echo ""
+
+SETTINGS_JSON="$HOME/.claude/settings.json"
+
+# Check if settings.json exists
+if [ ! -f "$SETTINGS_JSON" ]; then
+    echo "  Creating ~/.claude/settings.json with default hooks..."
+    cat > "$SETTINGS_JSON" <<'EOF'
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__ide__getDiagnostics",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/open-file-in-ide.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+EOF
+    echo "  ✓ IDE diagnostics hook configured"
+else
+    # Check if IDE diagnostics hook is already configured
+    if python3 -c "
+import json
+import sys
+try:
+    with open('$SETTINGS_JSON') as f:
+        data = json.load(f)
+    # Check if mcp__ide__getDiagnostics hook exists
+    hooks = data.get('hooks', {}).get('PreToolUse', [])
+    for hook in hooks:
+        if hook.get('matcher') == 'mcp__ide__getDiagnostics':
+            sys.exit(0)  # Hook exists
+    sys.exit(1)  # Hook doesn't exist
+except Exception:
+    sys.exit(1)
+" 2>/dev/null; then
+        echo "  ✓ IDE diagnostics hook already configured"
+    else
+        echo "  Adding IDE diagnostics hook to existing settings..."
+        # Merge the hook into existing settings.json using Python
+        python3 <<'PYTHON_SCRIPT'
+import json
+import sys
+
+settings_file = "$SETTINGS_JSON"
+
+try:
+    # Read existing settings
+    with open(settings_file) as f:
+        data = json.load(f)
+
+    # Ensure hooks structure exists
+    if 'hooks' not in data:
+        data['hooks'] = {}
+    if 'PreToolUse' not in data['hooks']:
+        data['hooks']['PreToolUse'] = []
+
+    # Add IDE diagnostics hook
+    ide_hook = {
+        "matcher": "mcp__ide__getDiagnostics",
+        "hooks": [
+            {
+                "type": "command",
+                "command": "~/.claude/hooks/open-file-in-ide.sh"
+            }
+        ]
+    }
+
+    # Check if it already exists (shouldn't happen, but safe check)
+    existing = False
+    for hook in data['hooks']['PreToolUse']:
+        if hook.get('matcher') == 'mcp__ide__getDiagnostics':
+            existing = True
+            break
+
+    if not existing:
+        data['hooks']['PreToolUse'].append(ide_hook)
+
+    # Write back
+    with open(settings_file, 'w') as f:
+        json.dump(data, f, indent=2)
+
+    print("  ✓ IDE diagnostics hook added")
+    sys.exit(0)
+except Exception as e:
+    print(f"  ⚠ Failed to add hook: {e}", file=sys.stderr)
+    sys.exit(1)
+PYTHON_SCRIPT
+    fi
+fi
+
+echo ""
+
 # Configure MCP servers in user scope
-echo "Step 2: Configuring MCP servers (user scope)..."
+echo "Step 3: Configuring MCP servers (user scope)..."
 echo ""
 
 # Check if claude CLI is available
@@ -120,7 +245,7 @@ except Exception:
 fi
 
 echo ""
-echo "Step 3: Environment variables"
+echo "Step 4: Environment variables"
 echo ""
 
 # Check if BRAVE_API_KEY is set

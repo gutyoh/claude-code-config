@@ -45,7 +45,7 @@ Follow these steps to make this configuration available across **all projects** 
    npm install -g @anthropic-ai/claude-code
    ```
  
-2. **jq installed** (required for the git rebase hook):
+2. **jq installed** (required for hooks):
    ```bash
    # macOS
    brew install jq
@@ -294,7 +294,76 @@ git pull --rebase origin develop
 ```
  
 No configuration needed - the hook is automatically active when you run Claude Code in this repository.
- 
+
+## Hooks
+
+This configuration includes several PreToolUse hooks in `.claude/settings.json`:
+
+### 1. Git Pull Rebase Hook
+
+Automatically adds `--rebase` to `git pull` commands for linear history.
+
+**Location:** `.claude/hooks/enforce-git-pull-rebase.sh`
+
+### 2. IDE Diagnostics Hook (JetBrains/VSCode Workaround)
+
+Automatically opens files in your IDE before calling `mcp__ide__getDiagnostics`. This solves a known bug ([#3085](https://github.com/anthropics/claude-code/issues/3085)) where JetBrains IDEs (PyCharm, IntelliJ, WebStorm) timeout on diagnostics if the file is not the currently active tab.
+
+**How it works (3-tier fallback system):**
+1. **Tier 1 - User Preference**: If `CLAUDE_IDE` env var is set, use that IDE
+2. **Tier 2 - Auto-detect Running IDE**: Check which IDE is currently running (via `pgrep`)
+3. **Tier 3 - Fallback**: Use first available IDE command
+
+This ensures the hook opens files in the IDE you're actually using, not just the first one installed.
+
+**Supported IDEs:**
+- VSCode (`code`)
+- VSCode Insiders (`code-insiders`)
+- Cursor (`cursor`)
+- Windsurf (`windsurf`)
+- Antigravity (`antigravity`)
+- PyCharm (`pycharm`)
+- IntelliJ IDEA (`idea`)
+- WebStorm (`webstorm`)
+- PhpStorm (`phpstorm`)
+- GoLand (`goland`)
+- Rider (`rider`)
+- CLion (`clion`)
+- RubyMine (`rubymine`)
+
+**Manual IDE Selection:**
+
+If you want to force a specific IDE (overriding auto-detection), set the `CLAUDE_IDE` environment variable:
+
+```bash
+# In ~/.zshrc or ~/.bashrc
+export CLAUDE_IDE="code-insiders"   # Force VSCode Insiders
+export CLAUDE_IDE="cursor"          # Force Cursor
+export CLAUDE_IDE="pycharm"         # Force PyCharm
+export CLAUDE_IDE="windsurf"        # Force Windsurf
+```
+
+**How Auto-Detection Works:**
+
+1. **Multiple IDEs installed?** → Opens file in whichever IDE is currently running
+2. **No IDE running?** → Opens in first available (priority: code-insiders → cursor → windsurf → code → pycharm → idea)
+3. **Want to override?** → Set `CLAUDE_IDE` environment variable
+
+**Examples:**
+
+```bash
+# Scenario 1: Both PyCharm and VSCode Insiders installed, VSCode Insiders is running
+# → Opens in VSCode Insiders (auto-detected)
+
+# Scenario 2: Both PyCharm and VSCode installed, nothing is running
+# → Opens in VSCode (higher priority in fallback list)
+
+# Scenario 3: Both installed, but you want to always use PyCharm
+# → export CLAUDE_IDE="pycharm" (manual override)
+```
+
+This hook benefits **all agents** that use `getDiagnostics`, especially the `sonarqube-fixer` agent.
+
 ## Syncing Across Machines
  
 The main benefit of this repo is **portability**. Here's how to sync your config across Mac, Linux, and Windows:

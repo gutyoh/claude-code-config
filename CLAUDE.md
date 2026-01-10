@@ -62,6 +62,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 
 ### Hooks
 - **enforce-git-pull-rebase**: Automatically adds `--rebase` to all `git pull` commands
+- **ide-diagnostics-opener**: Automatically opens files in IDE before `mcp__ide__getDiagnostics` (fixes JetBrains timeout bug #3085)
 
 ## Environment Variables Required
 

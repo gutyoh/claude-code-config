@@ -68,7 +68,86 @@ Create-SafeSymlink -Source "$RepoDir\.claude\agents" -Target "$ClaudeDir\agents"
 Create-SafeSymlink -Source "$RepoDir\.claude\hooks" -Target "$ClaudeDir\hooks" -Name "hooks"
 
 Write-Host ""
-Write-Host "Step 2: Configuring MCP servers (user scope)..." -ForegroundColor Yellow
+Write-Host "Step 2: Configuring hooks (user scope)..." -ForegroundColor Yellow
+Write-Host ""
+
+$SettingsJson = "$env:USERPROFILE\.claude\settings.json"
+
+# Check if settings.json exists
+if (-not (Test-Path $SettingsJson)) {
+    Write-Host "  Creating settings.json with default hooks..."
+    $hookConfig = @{
+        hooks = @{
+            PreToolUse = @(
+                @{
+                    matcher = "mcp__ide__getDiagnostics"
+                    hooks = @(
+                        @{
+                            type = "command"
+                            command = "~/.claude/hooks/open-file-in-ide.sh"
+                        }
+                    )
+                }
+            )
+        }
+    }
+    $hookConfig | ConvertTo-Json -Depth 10 | Set-Content $SettingsJson -Encoding UTF8
+    Write-Host "  + IDE diagnostics hook configured" -ForegroundColor Green
+} else {
+    # Check if IDE diagnostics hook is already configured
+    try {
+        $settings = Get-Content $SettingsJson -Raw | ConvertFrom-Json
+        $hookExists = $false
+
+        if ($settings.hooks -and $settings.hooks.PreToolUse) {
+            foreach ($hook in $settings.hooks.PreToolUse) {
+                if ($hook.matcher -eq "mcp__ide__getDiagnostics") {
+                    $hookExists = $true
+                    break
+                }
+            }
+        }
+
+        if ($hookExists) {
+            Write-Host "  + IDE diagnostics hook already configured" -ForegroundColor Green
+        } else {
+            Write-Host "  Adding IDE diagnostics hook to existing settings..."
+
+            # Ensure hooks structure exists
+            if (-not $settings.hooks) {
+                $settings | Add-Member -NotePropertyName "hooks" -NotePropertyValue @{} -Force
+            }
+            if (-not $settings.hooks.PreToolUse) {
+                $settings.hooks | Add-Member -NotePropertyName "PreToolUse" -NotePropertyValue @() -Force
+            }
+
+            # Add IDE diagnostics hook
+            $ideHook = @{
+                matcher = "mcp__ide__getDiagnostics"
+                hooks = @(
+                    @{
+                        type = "command"
+                        command = "~/.claude/hooks/open-file-in-ide.sh"
+                    }
+                )
+            }
+
+            # Convert PreToolUse to ArrayList to add items
+            $preToolUse = [System.Collections.ArrayList]@($settings.hooks.PreToolUse)
+            $preToolUse.Add($ideHook) | Out-Null
+            $settings.hooks.PreToolUse = $preToolUse
+
+            # Save back
+            $settings | ConvertTo-Json -Depth 10 | Set-Content $SettingsJson -Encoding UTF8
+            Write-Host "  + IDE diagnostics hook added" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "  ! Failed to add hook: $_" -ForegroundColor Yellow
+    }
+}
+
+Write-Host ""
+Write-Host "Step 3: Configuring MCP servers (user scope)..." -ForegroundColor Yellow
 Write-Host ""
 
 # Check if claude CLI is available
@@ -106,7 +185,7 @@ if (-not $claudeCmd) {
 }
 
 Write-Host ""
-Write-Host "Step 3: Environment variables" -ForegroundColor Yellow
+Write-Host "Step 4: Environment variables" -ForegroundColor Yellow
 Write-Host ""
 
 # Check if BRAVE_API_KEY is set

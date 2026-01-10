@@ -9,6 +9,15 @@
             "command": "./.claude/hooks/enforce-git-pull-rebase.sh"
           }
         ]
+      },
+      {
+        "matcher": "mcp__ide__getDiagnostics",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.uri' | sed 's|^file://||' | xargs -I {} bash -c 'if command -v pycharm &> /dev/null; then pycharm --line 1 \"{}\"; elif command -v idea &> /dev/null; then idea --line 1 \"{}\"; elif command -v code &> /dev/null; then code \"{}\"; elif command -v cursor &> /dev/null; then cursor \"{}\"; fi' && sleep 0.5"
+          }
+        ]
       }
     ]
   }
