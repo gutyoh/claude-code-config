@@ -19,11 +19,11 @@ echo ""
 echo "Checking prerequisites..."
 
 if ! command -v jq &> /dev/null; then
-    echo "  ⚠ jq not found (required for IDE diagnostics hook)"
+    echo "  ⚠ jq not found (required for IDE diagnostics hook and file suggestion)"
     echo "    Install with: brew install jq  # macOS"
     echo "                  sudo apt-get install jq  # Ubuntu/Debian"
     echo ""
-    echo "  Setup will continue, but IDE diagnostics hook may not work."
+    echo "  Setup will continue, but some features may not work."
     echo ""
 else
     echo "  ✓ jq installed"
@@ -35,6 +35,25 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 else
     echo "  ✓ python3 installed"
+fi
+
+# Check for file suggestion prerequisites (optional but recommended)
+if ! command -v fd &> /dev/null; then
+    echo "  ⚠ fd not found (optional: for faster file suggestions)"
+    echo "    Install with: brew install fd  # macOS"
+    echo "                  sudo apt-get install fd-find  # Ubuntu/Debian"
+    echo ""
+else
+    echo "  ✓ fd installed"
+fi
+
+if ! command -v fzf &> /dev/null; then
+    echo "  ⚠ fzf not found (optional: for faster file suggestions)"
+    echo "    Install with: brew install fzf  # macOS"
+    echo "                  sudo apt-get install fzf  # Ubuntu/Debian"
+    echo ""
+else
+    echo "  ✓ fzf installed"
 fi
 
 echo ""
@@ -80,6 +99,7 @@ create_symlink "$REPO_DIR/.claude/commands" ~/.claude/commands "commands"
 create_symlink "$REPO_DIR/.claude/skills" ~/.claude/skills "skills"
 create_symlink "$REPO_DIR/.claude/agents" ~/.claude/agents "agents"
 create_symlink "$REPO_DIR/.claude/hooks" ~/.claude/hooks "hooks"
+create_symlink "$REPO_DIR/.claude/scripts" ~/.claude/scripts "scripts"
 
 echo ""
 
@@ -131,7 +151,7 @@ except Exception:
     else
         echo "  Adding IDE diagnostics hook to existing settings..."
         # Merge the hook into existing settings.json using Python
-        python3 <<'PYTHON_SCRIPT'
+        python3 <<PYTHON_SCRIPT
 import json
 import sys
 
@@ -184,8 +204,67 @@ fi
 
 echo ""
 
+# Configure file suggestion in global settings.json
+echo "Step 3: Configuring file suggestion (user scope)..."
+echo ""
+
+# Only configure file suggestion if fd and fzf are available
+if command -v fd &> /dev/null && command -v fzf &> /dev/null; then
+    # Check if file suggestion is already configured
+    if python3 -c "
+import json
+import sys
+try:
+    with open('$SETTINGS_JSON') as f:
+        data = json.load(f)
+    # Check if fileSuggestion exists
+    if 'fileSuggestion' in data:
+        sys.exit(0)  # Already configured
+    sys.exit(1)  # Not configured
+except Exception:
+    sys.exit(1)
+" 2>/dev/null; then
+        echo "  ✓ File suggestion already configured"
+    else
+        echo "  Adding file suggestion to settings..."
+        python3 <<PYTHON_SCRIPT
+import json
+import sys
+
+settings_file = "$SETTINGS_JSON"
+
+try:
+    # Read existing settings
+    with open(settings_file) as f:
+        data = json.load(f)
+
+    # Add file suggestion configuration
+    data['fileSuggestion'] = {
+        "type": "command",
+        "command": "~/.claude/scripts/file-suggestion.sh"
+    }
+
+    # Write back
+    with open(settings_file, 'w') as f:
+        json.dump(data, f, indent=2)
+
+    print("  ✓ File suggestion configured")
+    sys.exit(0)
+except Exception as e:
+    print(f"  ⚠ Failed to add file suggestion: {e}", file=sys.stderr)
+    sys.exit(1)
+PYTHON_SCRIPT
+    fi
+else
+    echo "  ⚠ Skipping file suggestion (fd and fzf not installed)"
+    echo "    Install with: brew install fd fzf  # macOS"
+    echo "                  sudo apt-get install fd-find fzf  # Ubuntu/Debian"
+fi
+
+echo ""
+
 # Configure MCP servers in user scope
-echo "Step 3: Configuring MCP servers (user scope)..."
+echo "Step 4: Configuring MCP servers (user scope)..."
 echo ""
 
 # Check if claude CLI is available
@@ -245,7 +324,7 @@ except Exception:
 fi
 
 echo ""
-echo "Step 4: Environment variables"
+echo "Step 5: Environment variables"
 echo ""
 
 # Check if BRAVE_API_KEY is set

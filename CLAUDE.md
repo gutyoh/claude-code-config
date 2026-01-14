@@ -14,7 +14,8 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 ├── .claude/
 │   ├── settings.json            # Claude Code settings with hooks
 │   ├── hooks/                   # Git and workflow hooks
-│   │   └── enforce-git-pull-rebase.sh
+│   │   ├── enforce-git-pull-rebase.sh
+│   │   └── open-file-in-ide.sh
 │   ├── skills/                  # Reusable skills
 │   │   ├── internet-research/
 │   │   │   └── SKILL.md
@@ -22,9 +23,12 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   │       └── SKILL.md
 │   ├── agents/                  # Subagent definitions
 │   │   ├── internet-researcher.md
-│   │   ├── pr-creator.md
+│   │   ├── pr-manager.md
 │   │   ├── data-scientist.md
 │   │   └── sonarqube-fixer.md
+│   ├── scripts/                 # Utility scripts
+│   │   ├── file-suggestion.sh
+│   │   └── file-suggestion.ps1
 │   └── commands/                # Custom slash commands
 │       ├── web-search.md
 │       ├── brave-search.md
@@ -51,7 +55,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 
 ### Agents
 - **internet-researcher**: Deep research subagent for complex queries
-- **pr-creator**: Expert PR/MR creation agent for complex pull requests (auto-detects GitFlow vs Trunk-based)
+- **pr-manager**: Expert PR/MR manager for full lifecycle (list, view, create, review, edit, close, reopen) with automatic workflow detection (GitFlow vs Trunk-based)
 - **data-scientist**: Expert data scientist for ML, deep learning, and statistical analysis
 - **sonarqube-fixer**: Expert SonarQube issue fixer for cognitive complexity, code smells, and security vulnerabilities
 

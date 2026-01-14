@@ -66,6 +66,7 @@ Create-SafeSymlink -Source "$RepoDir\.claude\commands" -Target "$ClaudeDir\comma
 Create-SafeSymlink -Source "$RepoDir\.claude\skills" -Target "$ClaudeDir\skills" -Name "skills"
 Create-SafeSymlink -Source "$RepoDir\.claude\agents" -Target "$ClaudeDir\agents" -Name "agents"
 Create-SafeSymlink -Source "$RepoDir\.claude\hooks" -Target "$ClaudeDir\hooks" -Name "hooks"
+Create-SafeSymlink -Source "$RepoDir\.claude\scripts" -Target "$ClaudeDir\scripts" -Name "scripts"
 
 Write-Host ""
 Write-Host "Step 2: Configuring hooks (user scope)..." -ForegroundColor Yellow
@@ -147,7 +148,43 @@ if (-not (Test-Path $SettingsJson)) {
 }
 
 Write-Host ""
-Write-Host "Step 3: Configuring MCP servers (user scope)..." -ForegroundColor Yellow
+Write-Host "Step 3: Configuring file suggestion (user scope)..." -ForegroundColor Yellow
+Write-Host ""
+
+# Check if fd and fzf are available
+$fdCmd = Get-Command fd -ErrorAction SilentlyContinue
+$fzfCmd = Get-Command fzf -ErrorAction SilentlyContinue
+
+if ($fdCmd -and $fzfCmd) {
+    try {
+        $settings = Get-Content $SettingsJson -Raw | ConvertFrom-Json
+
+        if ($settings.fileSuggestion) {
+            Write-Host "  + File suggestion already configured" -ForegroundColor Green
+        } else {
+            Write-Host "  Adding file suggestion to settings..."
+
+            # Add fileSuggestion configuration
+            $settings | Add-Member -NotePropertyName "fileSuggestion" -NotePropertyValue @{
+                type = "command"
+                command = "~/.claude/scripts/file-suggestion.ps1"
+            } -Force
+
+            # Save back
+            $settings | ConvertTo-Json -Depth 10 | Set-Content $SettingsJson -Encoding UTF8
+            Write-Host "  + File suggestion configured" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "  ! Failed to add file suggestion: $_" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "  ! Skipping file suggestion (fd and fzf not installed)" -ForegroundColor Yellow
+    Write-Host "    Install with: scoop install fd fzf"
+    Write-Host "    Or: winget install sharkdp.fd junegunn.fzf"
+}
+
+Write-Host ""
+Write-Host "Step 4: Configuring MCP servers (user scope)..." -ForegroundColor Yellow
 Write-Host ""
 
 # Check if claude CLI is available
@@ -185,7 +222,7 @@ if (-not $claudeCmd) {
 }
 
 Write-Host ""
-Write-Host "Step 4: Environment variables" -ForegroundColor Yellow
+Write-Host "Step 5: Environment variables" -ForegroundColor Yellow
 Write-Host ""
 
 # Check if BRAVE_API_KEY is set

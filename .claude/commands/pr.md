@@ -113,6 +113,6 @@ Source branch: [current-branch]
 
 - Automatically detects platform from git remote URL
 - Defaults to `main` branch (trunk-based / GitHub Flow)
-- For GitFlow repositories with a `develop` branch, the pr-creator agent will auto-detect and target accordingly
+- For GitFlow repositories with a `develop` branch, the pr-manager agent will auto-detect and target accordingly
 - Uses the `pr-writing` skill for formatting conventions
 - Terminology adapts to platform (PR for GitHub/Azure, MR for GitLab)
