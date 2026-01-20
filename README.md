@@ -273,7 +273,8 @@ claude-code-config/
 │   │   └── sonarqube-fixer.md
 │   ├── scripts/                   # Utility scripts
 │   │   ├── file-suggestion.sh
-│   │   └── file-suggestion.ps1
+│   │   ├── file-suggestion.ps1
+│   │   └── statusline.sh          # Two-tier statusline with billing
 │   └── commands/                  # Custom slash commands
 │       ├── web-search.md
 │       ├── brave-search.md
@@ -458,6 +459,73 @@ On Windows, use:
 - Small projects (<500 files)
 - You rarely use `@` mentions
 - You prefer zero-config setup
+
+### 4. Statusline with Billing Tracking
+
+Displays real-time session metrics in Claude Code's status bar, including model info, usage percentage, time remaining, token counts, and cost tracking.
+
+**Location:** `.claude/scripts/statusline.sh`
+
+**What it shows:**
+
+| Metric | Description |
+|--------|-------------|
+| Model | Current model (e.g., `opus-4.5`) |
+| Session % | Percentage of 5-hour billing window used |
+| Resets | Time until session resets |
+| In/Out | Input and output tokens |
+| Cache | Cache read tokens |
+| Cost | Current cost + burn rate |
+
+**Two-Tier Display (adapts to terminal width):**
+
+Wide terminal (≥110 cols):
+```
+opus-4.5 | session: 43% used | resets: 3h10m | in: 1.6k out: 587 | cache: 6.9M | $5.70 ($3.11/hr)
+```
+
+Narrow terminal (<110 cols):
+```
+opus-4.5 | 43% | 3h10m | 1.6k/587/6.9M | $5.75
+```
+
+**Prerequisites:**
+
+```bash
+# Required
+npm install -g ccusage
+
+# Also needed (usually pre-installed)
+brew install jq bc  # macOS
+sudo apt-get install jq bc  # Ubuntu/Debian
+```
+
+**Auto-configuration:**
+
+The `setup.sh` script automatically:
+- Checks if `ccusage`, `jq`, and `bc` are installed
+- Adds `statusLine` configuration to `~/.claude/settings.json`
+- Uses the two-tier script from `~/.claude/scripts/statusline.sh`
+
+**Manual Configuration (if needed):**
+
+Add this to `~/.claude/settings.json`:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/scripts/statusline.sh",
+    "padding": 0
+  }
+}
+```
+
+**When to use this:**
+- You have a Claude Pro/Max subscription
+- You want to track billing window usage
+- You want visibility into token consumption
+- You want to pace your usage throughout the day
 
 ## Syncing Across Machines
  

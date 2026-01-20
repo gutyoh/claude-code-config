@@ -56,6 +56,23 @@ else
     echo "  ✓ fzf installed"
 fi
 
+if ! command -v ccusage &> /dev/null; then
+    echo "  ⚠ ccusage not found (optional: for statusline billing tracking)"
+    echo "    Install with: npm install -g ccusage"
+    echo ""
+else
+    echo "  ✓ ccusage installed"
+fi
+
+if ! command -v bc &> /dev/null; then
+    echo "  ⚠ bc not found (optional: for statusline number formatting)"
+    echo "    Install with: brew install bc  # macOS"
+    echo "                  sudo apt-get install bc  # Ubuntu/Debian"
+    echo ""
+else
+    echo "  ✓ bc installed"
+fi
+
 echo ""
 
 # Create ~/.claude if it doesn't exist
@@ -263,8 +280,67 @@ fi
 
 echo ""
 
+# Configure statusline in global settings.json
+echo "Step 4: Configuring statusline (user scope)..."
+echo ""
+
+# Check if statusLine is already configured
+if python3 -c "
+import json
+import sys
+try:
+    with open('$SETTINGS_JSON') as f:
+        data = json.load(f)
+    # Check if statusLine exists
+    if 'statusLine' in data:
+        sys.exit(0)  # Already configured
+    sys.exit(1)  # Not configured
+except Exception:
+    sys.exit(1)
+" 2>/dev/null; then
+    echo "  ✓ Statusline already configured"
+else
+    echo "  Adding statusline to settings..."
+    python3 <<PYTHON_SCRIPT
+import json
+import sys
+
+settings_file = "$SETTINGS_JSON"
+
+try:
+    # Read existing settings
+    with open(settings_file) as f:
+        data = json.load(f)
+
+    # Add statusline configuration (uses script for two-tier display)
+    data['statusLine'] = {
+        "type": "command",
+        "command": "~/.claude/scripts/statusline.sh",
+        "padding": 0
+    }
+
+    # Write back
+    with open(settings_file, 'w') as f:
+        json.dump(data, f, indent=2)
+
+    print("  ✓ Statusline configured")
+    sys.exit(0)
+except Exception as e:
+    print(f"  ⚠ Failed to add statusline: {e}", file=sys.stderr)
+    sys.exit(1)
+PYTHON_SCRIPT
+fi
+
+if ! command -v ccusage &> /dev/null; then
+    echo ""
+    echo "  Note: Install ccusage for full statusline functionality:"
+    echo "    npm install -g ccusage"
+fi
+
+echo ""
+
 # Configure MCP servers in user scope
-echo "Step 4: Configuring MCP servers (user scope)..."
+echo "Step 5: Configuring MCP servers (user scope)..."
 echo ""
 
 # Check if claude CLI is available
@@ -324,7 +400,7 @@ except Exception:
 fi
 
 echo ""
-echo "Step 5: Environment variables"
+echo "Step 6: Environment variables"
 echo ""
 
 # Check if BRAVE_API_KEY is set

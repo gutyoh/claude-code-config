@@ -184,7 +184,52 @@ if ($fdCmd -and $fzfCmd) {
 }
 
 Write-Host ""
-Write-Host "Step 4: Configuring MCP servers (user scope)..." -ForegroundColor Yellow
+Write-Host "Step 4: Configuring statusline (user scope)..." -ForegroundColor Yellow
+Write-Host ""
+
+# Check if ccusage is available
+$ccusageCmd = Get-Command ccusage -ErrorAction SilentlyContinue
+if (-not $ccusageCmd) {
+    Write-Host "  ! ccusage not found (optional: for statusline billing tracking)" -ForegroundColor Yellow
+    Write-Host "    Install with: npm install -g ccusage"
+    Write-Host ""
+}
+
+try {
+    $settings = Get-Content $SettingsJson -Raw | ConvertFrom-Json
+
+    if ($settings.statusLine) {
+        Write-Host "  + Statusline already configured" -ForegroundColor Green
+    } else {
+        Write-Host "  Adding statusline to settings..."
+
+        # Add statusLine configuration
+        # Note: Uses bash script via WSL on Windows, or falls back gracefully
+        $settings | Add-Member -NotePropertyName "statusLine" -NotePropertyValue @{
+            type = "command"
+            command = "~/.claude/scripts/statusline.sh"
+            padding = 0
+        } -Force
+
+        # Save back
+        $settings | ConvertTo-Json -Depth 10 | Set-Content $SettingsJson -Encoding UTF8
+        Write-Host "  + Statusline configured" -ForegroundColor Green
+
+        if (-not $ccusageCmd) {
+            Write-Host ""
+            Write-Host "  Note: Install ccusage for full statusline functionality:" -ForegroundColor Yellow
+            Write-Host "    npm install -g ccusage"
+        }
+
+        Write-Host ""
+        Write-Host "  Note: Statusline requires bash (via WSL or Git Bash on Windows)" -ForegroundColor Yellow
+    }
+} catch {
+    Write-Host "  ! Failed to add statusline: $_" -ForegroundColor Yellow
+}
+
+Write-Host ""
+Write-Host "Step 5: Configuring MCP servers (user scope)..." -ForegroundColor Yellow
 Write-Host ""
 
 # Check if claude CLI is available
@@ -222,7 +267,7 @@ if (-not $claudeCmd) {
 }
 
 Write-Host ""
-Write-Host "Step 5: Environment variables" -ForegroundColor Yellow
+Write-Host "Step 6: Environment variables" -ForegroundColor Yellow
 Write-Host ""
 
 # Check if BRAVE_API_KEY is set

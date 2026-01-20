@@ -1,4 +1,9 @@
 {
+  "statusLine": {
+    "type": "command",
+    "command": "input=$(cat); model=$(echo \"$input\" | jq -r '.model.display_name'); ccdata=$(ccusage blocks --json 2>/dev/null | jq -r '.blocks[] | select(.isActive == true) | \"Session: \\((.totalTokens / 17213778 * 100) | floor)% used | Resets: \\(.projection.remainingMinutes / 60 | floor)h \\(.projection.remainingMinutes % 60)m | $\\((.burnRate.costPerHour * 100 | round) / 100)/hr\"' 2>/dev/null || echo 'Session: --'); printf \"%s | %s\" \"$model\" \"$ccdata\"",
+    "padding": 0
+  },
   "hooks": {
     "PreToolUse": [
       {
