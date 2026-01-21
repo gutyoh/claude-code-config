@@ -264,13 +264,32 @@ claude-code-config/
 │   ├── skills/                    # Skills (reusable capabilities)
 │   │   ├── internet-research/
 │   │   │   └── SKILL.md
-│   │   └── pr-writing/
+│   │   ├── pr-writing/
+│   │   │   └── SKILL.md
+│   │   ├── python-standards/      # Python engineering standards (modular)
+│   │   │   ├── SKILL.md           # Entry point with version detection
+│   │   │   ├── core.md            # LBYL, exceptions, paths, imports
+│   │   │   ├── async-patterns.md
+│   │   │   ├── pydantic-patterns.md
+│   │   │   ├── cli-patterns.md
+│   │   │   ├── subprocess-patterns.md
+│   │   │   ├── logging-patterns.md
+│   │   │   ├── references/
+│   │   │   │   ├── api-design.md
+│   │   │   │   ├── interfaces.md
+│   │   │   │   └── checklists.md
+│   │   │   └── versions/
+│   │   │       ├── python-3.12.md
+│   │   │       └── python-3.13.md
+│   │   └── ui-design/
 │   │       └── SKILL.md
 │   ├── agents/                    # Subagents for Task tool
 │   │   ├── internet-researcher.md
 │   │   ├── pr-manager.md
 │   │   ├── data-scientist.md
-│   │   └── sonarqube-fixer.md
+│   │   ├── sonarqube-fixer.md
+│   │   ├── ui-designer.md
+│   │   └── python-expert.md       # Preloads python-standards skill
 │   ├── scripts/                   # Utility scripts
 │   │   ├── file-suggestion.sh
 │   │   ├── file-suggestion.ps1
