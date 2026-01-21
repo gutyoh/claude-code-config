@@ -78,9 +78,9 @@ Run through these checklists before completing code.
 
 ## CLI Checklist
 
-- [ ] Using `click.echo()`, never `print()`
-- [ ] Errors exit via `raise SystemExit(1)`, not `sys.exit()`
-- [ ] `sys.stderr.flush()` before `click.confirm()`
+- [ ] Using Rich `console.print()` or `typer.echo()` for output
+- [ ] Errors exit via `raise typer.Exit(1)` or `raise SystemExit(1)`
+- [ ] Using `typer.confirm()` for user confirmation prompts
 - [ ] Entry point defined in `pyproject.toml`
 
 ---

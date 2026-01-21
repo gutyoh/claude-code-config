@@ -42,12 +42,12 @@ except ExternalAPIError as e:
     raise ServiceError(f"Failed to fetch {resource_id}") from e
 
 # ACCEPTABLE: CLI error boundary
-@click.command()
+@app.command()
 def main() -> None:
     try:
         run_pipeline()
     except PipelineError as e:
-        click.echo(f"Error: {e}", err=True)
+        typer.echo(f"Error: {e}", err=True)
         raise SystemExit(1) from e
 ```
 
