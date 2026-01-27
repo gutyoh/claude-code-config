@@ -3,8 +3,17 @@
 # Path: claude-code-config/setup.sh
 #
 # Creates symlinks from this repo to ~/.claude/ for global Claude Code configuration.
-# Optionally configures MCP servers in user scope.
+# Optionally configures MCP servers, agents, and skills in user scope.
 # Run this script from inside the repo directory. Safe to re-run if you move the repo.
+#
+# Usage: ./setup.sh [options]
+#   -y, --yes              Accept all defaults without prompting
+#   --no-mcp               Skip Brave Search MCP server installation
+#   --no-agents            Skip agents & skills installation
+#   --minimal              Core only (no agents, skills, or MCP)
+#   --overwrite-settings   Replace settings.json with repo defaults
+#   --skip-settings        Don't modify settings.json
+#   -h, --help             Show this help message
 #
 # Platforms: macOS, Linux
 
@@ -16,6 +25,13 @@ readonly REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 readonly CLAUDE_DIR="${HOME}/.claude"
 readonly SETTINGS_JSON="${CLAUDE_DIR}/settings.json"
 readonly CLAUDE_JSON="${HOME}/.claude.json"
+
+# --- Installation Options (defaults) ---
+
+INSTALL_AGENTS_SKILLS="true"
+INSTALL_MCP="true"
+SETTINGS_MODE="merge"  # merge | overwrite | skip
+ACCEPT_DEFAULTS="false"
 
 # --- Functions ---
 
@@ -280,15 +296,161 @@ except Exception:
     fi
 }
 
+show_usage() {
+    echo "Usage: $(basename "$0") [options]"
+    echo ""
+    echo "Creates symlinks from this repo to ~/.claude/ for global Claude Code configuration."
+    echo ""
+    echo "Options:"
+    echo "  -y, --yes              Accept all defaults without prompting"
+    echo "  --no-mcp               Skip Brave Search MCP server installation"
+    echo "  --no-agents            Skip agents & skills installation"
+    echo "  --minimal              Core only (no agents, skills, or MCP)"
+    echo "  --overwrite-settings   Replace settings.json with repo defaults"
+    echo "  --skip-settings        Don't modify settings.json"
+    echo "  -h, --help             Show this help message"
+    echo ""
+    echo "Examples:"
+    echo "  ./setup.sh                     # Interactive mode (recommended)"
+    echo "  ./setup.sh -y                  # Full install, no prompts"
+    echo "  ./setup.sh -y --no-mcp         # Full install without Brave Search MCP"
+    echo "  ./setup.sh -y --minimal        # Core only (hooks, scripts, commands)"
+    echo "  ./setup.sh --overwrite-settings # Interactive, but force-overwrite settings.json"
+}
+
+parse_arguments() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -y|--yes)
+                ACCEPT_DEFAULTS="true"
+                shift
+                ;;
+            --no-mcp)
+                INSTALL_MCP="false"
+                shift
+                ;;
+            --no-agents)
+                INSTALL_AGENTS_SKILLS="false"
+                shift
+                ;;
+            --minimal)
+                INSTALL_AGENTS_SKILLS="false"
+                INSTALL_MCP="false"
+                shift
+                ;;
+            --overwrite-settings)
+                SETTINGS_MODE="overwrite"
+                shift
+                ;;
+            --skip-settings)
+                SETTINGS_MODE="skip"
+                shift
+                ;;
+            -h|--help)
+                show_usage
+                exit 0
+                ;;
+            *)
+                echo "Error: Unknown option: $1"
+                echo ""
+                show_usage
+                exit 1
+                ;;
+        esac
+    done
+}
+
+show_install_menu() {
+    local agents_label="yes"
+    local mcp_label="yes"
+    local settings_label="merge (preserve existing, add new)"
+
+    if [[ "${INSTALL_AGENTS_SKILLS}" == "false" ]]; then
+        agents_label="no"
+    fi
+    if [[ "${INSTALL_MCP}" == "false" ]]; then
+        mcp_label="no"
+    fi
+    if [[ "${SETTINGS_MODE}" == "overwrite" ]]; then
+        settings_label="overwrite (replace with repo defaults)"
+    elif [[ "${SETTINGS_MODE}" == "skip" ]]; then
+        settings_label="skip (don't modify)"
+    fi
+
+    echo "Current installation options:"
+    echo "  core (hooks, scripts, commands):  always"
+    echo "  agents & skills:                  ${agents_label}"
+    echo "  brave search MCP:                 ${mcp_label}"
+    echo "  settings.json:                    ${settings_label}"
+    echo ""
+    echo "1) Proceed with installation (default - just press enter)"
+    echo "2) Customize installation"
+    echo "3) Cancel installation"
+    echo ""
+
+    local choice
+    read -rp "> " choice
+    choice="${choice:-1}"
+
+    case "${choice}" in
+        1)
+            # Use current options
+            ;;
+        2)
+            customize_installation
+            ;;
+        3)
+            echo "Installation cancelled."
+            exit 0
+            ;;
+        *)
+            echo "Invalid option. Using current options."
+            ;;
+    esac
+}
+
+customize_installation() {
+    echo ""
+
+    local answer
+
+    read -rp "Install agents & skills? [Y/n] " answer
+    case "${answer}" in
+        [nN]) INSTALL_AGENTS_SKILLS="false" ;;
+    esac
+
+    read -rp "Install Brave Search MCP server? [Y/n] " answer
+    case "${answer}" in
+        [nN]) INSTALL_MCP="false" ;;
+    esac
+
+    echo ""
+    echo "Settings.json mode:"
+    echo "  [m]erge     - Preserve existing settings, add new (default)"
+    echo "  [o]verwrite - Replace with repo defaults"
+    echo "  [s]kip      - Don't modify settings.json"
+    echo ""
+    read -rp "Settings mode [m/o/s] (default: m): " answer
+    answer="${answer:-m}"
+
+    case "${answer}" in
+        [oO]) SETTINGS_MODE="overwrite" ;;
+        [sS]) SETTINGS_MODE="skip" ;;
+        *) SETTINGS_MODE="merge" ;;
+    esac
+}
+
 # --- Main ---
 
 main() {
+    parse_arguments "$@"
+
     echo "Claude Code Config Setup"
     echo "========================"
     echo "Repo location: ${REPO_DIR}"
     echo ""
 
-    # Step 1: Check prerequisites
+    # Check prerequisites
     echo "Checking prerequisites..."
 
     check_prerequisite "jq" "jq" "false" "required for IDE diagnostics hook and file suggestion"
@@ -300,26 +462,67 @@ main() {
 
     echo ""
 
-    # Step 2: Create symlinks
+    # Show interactive menu (unless --yes flag was passed)
+    if [[ "${ACCEPT_DEFAULTS}" == "false" ]]; then
+        show_install_menu
+    fi
+
+    echo ""
+
+    local step=0
+
+    # --- Create symlinks ---
+    step=$((step + 1))
     mkdir -p "${CLAUDE_DIR}"
 
-    echo "Step 1: Creating symlinks..."
+    echo "Step ${step}: Creating symlinks..."
 
     create_symlink "${REPO_DIR}/.claude/commands" "${CLAUDE_DIR}/commands" "commands"
-    create_symlink "${REPO_DIR}/.claude/skills" "${CLAUDE_DIR}/skills" "skills"
-    create_symlink "${REPO_DIR}/.claude/agents" "${CLAUDE_DIR}/agents" "agents"
     create_symlink "${REPO_DIR}/.claude/hooks" "${CLAUDE_DIR}/hooks" "hooks"
     create_symlink "${REPO_DIR}/.claude/scripts" "${CLAUDE_DIR}/scripts" "scripts"
 
+    if [[ "${INSTALL_AGENTS_SKILLS}" == "true" ]]; then
+        create_symlink "${REPO_DIR}/.claude/skills" "${CLAUDE_DIR}/skills" "skills"
+        create_symlink "${REPO_DIR}/.claude/agents" "${CLAUDE_DIR}/agents" "agents"
+    else
+        echo "  ⊘ Skipping agents & skills (not selected)"
+    fi
+
     echo ""
 
-    # Step 3: Configure hooks
-    echo "Step 2: Configuring hooks (user scope)..."
-    echo ""
+    # --- Configure settings.json ---
+    if [[ "${SETTINGS_MODE}" == "overwrite" ]]; then
+        step=$((step + 1))
+        echo "Step ${step}: Overwriting settings.json with repo defaults..."
+        echo ""
 
-    if [[ ! -f "${SETTINGS_JSON}" ]]; then
-        echo "  Creating ~/.claude/settings.json with default hooks..."
-        cat > "${SETTINGS_JSON}" <<'EOF'
+        cp "${REPO_DIR}/.claude/settings.json" "${SETTINGS_JSON}"
+        echo "  ✓ settings.json replaced with repo defaults"
+
+        echo ""
+
+        # Add file suggestion on top of overwritten settings (runtime-detected)
+        step=$((step + 1))
+        echo "Step ${step}: Configuring file suggestion (user scope)..."
+        echo ""
+
+        if command -v fd &>/dev/null && command -v fzf &>/dev/null; then
+            configure_file_suggestion
+        else
+            echo "  ⚠ Skipping file suggestion (fd and fzf not installed)"
+            echo "    Install with: brew install fd fzf  # macOS"
+            echo "                  sudo apt-get install fd-find fzf  # Ubuntu/Debian"
+        fi
+
+    elif [[ "${SETTINGS_MODE}" == "merge" ]]; then
+        # Hooks
+        step=$((step + 1))
+        echo "Step ${step}: Configuring hooks (user scope)..."
+        echo ""
+
+        if [[ ! -f "${SETTINGS_JSON}" ]]; then
+            echo "  Creating ~/.claude/settings.json with default hooks..."
+            cat > "${SETTINGS_JSON}" <<'EOF'
 {
   "hooks": {
     "PreToolUse": [
@@ -336,63 +539,77 @@ main() {
   }
 }
 EOF
-        echo "  ✓ IDE diagnostics hook configured"
+            echo "  ✓ IDE diagnostics hook configured"
+        else
+            configure_ide_hook
+        fi
+
+        echo ""
+
+        # File suggestion
+        step=$((step + 1))
+        echo "Step ${step}: Configuring file suggestion (user scope)..."
+        echo ""
+
+        if command -v fd &>/dev/null && command -v fzf &>/dev/null; then
+            configure_file_suggestion
+        else
+            echo "  ⚠ Skipping file suggestion (fd and fzf not installed)"
+            echo "    Install with: brew install fd fzf  # macOS"
+            echo "                  sudo apt-get install fd-find fzf  # Ubuntu/Debian"
+        fi
+
+        echo ""
+
+        # Statusline
+        step=$((step + 1))
+        echo "Step ${step}: Configuring statusline (user scope)..."
+        echo ""
+
+        configure_statusline
+
+        if ! command -v ccusage &>/dev/null; then
+            echo ""
+            echo "  Note: Install ccusage for full statusline functionality:"
+            echo "    npm install -g ccusage"
+        fi
+
     else
-        configure_ide_hook
+        step=$((step + 1))
+        echo "Step ${step}: Skipping settings.json configuration (not selected)"
     fi
 
     echo ""
 
-    # Step 4: Configure file suggestion
-    echo "Step 3: Configuring file suggestion (user scope)..."
-    echo ""
+    # --- Configure MCP servers ---
+    if [[ "${INSTALL_MCP}" == "true" ]]; then
+        step=$((step + 1))
+        echo "Step ${step}: Configuring MCP servers (user scope)..."
+        echo ""
 
-    if command -v fd &>/dev/null && command -v fzf &>/dev/null; then
-        configure_file_suggestion
+        configure_mcp_servers
+
+        echo ""
+
+        # Environment variables
+        step=$((step + 1))
+        echo "Step ${step}: Environment variables"
+        echo ""
+
+        if [[ -n "${BRAVE_API_KEY:-}" ]]; then
+            echo "  ✓ BRAVE_API_KEY is set (${#BRAVE_API_KEY} chars)"
+        else
+            echo "  ⚠ BRAVE_API_KEY not set. Add to your shell profile:"
+            echo ""
+            echo "    # Add to ~/.zshrc or ~/.bashrc:"
+            echo "    export BRAVE_API_KEY=\"your-api-key-here\""
+            echo ""
+            echo "    Get a free API key (2,000 searches/month):"
+            echo "    https://api-dashboard.search.brave.com/"
+        fi
     else
-        echo "  ⚠ Skipping file suggestion (fd and fzf not installed)"
-        echo "    Install with: brew install fd fzf  # macOS"
-        echo "                  sudo apt-get install fd-find fzf  # Ubuntu/Debian"
-    fi
-
-    echo ""
-
-    # Step 5: Configure statusline
-    echo "Step 4: Configuring statusline (user scope)..."
-    echo ""
-
-    configure_statusline
-
-    if ! command -v ccusage &>/dev/null; then
-        echo ""
-        echo "  Note: Install ccusage for full statusline functionality:"
-        echo "    npm install -g ccusage"
-    fi
-
-    echo ""
-
-    # Step 6: Configure MCP servers
-    echo "Step 5: Configuring MCP servers (user scope)..."
-    echo ""
-
-    configure_mcp_servers
-
-    echo ""
-
-    # Step 7: Environment variables
-    echo "Step 6: Environment variables"
-    echo ""
-
-    if [[ -n "${BRAVE_API_KEY:-}" ]]; then
-        echo "  ✓ BRAVE_API_KEY is set (${#BRAVE_API_KEY} chars)"
-    else
-        echo "  ⚠ BRAVE_API_KEY not set. Add to your shell profile:"
-        echo ""
-        echo "    # Add to ~/.zshrc or ~/.bashrc:"
-        echo "    export BRAVE_API_KEY=\"your-api-key-here\""
-        echo ""
-        echo "    Get a free API key (2,000 searches/month):"
-        echo "    https://api-dashboard.search.brave.com/"
+        step=$((step + 1))
+        echo "Step ${step}: Skipping MCP servers (not selected)"
     fi
 
     echo ""
@@ -403,11 +620,14 @@ EOF
     echo "Verify in any project:"
     echo "  cd ~/some-project"
     echo "  claude"
-    echo "  > /help           # Should show /web-search, /brave-search, /pr"
-    echo "  > /brave-search   # Test the MCP integration"
-    echo ""
-    echo "To check MCP server status:"
-    echo "  claude mcp list"
+    echo "  > /help           # Should show custom commands"
+
+    if [[ "${INSTALL_MCP}" == "true" ]]; then
+        echo "  > /brave-search   # Test the MCP integration"
+        echo ""
+        echo "To check MCP server status:"
+        echo "  claude mcp list"
+    fi
 }
 
 main "$@"

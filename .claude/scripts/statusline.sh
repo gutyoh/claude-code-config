@@ -4,6 +4,7 @@
 #
 # Displays real-time session metrics in Claude Code's status bar.
 # Uses Anthropic OAuth API for accurate utilization % and reset timer (ground truth).
+# Caches API responses with stale-while-revalidate (SWR) pattern (30s TTL).
 # Uses ccusage for token breakdown, cost, and burn rate.
 # Falls back to ccusage estimation if API is unavailable.
 #
@@ -11,7 +12,8 @@
 # Narrow: opus-4.5 | 21% | 1h26m | 1.5k/563/6.2M | $5.21
 #
 # Prerequisites: jq, curl, bc, ccusage (optional for token/cost data)
-# Platforms:     macOS (Keychain), Linux (Secret Service / libsecret)
+# Platforms:     macOS (Keychain), Linux (Secret Service / libsecret),
+#                Windows Git Bash (Credential Manager via PowerShell)
 
 set -uo pipefail
 
@@ -20,18 +22,22 @@ set -uo pipefail
 readonly API_URL="https://api.anthropic.com/api/oauth/usage"
 readonly KEYCHAIN_SERVICE="Claude Code-credentials"
 readonly API_BETA_HEADER="oauth-2025-04-20"
-readonly CURL_TIMEOUT=3
+readonly CURL_TIMEOUT=10
 readonly DEFAULT_TERM_WIDTH=120
 readonly WIDE_THRESHOLD=110
 readonly FALLBACK_SESSION_LIMIT=17213778
+readonly CACHE_FILE="/tmp/claude-statusline-api-cache"
+readonly CACHE_TTL=30
+readonly CACHE_MAX_AGE=300  # Serve stale data up to 5 min; beyond that, refetch synchronously
 
 # --- Platform Detection ---
 
 detect_platform() {
     case "$(uname -s)" in
-        Darwin) echo "macos" ;;
-        Linux)  echo "linux" ;;
-        *)      echo "unknown" ;;
+        Darwin)            echo "macos" ;;
+        Linux)             echo "linux" ;;
+        MSYS*|MINGW*|CYGWIN*) echo "windows" ;;
+        *)                 echo "unknown" ;;
     esac
 }
 
@@ -55,8 +61,8 @@ iso8601_to_epoch() {
     local timestamp="$1"
 
     case "${PLATFORM}" in
-        linux)
-            # GNU date handles ISO 8601 natively
+        linux|windows)
+            # GNU date handles ISO 8601 natively (Git Bash ships GNU coreutils)
             date -d "${timestamp}" "+%s" 2>/dev/null
             ;;
         macos)
@@ -84,6 +90,67 @@ get_oauth_token() {
             # Linux: Claude Code stores OAuth credentials via libsecret (Secret Service API)
             if command -v secret-tool &>/dev/null; then
                 creds=$(secret-tool lookup service "${KEYCHAIN_SERVICE}" 2>/dev/null) || return 1
+            else
+                return 1
+            fi
+            ;;
+        windows)
+            # Windows: Claude Code stores OAuth credentials in Windows Credential Manager (via keytar)
+            # Read using PowerShell P/Invoke into advapi32.dll CredRead
+            if command -v powershell.exe &>/dev/null; then
+                local ps_script
+                ps_script=$(mktemp "${TMPDIR:-/tmp}/claude-cred-XXXXXX.ps1")
+                cat > "${ps_script}" <<'PWSH_SCRIPT'
+$ErrorActionPreference = 'Stop'
+try {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+public struct NativeCredential {
+    public uint Flags;
+    public uint Type;
+    [MarshalAs(UnmanagedType.LPWStr)] public string TargetName;
+    [MarshalAs(UnmanagedType.LPWStr)] public string Comment;
+    public long LastWritten;
+    public uint CredentialBlobSize;
+    public IntPtr CredentialBlob;
+    public uint Persist;
+    public uint AttributeCount;
+    public IntPtr Attributes;
+    [MarshalAs(UnmanagedType.LPWStr)] public string TargetAlias;
+    [MarshalAs(UnmanagedType.LPWStr)] public string UserName;
+}
+
+public class CredentialReader {
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern bool CredRead(string target, uint type, uint flags, out IntPtr credential);
+
+    [DllImport("advapi32.dll")]
+    public static extern void CredFree(IntPtr credential);
+
+    public static string Read(string target) {
+        IntPtr ptr;
+        if (!CredRead(target, 1, 0, out ptr)) return null;
+        var nc = (NativeCredential)Marshal.PtrToStructure(ptr, typeof(NativeCredential));
+        var secret = Marshal.PtrToStringUni(nc.CredentialBlob, (int)(nc.CredentialBlobSize / 2));
+        CredFree(ptr);
+        return secret;
+    }
+}
+'@
+    Write-Output ([CredentialReader]::Read('Claude Code-credentials'))
+} catch {
+    exit 1
+}
+PWSH_SCRIPT
+                local ps_path
+                ps_path=$(cygpath -w "${ps_script}" 2>/dev/null || echo "${ps_script}")
+                creds=$(powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${ps_path}" 2>/dev/null)
+                local ps_exit=$?
+                rm -f "${ps_script}"
+                [[ ${ps_exit} -ne 0 ]] && return 1
             else
                 return 1
             fi
@@ -124,6 +191,57 @@ get_api_session_data() {
 
     # Output as tab-separated: utilization\tresets_at
     printf "%s\t%s" "${utilization}" "${resets_at}"
+}
+
+# --- API Cache (Stale-While-Revalidate) ---
+
+get_file_age() {
+    local file="$1"
+    local mtime now
+
+    case "${PLATFORM}" in
+        macos)         mtime=$(stat -f "%m" "${file}" 2>/dev/null) ;;
+        linux|windows) mtime=$(stat -c "%Y" "${file}" 2>/dev/null) ;;
+        *) return 1 ;;
+    esac
+
+    [[ -z "${mtime}" ]] && return 1
+    now=$(date +%s)
+    echo $((now - mtime))
+}
+
+refresh_api_cache() {
+    local data
+    data=$(get_api_session_data) || return 1
+    [[ -n "${data}" ]] && printf "%s" "${data}" > "${CACHE_FILE}"
+}
+
+get_cached_api_data() {
+    local cache_age=999999
+
+    if [[ -f "${CACHE_FILE}" ]]; then
+        cache_age=$(get_file_age "${CACHE_FILE}") || cache_age=999999
+    fi
+
+    # Fresh cache — serve immediately, no API call
+    if [[ ${cache_age} -lt ${CACHE_TTL} ]]; then
+        cat "${CACHE_FILE}"
+        return 0
+    fi
+
+    # Stale cache (< 5 min) — serve stale data, refresh in background for next call
+    if [[ -f "${CACHE_FILE}" && ${cache_age} -lt ${CACHE_MAX_AGE} ]]; then
+        cat "${CACHE_FILE}"
+        ( refresh_api_cache ) >/dev/null 2>&1 &
+        disown 2>/dev/null
+        return 0
+    fi
+
+    # No cache or ancient (> 5 min) — synchronous fetch (blocks once)
+    local data
+    data=$(get_api_session_data) || return 1
+    [[ -n "${data}" ]] && printf "%s" "${data}" > "${CACHE_FILE}"
+    printf "%s" "${data}"
 }
 
 # --- ccusage Functions ---
@@ -179,7 +297,7 @@ main() {
     local time_left="--"
     local api_data=""
 
-    api_data=$(get_api_session_data) || api_data=""
+    api_data=$(get_cached_api_data) || api_data=""
 
     if [[ -n "${api_data}" ]]; then
         # API succeeded -- ground truth from Anthropic servers
