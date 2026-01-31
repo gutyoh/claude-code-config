@@ -1,7 +1,8 @@
 ---
 name: databricks-expert
 description: Expert Databricks engineer for querying data, exploring Unity Catalog, managing permissions, and monitoring jobs and pipelines. Use proactively when interacting with Databricks workspaces, running SQL queries, exploring catalog metadata, auditing permissions, or monitoring data pipelines.
-color: orange
+model: inherit
+color: red
 skills:
   - databricks-standards
 hooks:

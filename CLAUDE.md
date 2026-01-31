@@ -15,20 +15,49 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   ├── settings.json            # Claude Code settings with hooks
 │   ├── hooks/                   # Git and workflow hooks
 │   │   ├── enforce-git-pull-rebase.sh
-│   │   └── open-file-in-ide.sh
+│   │   ├── open-file-in-ide.sh
+│   │   └── validate-readonly-sql.sh  # Blocks destructive SQL in databricks commands
 │   ├── skills/                  # Reusable skills
+│   │   ├── databricks-standards/
+│   │   │   ├── SKILL.md
+│   │   │   ├── core.md
+│   │   │   ├── catalog-patterns.md
+│   │   │   ├── sql-patterns.md
+│   │   │   ├── operations-patterns.md
+│   │   │   └── permissions-patterns.md
 │   │   ├── internet-research/
 │   │   │   └── SKILL.md
-│   │   └── pr-writing/
-│   │       └── SKILL.md
+│   │   ├── kedro-standards/
+│   │   │   ├── SKILL.md
+│   │   │   ├── core.md
+│   │   │   ├── catalog-patterns.md
+│   │   │   ├── pipeline-patterns.md
+│   │   │   ├── config-patterns.md
+│   │   │   ├── testing-patterns.md
+│   │   │   └── deployment-patterns.md
+│   │   ├── pr-writing/
+│   │   │   └── SKILL.md
+│   │   └── python-standards/
+│   │       ├── SKILL.md
+│   │       ├── core.md
+│   │       ├── async-patterns.md
+│   │       ├── pydantic-patterns.md
+│   │       ├── cli-patterns.md
+│   │       ├── subprocess-patterns.md
+│   │       └── logging-patterns.md
 │   ├── agents/                  # Subagent definitions
-│   │   ├── internet-researcher.md
-│   │   ├── pr-manager.md
 │   │   ├── data-scientist.md
-│   │   └── sonarqube-fixer.md
+│   │   ├── databricks-expert.md
+│   │   ├── internet-researcher.md
+│   │   ├── kedro-expert.md
+│   │   ├── pr-manager.md
+│   │   ├── python-expert.md
+│   │   ├── sonarqube-fixer.md
+│   │   └── ui-designer.md
 │   ├── scripts/                 # Utility scripts
 │   │   ├── file-suggestion.sh
-│   │   └── file-suggestion.ps1
+│   │   ├── file-suggestion.ps1
+│   │   └── statusline.sh
 │   └── commands/                # Custom slash commands
 │       ├── web-search.md
 │       ├── brave-search.md
@@ -50,14 +79,21 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 - **brave-search**: Internet search via Brave Search API
 
 ### Skills
+- **databricks-standards**: Databricks engineering standards for safe, efficient workspace interaction via CLI
 - **internet-research**: Expert internet research capabilities using Brave Search
+- **kedro-standards**: Kedro engineering standards for building clean, modular, production-ready data pipelines (Kedro 1.0+)
 - **pr-writing**: Expert PR and commit message writing following Conventional Commits
+- **python-standards**: Python engineering standards for clean, type-safe, production-ready code (Python 3.12+)
 
 ### Agents
-- **internet-researcher**: Deep research subagent for complex queries
-- **pr-manager**: Expert PR/MR manager for full lifecycle (list, view, create, review, edit, close, reopen) with automatic workflow detection (GitFlow vs Trunk-based)
 - **data-scientist**: Expert data scientist for ML, deep learning, and statistical analysis
+- **databricks-expert**: Expert Databricks engineer for querying data, exploring Unity Catalog, managing permissions, and monitoring jobs/pipelines
+- **internet-researcher**: Deep research subagent for complex queries
+- **kedro-expert**: Expert Kedro engineer for building data pipelines, managing catalogs, configuring environments, and deploying projects
+- **pr-manager**: Expert PR/MR manager for full lifecycle (list, view, create, review, edit, close, reopen) with automatic workflow detection (GitFlow vs Trunk-based)
+- **python-expert**: Expert Python engineer for clean, type-safe, production-ready code
 - **sonarqube-fixer**: Expert SonarQube issue fixer for cognitive complexity, code smells, and security vulnerabilities
+- **ui-designer**: Expert UI designer for components, styling, design systems, and accessibility
 
 ### Commands
 - `/web-search <query>`: Quick search using Claude's built-in WebSearch tool
@@ -67,6 +103,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 ### Hooks
 - **enforce-git-pull-rebase**: Automatically adds `--rebase` to all `git pull` commands
 - **ide-diagnostics-opener**: Automatically opens files in IDE before `mcp__ide__getDiagnostics` (fixes JetBrains timeout bug #3085)
+- **validate-readonly-sql**: Blocks destructive SQL operations (INSERT, UPDATE, DELETE, DROP, etc.) in databricks commands
 
 ## Environment Variables Required
 

@@ -50,6 +50,7 @@ STATUSLINE_ICON=""  # Prefix icon: "✻", "A\", "❋", etc. or "" for none
 STATUSLINE_ICON_STYLE="plain"  # plain|bold|bracketed|rounded|reverse|bold-color|angle|double-bracket
 STATUSLINE_WEEKLY_SHOW_RESET="false"  # Show weekly reset countdown inline
 ACCEPT_DEFAULTS="false"
+USER_CUSTOMIZED_STATUSLINE="false"  # Set to true when user goes through TUI statusline customization
 
 # --- Component Registry ---
 
@@ -665,9 +666,21 @@ create_symlink() {
             echo "  ✓ ~/.claude/${name} -> ${source} (already configured)"
             return 0
         fi
+        # Existing symlink points elsewhere — safe to replace
+        rm -f "${target}"
+    elif [[ -d "${target}" ]]; then
+        # Real directory exists — back it up before replacing with symlink
+        local backup="${target}.bak"
+        if [[ -e "${backup}" ]]; then
+            rm -rf "${backup}"
+        fi
+        mv "${target}" "${backup}"
+        echo "  ⚠ ~/.claude/${name} was a directory — backed up to ${name}.bak"
+    elif [[ -e "${target}" ]]; then
+        # Regular file — remove it
+        rm -f "${target}"
     fi
 
-    rm -rf "${target}"
     ln -s "${source}" "${target}"
     echo "  ✓ ~/.claude/${name} -> ${source}"
 }
@@ -849,8 +862,17 @@ PYTHON_SCRIPT
 
 configure_statusline_conf() {
     local conf_file="${CLAUDE_DIR}/statusline.conf"
+    local force="${1:-false}"  # "true" when user explicitly customized via TUI
 
     if [[ -f "${conf_file}" ]]; then
+        # In merge mode (force=false), preserve existing config — don't overwrite
+        # user's customizations with defaults. Only overwrite when user explicitly
+        # customized via the TUI (force=true) or used --overwrite-settings.
+        if [[ "${force}" != "true" ]]; then
+            echo "  ✓ Statusline config already exists (preserved)"
+            return
+        fi
+
         local matches="true"
 
         local cur_theme="" cur_components="" cur_bar_style="" cur_pct_inside="" cur_compact="" cur_color_scope="" cur_icon="" cur_icon_style="" cur_weekly_show_reset=""
@@ -1216,14 +1238,18 @@ show_install_menu() {
 
 customize_installation() {
     # --- Agents & Skills ---
-    if tui_confirm "Install agents & skills?" "yes"; then
+    local agents_default="yes"
+    [[ "${INSTALL_AGENTS_SKILLS}" == "false" ]] && agents_default="no"
+    if tui_confirm "Install agents & skills?" "${agents_default}"; then
         INSTALL_AGENTS_SKILLS="true"
     else
         INSTALL_AGENTS_SKILLS="false"
     fi
 
     # --- MCP ---
-    if tui_confirm "Install Brave Search MCP server?" "yes"; then
+    local mcp_default="yes"
+    [[ "${INSTALL_MCP}" == "false" ]] && mcp_default="no"
+    if tui_confirm "Install Brave Search MCP server?" "${mcp_default}"; then
         INSTALL_MCP="true"
     else
         INSTALL_MCP="false"
@@ -1244,6 +1270,7 @@ customize_installation() {
 
     # --- Statusline customization with preview loop ---
     customize_statusline_with_preview
+    USER_CUSTOMIZED_STATUSLINE="true"
 }
 
 customize_statusline_with_preview() {
@@ -1476,7 +1503,7 @@ main() {
         echo "Step ${step}: Configuring statusline config..."
         echo ""
 
-        configure_statusline_conf
+        configure_statusline_conf "true"
 
     elif [[ "${SETTINGS_MODE}" == "merge" ]]; then
         step=$((step + 1))
@@ -1541,7 +1568,7 @@ EOF
         echo "Step ${step}: Configuring statusline config..."
         echo ""
 
-        configure_statusline_conf
+        configure_statusline_conf "${USER_CUSTOMIZED_STATUSLINE}"
 
     else
         step=$((step + 1))

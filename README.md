@@ -1,7 +1,37 @@
 # Claude Code Portable Configuration
- 
+
+[![Claude Code](https://img.shields.io/badge/Claude_Code-D97757?logo=claude&logoColor=fff)](https://docs.anthropic.com/en/docs/claude-code)
+[![macOS](https://img.shields.io/badge/macOS-000?logo=apple&logoColor=fff)](#)
+[![Linux](https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=000)](#)
+[![Windows](https://img.shields.io/badge/Windows-0078D4?logo=windows&logoColor=fff)](#)
+[![GitHub last commit](https://img.shields.io/github/last-commit/gutyoh/claude-code-config)](https://github.com/gutyoh/claude-code-config/commits)
+
 A portable, Git-versioned configuration repository for Claude Code that works seamlessly across macOS, Linux, and Windows.
- 
+
+<details>
+<summary><strong>Table of Contents</strong></summary>
+
+- [What This Repository Contains](#what-this-repository-contains)
+- [Installation Options](#installation-options)
+- [Global Installation (Recommended)](#global-installation-recommended)
+- [API Keys Setup](#api-keys-setup)
+- [Project Installation](#project-installation)
+- [Repository Structure](#repository-structure)
+- [Git Conventions](#git-conventions)
+- [Hooks](#hooks)
+  - [Git Pull Rebase Hook](#1-git-pull-rebase-hook)
+  - [IDE Diagnostics Hook](#2-ide-diagnostics-hook-jetbrainsvscode-workaround)
+  - [SQL Safety Hook (Databricks)](#3-sql-safety-hook-databricks)
+  - [Fast File Suggestion](#4-fast-file-suggestion-optional-performance-enhancement)
+  - [Statusline with Billing Tracking](#5-statusline-with-billing-tracking)
+- [Syncing Across Machines](#syncing-across-machines)
+- [How It Works](#how-it-works)
+- [Adding New MCP Servers](#adding-new-mcp-servers)
+- [Branching Strategy](#branching-strategy-trunk-based--github-flow)
+- [Official Documentation](#official-documentation)
+
+</details>
+
 ## What This Repository Contains
  
 This repo provides a complete, portable Claude Code setup including:
@@ -192,10 +222,14 @@ You should see:
 ```
 
 You should see:
-- `internet-researcher` - Deep research using Brave Search
-- `pr-manager` - Full PR/MR lifecycle (list, view, create, review, edit) with workflow detection
 - `data-scientist` - ML, deep learning, statistical analysis
+- `databricks-expert` - Query data, explore Unity Catalog, audit permissions, monitor jobs
+- `internet-researcher` - Deep research using Brave Search
+- `kedro-expert` - Build data pipelines, manage catalogs, configure environments
+- `pr-manager` - Full PR/MR lifecycle (list, view, create, review, edit) with workflow detection
+- `python-expert` - Clean, type-safe, production-ready Python code
 - `sonarqube-fixer` - Fix SonarQube/SonarLint issues (auto-reads from IDE)
+- `ui-designer` - UI components, styling, design systems, accessibility
  
 **Test the Brave Search MCP:**
 ```
@@ -260,36 +294,52 @@ claude-code-config/
 │   ├── settings.json              # Claude Code settings (hooks config)
 │   ├── hooks/                     # Hook scripts
 │   │   ├── enforce-git-pull-rebase.sh
-│   │   └── open-file-in-ide.sh
+│   │   ├── open-file-in-ide.sh
+│   │   └── validate-readonly-sql.sh  # Blocks destructive SQL in databricks commands
 │   ├── skills/                    # Skills (reusable capabilities)
+│   │   ├── databricks-standards/  # Databricks engineering standards (modular)
+│   │   │   ├── SKILL.md
+│   │   │   ├── core.md
+│   │   │   ├── catalog-patterns.md
+│   │   │   ├── sql-patterns.md
+│   │   │   ├── operations-patterns.md
+│   │   │   └── permissions-patterns.md
 │   │   ├── internet-research/
 │   │   │   └── SKILL.md
+│   │   ├── kedro-standards/       # Kedro engineering standards (modular)
+│   │   │   ├── SKILL.md
+│   │   │   ├── core.md
+│   │   │   ├── catalog-patterns.md
+│   │   │   ├── pipeline-patterns.md
+│   │   │   ├── config-patterns.md
+│   │   │   ├── testing-patterns.md
+│   │   │   └── deployment-patterns.md
 │   │   ├── pr-writing/
 │   │   │   └── SKILL.md
-│   │   ├── python-standards/      # Python engineering standards (modular)
-│   │   │   ├── SKILL.md           # Entry point with version detection
-│   │   │   ├── core.md            # LBYL, exceptions, paths, imports
-│   │   │   ├── async-patterns.md
-│   │   │   ├── pydantic-patterns.md
-│   │   │   ├── cli-patterns.md
-│   │   │   ├── subprocess-patterns.md
-│   │   │   ├── logging-patterns.md
-│   │   │   ├── references/
-│   │   │   │   ├── api-design.md
-│   │   │   │   ├── interfaces.md
-│   │   │   │   └── checklists.md
-│   │   │   └── versions/
-│   │   │       ├── python-3.12.md
-│   │   │       └── python-3.13.md
-│   │   └── ui-design/
-│   │       └── SKILL.md
+│   │   └── python-standards/      # Python engineering standards (modular)
+│   │       ├── SKILL.md           # Entry point with version detection
+│   │       ├── core.md            # LBYL, exceptions, paths, imports
+│   │       ├── async-patterns.md
+│   │       ├── pydantic-patterns.md
+│   │       ├── cli-patterns.md
+│   │       ├── subprocess-patterns.md
+│   │       ├── logging-patterns.md
+│   │       ├── references/
+│   │       │   ├── api-design.md
+│   │       │   ├── interfaces.md
+│   │       │   └── checklists.md
+│   │       └── versions/
+│   │           ├── python-3.12.md
+│   │           └── python-3.13.md
 │   ├── agents/                    # Subagents for Task tool
-│   │   ├── internet-researcher.md
-│   │   ├── pr-manager.md
 │   │   ├── data-scientist.md
+│   │   ├── databricks-expert.md   # Preloads databricks-standards skill + SQL safety hook
+│   │   ├── internet-researcher.md
+│   │   ├── kedro-expert.md        # Preloads kedro-standards skill
+│   │   ├── pr-manager.md
+│   │   ├── python-expert.md       # Preloads python-standards skill
 │   │   ├── sonarqube-fixer.md
-│   │   ├── ui-designer.md
-│   │   └── python-expert.md       # Preloads python-standards skill
+│   │   └── ui-designer.md
 │   ├── scripts/                   # Utility scripts
 │   │   ├── file-suggestion.sh
 │   │   ├── file-suggestion.ps1
@@ -389,7 +439,32 @@ export CLAUDE_IDE="windsurf"        # Force Windsurf
 
 This hook benefits **all agents** that use `getDiagnostics`, especially the `sonarqube-fixer` agent.
 
-### 3. Fast File Suggestion (Optional Performance Enhancement)
+### 3. SQL Safety Hook (Databricks)
+
+Blocks destructive SQL operations when running `databricks` CLI commands. This hook is configured at the **agent level** (in `databricks-expert.md` frontmatter), not in project-level `settings.json`.
+
+**Location:** `.claude/hooks/validate-readonly-sql.sh`
+
+**What it blocks:**
+
+| Operation | Example |
+|-----------|---------|
+| `INSERT INTO` | `INSERT INTO schema.table VALUES (...)` |
+| `UPDATE ... SET` | `UPDATE schema.table SET col = val` |
+| `DELETE FROM` | `DELETE FROM schema.table WHERE ...` |
+| `TRUNCATE TABLE` | `TRUNCATE TABLE schema.table` |
+| `MERGE INTO` | `MERGE INTO target USING source ...` |
+| `DROP TABLE/SCHEMA/CATALOG` | `DROP TABLE schema.table` |
+
+**How it works:**
+1. Reads the tool input JSON from stdin (standard Claude Code hook protocol)
+2. Checks if the command contains `databricks` — skips non-databricks commands
+3. Pattern-matches against destructive SQL keywords (case-insensitive)
+4. Exits with code `2` to block the tool call and feed an error message back to Claude
+
+**Why this exists:** The `databricks-expert` agent is designed for **read-only exploration** — querying data, inspecting catalogs, auditing permissions. Data mutations should go through dbt or proper CI/CD pipelines, never through an ad-hoc agent.
+
+### 4. Fast File Suggestion (Optional Performance Enhancement)
 
 Provides lightning-fast file discovery when using `@` mentions in Claude Code, leveraging modern CLI tools for 10-100x performance improvement on large codebases.
 
@@ -479,7 +554,7 @@ On Windows, use:
 - You rarely use `@` mentions
 - You prefer zero-config setup
 
-### 4. Statusline with Billing Tracking
+### 5. Statusline with Billing Tracking
 
 Displays real-time session metrics in Claude Code's status bar, including model info, usage percentage, time remaining, token counts, and cost tracking.
 

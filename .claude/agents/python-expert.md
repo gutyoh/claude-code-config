@@ -1,7 +1,7 @@
 ---
 name: python-expert
 description: Expert Python engineer for writing clean, type-safe, production-ready code. Use proactively when implementing Python features, refactoring code, or building new modules. Follows modern Python 3.12+ patterns with explicit intent-driven design.
-model: opus
+model: inherit
 color: green
 skills:
   - python-standards
