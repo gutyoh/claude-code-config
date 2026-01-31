@@ -52,11 +52,11 @@ open_in_ide() {
     local file_path="$2"
 
     case "${ide_cmd}" in
-        pycharm|idea|webstorm|phpstorm|goland|rider|clion|rubymine)
+        pycharm | idea | webstorm | phpstorm | goland | rider | clion | rubymine)
             # JetBrains IDEs use --line flag
             "${ide_cmd}" --line 1 "${file_path}" &>/dev/null &
             ;;
-        code|code-insiders|cursor|windsurf|antigravity)
+        code | code-insiders | cursor | windsurf | antigravity)
             # VSCode-based IDEs use simpler syntax
             "${ide_cmd}" "${file_path}" &>/dev/null &
             ;;
@@ -73,7 +73,7 @@ detect_running_ide() {
     local entry ide_cmd pattern1 pattern2
 
     for entry in "${IDE_DEFINITIONS[@]}"; do
-        IFS='|' read -r ide_cmd pattern1 pattern2 <<< "${entry}"
+        IFS='|' read -r ide_cmd pattern1 pattern2 <<<"${entry}"
         if (pgrep -if "${pattern1}" &>/dev/null || pgrep -if "${pattern2}" &>/dev/null) \
             && command -v "${ide_cmd}" &>/dev/null; then
             open_in_ide "${ide_cmd}" "${file_path}"

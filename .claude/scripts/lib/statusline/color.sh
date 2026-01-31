@@ -1,0 +1,28 @@
+# color.sh -- Utilization color helpers
+# Path: .claude/scripts/lib/statusline/color.sh
+# Sourced by statusline.sh — do not execute directly.
+
+# Returns the ANSI color code for a given utilization percentage.
+# Usage: get_color_for_pct <pct>
+get_color_for_pct() {
+    local pct="$1"
+
+    if [[ "${pct}" == "--" || -z "${pct}" ]]; then
+        return
+    fi
+
+    if [[ "${pct}" -ge 90 ]]; then
+        printf "%s" "${COLOR_CRIT}"
+    elif [[ "${pct}" -ge 75 ]]; then
+        printf "%s" "${COLOR_WARN}"
+    elif [[ "${pct}" -ge 50 ]]; then
+        printf "%s" "${COLOR_CAUTION}"
+    else
+        printf "%s" "${COLOR_OK}"
+    fi
+}
+
+# Returns the ANSI color code for the current session utilization level.
+get_utilization_color() {
+    get_color_for_pct "${DATA_SESSION_PCT}"
+}

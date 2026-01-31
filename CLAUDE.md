@@ -16,6 +16,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   ├── hooks/                   # Git and workflow hooks
 │   │   ├── enforce-git-pull-rebase.sh
 │   │   ├── open-file-in-ide.sh
+│   │   ├── rate-limit-brave-search.sh  # Rate limits Brave Search API calls
 │   │   └── validate-readonly-sql.sh  # Blocks destructive SQL in databricks commands
 │   ├── skills/                  # Reusable skills
 │   │   ├── databricks-standards/
@@ -57,7 +58,17 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   ├── scripts/                 # Utility scripts
 │   │   ├── file-suggestion.sh
 │   │   ├── file-suggestion.ps1
-│   │   └── statusline.sh
+│   │   ├── statusline.sh        # Entry point (sources lib/statusline/)
+│   │   └── lib/statusline/      # Statusline modules
+│   │       ├── config.sh        # load_config, load_theme
+│   │       ├── utils.sh         # format_num, iso8601_to_epoch, format_duration_ms
+│   │       ├── api.sh           # get_oauth_token, fetch_api_usage, get_api_session_data
+│   │       ├── cache.sh         # get_file_age, refresh_api_cache, get_cached_api_data
+│   │       ├── data.sh          # get_ccusage_block, calculate_time_remaining, collect_data
+│   │       ├── bar.sh           # render_progress_bar, _overlay_pct_inside
+│   │       ├── color.sh         # get_color_for_pct, get_utilization_color
+│   │       ├── components.sh    # 14 render_component_* functions
+│   │       └── assembly.sh      # render_all_components
 │   └── commands/                # Custom slash commands
 │       ├── web-search.md
 │       ├── brave-search.md
@@ -69,6 +80,16 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   │   ├── main-branch-protection.json
 │   │   └── develop-branch-protection.json
 │   └── README.md
+├── lib/
+│   └── setup/                   # Setup modules (sourced by setup.sh)
+│       ├── tui.sh               # tui_readkey, tui_select, tui_multiselect, tui_confirm
+│       ├── preview.sh           # render_bar_preview, show_statusline_preview, show_preview_box
+│       ├── filesystem.sh        # create_symlink, check_prerequisite
+│       ├── settings.sh          # configure_ide_hook, configure_file_suggestion, configure_statusline
+│       ├── statusline-conf.sh   # configure_statusline_conf
+│       ├── mcp.sh               # configure_mcp_servers
+│       ├── cli.sh               # show_usage, parse_arguments
+│       └── menu.sh              # show_install_menu, customize_installation
 ├── CLAUDE.md                    # This file (shared context)
 └── README.md                    # User documentation
 ```
@@ -103,6 +124,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 ### Hooks
 - **enforce-git-pull-rebase**: Automatically adds `--rebase` to all `git pull` commands
 - **ide-diagnostics-opener**: Automatically opens files in IDE before `mcp__ide__getDiagnostics` (fixes JetBrains timeout bug #3085)
+- **rate-limit-brave-search**: Enforces rate limiting on Brave Search MCP calls (configurable via `BRAVE_API_RATE_LIMIT_MS`)
 - **validate-readonly-sql**: Blocks destructive SQL operations (INSERT, UPDATE, DELETE, DROP, etc.) in databricks commands
 
 ## Environment Variables Required
@@ -111,6 +133,10 @@ Set these in your shell before running Claude Code:
 
 ```bash
 export BRAVE_API_KEY="your-key-here"
+
+# Optional: Brave Search rate limit (default: 1100ms for free tier)
+# Set to 50 for paid plans (20 req/sec)
+export BRAVE_API_RATE_LIMIT_MS="1100"
 ```
 
 ## Git Conventions

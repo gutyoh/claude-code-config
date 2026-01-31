@@ -113,6 +113,15 @@ This agent has access to:
 - `WebFetch` - Fetch and analyze specific URLs
 - `Read` - Read local files for context
 
+## Rate Limiting
+
+The Brave Search API has strict rate limits depending on the plan tier. A PreToolUse hook (`rate-limit-brave-search.sh`) enforces delays at the system level, but you should also follow these rules to minimize queuing:
+
+- **Execute searches sequentially, one at a time** — never fire multiple `brave_web_search` or `brave_local_search` calls in parallel
+- **Wait for each search result before issuing the next query** — this prevents requests from stacking up behind the rate limiter
+- **Prefer fewer, well-targeted queries** over many broad ones — quality over quantity saves quota
+- The rate limit is configured via `BRAVE_API_RATE_LIMIT_MS` (default: 1100ms for the free tier, set to 50ms for paid plans)
+
 ## Best Practices
 
 1. **Query Diversity**: Don't repeat similar queries

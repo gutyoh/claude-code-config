@@ -23,6 +23,15 @@
             "command": "./.claude/hooks/open-file-in-ide.sh"
           }
         ]
+      },
+      {
+        "matcher": "mcp__brave-search__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/rate-limit-brave-search.sh"
+          }
+        ]
       }
     ]
   }

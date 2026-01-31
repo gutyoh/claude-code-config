@@ -1,0 +1,16 @@
+# .shellcheckrc
+# Path: claude-code-config/.shellcheckrc
+#
+# ShellCheck configuration for the project.
+# See: https://github.com/koalaman/shellcheck/wiki/Directive
+
+# Default shell dialect
+shell=bash
+
+# Disable rules for genuine false positives (unfixable — shellcheck limitation):
+#   SC2034: Variable appears unused (used via nameref or indirect reference)
+#   SC2016: Single-quoted expressions (intentional for literal ${VAR} in CLI args)
+#   SC1003: Single-quote escaping (intentional for A\ icon literal)
+#   SC2088: Tilde in quotes (intentional preview string, not a real path)
+#   SC2329: Function never invoked (called indirectly via trap or nameref)
+disable=SC2034,SC2016,SC1003,SC2088,SC2329
