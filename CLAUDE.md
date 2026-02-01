@@ -36,6 +36,8 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   │   │   ├── config-patterns.md
 │   │   │   ├── testing-patterns.md
 │   │   │   └── deployment-patterns.md
+│   │   ├── pr-operations/
+│   │   │   └── SKILL.md
 │   │   ├── pr-writing/
 │   │   │   └── SKILL.md
 │   │   └── python-standards/
@@ -104,6 +106,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 - **databricks-standards**: Databricks engineering standards for safe, efficient workspace interaction via CLI
 - **internet-research**: Expert internet research capabilities using Brave Search
 - **kedro-standards**: Kedro engineering standards for building clean, modular, production-ready data pipelines (Kedro 1.0+)
+- **pr-operations**: Cross-platform PR/MR operations for GitHub, GitLab, and Azure DevOps (platform detection, CLI commands, workflow detection)
 - **pr-writing**: Expert PR and commit message writing following Conventional Commits
 - **python-standards**: Python engineering standards for clean, type-safe, production-ready code (Python 3.12+)
 
