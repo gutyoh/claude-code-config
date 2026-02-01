@@ -28,7 +28,7 @@ This command performs an internet search using the official `@brave/brave-search
 ## Behavior
 
 When invoked:
-1. Use `mcp__brave-search__brave_web_search` with the provided query
+1. Execute exactly one `mcp__brave-search__brave_web_search` call with the provided query — never fire multiple searches per invocation
 2. Analyze the top results
 3. Provide a concise summary
 4. List sources with URLs

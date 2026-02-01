@@ -52,6 +52,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   │   ├── internet-researcher.md
 │   │   ├── kedro-expert.md
 │   │   ├── pr-manager.md
+│   │   ├── linus-torvalds.md
 │   │   ├── python-expert.md
 │   │   ├── sonarqube-fixer.md
 │   │   └── ui-designer.md
@@ -111,6 +112,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 - **databricks-expert**: Expert Databricks engineer for querying data, exploring Unity Catalog, managing permissions, and monitoring jobs/pipelines
 - **internet-researcher**: Deep research subagent for complex queries
 - **kedro-expert**: Expert Kedro engineer for building data pipelines, managing catalogs, configuring environments, and deploying projects
+- **linus-torvalds**: Stern software engineering mentor channeling Linus Torvalds for brutally honest technical advice, career guidance, and no-bullshit industry perspectives
 - **pr-manager**: Expert PR/MR manager for full lifecycle (list, view, create, review, edit, close, reopen) with automatic workflow detection (GitFlow vs Trunk-based)
 - **python-expert**: Expert Python engineer for clean, type-safe, production-ready code
 - **sonarqube-fixer**: Expert SonarQube issue fixer for cognitive complexity, code smells, and security vulnerabilities

@@ -2,7 +2,7 @@
 name: kedro-expert
 description: Expert Kedro engineer for building data pipelines, managing catalogs, configuring environments, and deploying Kedro projects. Use proactively when working with Kedro projects, writing nodes/pipelines, configuring catalogs, setting up deployment, or debugging pipeline runs.
 model: inherit
-color: cyan
+color: yellow
 skills:
   - kedro-standards
 ---
