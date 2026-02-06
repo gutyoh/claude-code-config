@@ -1,13 +1,13 @@
-# settings.sh -- IDE hook, file suggestion, and statusline settings configuration
+# settings.sh -- IDE hook, file suggestion, statusline, and agent teams settings configuration
 # Path: lib/setup/settings.sh
 # Sourced by setup.sh — do not execute directly.
 
 configure_ide_hook() {
-    if python3 -c "
+    if python3 - "${SETTINGS_JSON}" <<'PYTHON_CHECK' 2>/dev/null; then
 import json
 import sys
 try:
-    with open('${SETTINGS_JSON}') as f:
+    with open(sys.argv[1]) as f:
         data = json.load(f)
     hooks = data.get('hooks', {}).get('PreToolUse', [])
     for hook in hooks:
@@ -16,15 +16,15 @@ try:
     sys.exit(1)
 except Exception:
     sys.exit(1)
-" 2>/dev/null; then
+PYTHON_CHECK
         echo "  ✓ IDE diagnostics hook already configured"
     else
         echo "  Adding IDE diagnostics hook to existing settings..."
-        python3 <<PYTHON_SCRIPT
+        python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
 import json
 import sys
 
-settings_file = "${SETTINGS_JSON}"
+settings_file = sys.argv[1]
 
 try:
     with open(settings_file) as f:
@@ -67,26 +67,26 @@ PYTHON_SCRIPT
 }
 
 configure_file_suggestion() {
-    if python3 -c "
+    if python3 - "${SETTINGS_JSON}" <<'PYTHON_CHECK' 2>/dev/null; then
 import json
 import sys
 try:
-    with open('${SETTINGS_JSON}') as f:
+    with open(sys.argv[1]) as f:
         data = json.load(f)
     if 'fileSuggestion' in data:
         sys.exit(0)
     sys.exit(1)
 except Exception:
     sys.exit(1)
-" 2>/dev/null; then
+PYTHON_CHECK
         echo "  ✓ File suggestion already configured"
     else
         echo "  Adding file suggestion to settings..."
-        python3 <<PYTHON_SCRIPT
+        python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
 import json
 import sys
 
-settings_file = "${SETTINGS_JSON}"
+settings_file = sys.argv[1]
 
 try:
     with open(settings_file) as f:
@@ -109,27 +109,95 @@ PYTHON_SCRIPT
     fi
 }
 
-configure_statusline() {
-    if python3 -c "
+configure_agent_teams() {
+    if [[ "${INSTALL_AGENT_TEAMS}" == "true" ]]; then
+        if python3 - "${SETTINGS_JSON}" <<'PYTHON_CHECK' 2>/dev/null; then
 import json
 import sys
 try:
-    with open('${SETTINGS_JSON}') as f:
+    with open(sys.argv[1]) as f:
+        data = json.load(f)
+    if data.get('env', {}).get('CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS') == '1':
+        sys.exit(0)
+    sys.exit(1)
+except Exception:
+    sys.exit(1)
+PYTHON_CHECK
+            echo "  ✓ Agent teams already enabled"
+        else
+            echo "  Adding agent teams env to settings..."
+            python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
+import json
+import sys
+
+settings_file = sys.argv[1]
+
+try:
+    with open(settings_file) as f:
+        data = json.load(f)
+
+    data.setdefault('env', {})['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'] = '1'
+
+    with open(settings_file, 'w') as f:
+        json.dump(data, f, indent=2)
+
+    print("  ✓ Agent teams enabled")
+    sys.exit(0)
+except Exception as e:
+    print(f"  ⚠ Failed to enable agent teams: {e}", file=sys.stderr)
+    sys.exit(1)
+PYTHON_SCRIPT
+        fi
+    else
+        python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
+import json
+import sys
+
+settings_file = sys.argv[1]
+
+try:
+    with open(settings_file) as f:
+        data = json.load(f)
+
+    env = data.get('env', {})
+    if 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS' in env:
+        del env['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS']
+        if not env:
+            data.pop('env', None)
+        with open(settings_file, 'w') as f:
+            json.dump(data, f, indent=2)
+        print("  ✓ Agent teams disabled (removed from settings)")
+    else:
+        print("  ⊘ Agent teams not enabled (nothing to remove)")
+    sys.exit(0)
+except Exception as e:
+    print(f"  ⚠ Failed to disable agent teams: {e}", file=sys.stderr)
+    sys.exit(1)
+PYTHON_SCRIPT
+    fi
+}
+
+configure_statusline() {
+    if python3 - "${SETTINGS_JSON}" <<'PYTHON_CHECK' 2>/dev/null; then
+import json
+import sys
+try:
+    with open(sys.argv[1]) as f:
         data = json.load(f)
     if 'statusLine' in data:
         sys.exit(0)
     sys.exit(1)
 except Exception:
     sys.exit(1)
-" 2>/dev/null; then
+PYTHON_CHECK
         echo "  ✓ Statusline already configured"
     else
         echo "  Adding statusline to settings..."
-        python3 <<PYTHON_SCRIPT
+        python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
 import json
 import sys
 
-settings_file = "${SETTINGS_JSON}"
+settings_file = sys.argv[1]
 
 try:
     with open(settings_file) as f:

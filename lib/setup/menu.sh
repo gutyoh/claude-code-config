@@ -19,8 +19,12 @@ show_install_menu() {
 
     echo "Current installation options:"
     echo "  core (hooks, scripts, commands):  always"
+    local teams_label="yes"
+    [[ "${INSTALL_AGENT_TEAMS}" == "false" ]] && teams_label="no"
+
     echo "  agents & skills:                  ${agents_label}"
     echo "  brave search MCP:                 ${mcp_label}"
+    echo "  agent teams (experimental):       ${teams_label}"
     echo "  settings.json:                    ${settings_label}"
     echo "  statusline color theme:           ${STATUSLINE_THEME}"
     echo "  statusline components:            ${comp_display}"
@@ -73,6 +77,15 @@ customize_installation() {
         INSTALL_MCP="true"
     else
         INSTALL_MCP="false"
+    fi
+
+    # --- Agent Teams ---
+    local teams_default="yes"
+    [[ "${INSTALL_AGENT_TEAMS}" == "false" ]] && teams_default="no"
+    if tui_confirm "Enable agent teams? (experimental)" "${teams_default}"; then
+        INSTALL_AGENT_TEAMS="true"
+    else
+        INSTALL_AGENT_TEAMS="false"
     fi
 
     # --- Settings mode ---

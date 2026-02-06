@@ -11,7 +11,9 @@ show_usage() {
     echo "  -y, --yes              Accept all defaults without prompting"
     echo "  --no-mcp               Skip Brave Search MCP server installation"
     echo "  --no-agents            Skip agents & skills installation"
-    echo "  --minimal              Core only (no agents, skills, or MCP)"
+    echo "  --agent-teams          Enable agent teams (experimental)"
+    echo "  --no-agent-teams       Disable agent teams"
+    echo "  --minimal              Core only (no agents, skills, MCP, or agent teams)"
     echo "  --overwrite-settings   Replace settings.json with repo defaults"
     echo "  --skip-settings        Don't modify settings.json"
     echo "  --theme THEME          Statusline color theme (dark|light|colorblind|none)"
@@ -56,9 +58,18 @@ parse_arguments() {
                 INSTALL_AGENTS_SKILLS="false"
                 shift
                 ;;
+            --agent-teams)
+                INSTALL_AGENT_TEAMS="true"
+                shift
+                ;;
+            --no-agent-teams)
+                INSTALL_AGENT_TEAMS="false"
+                shift
+                ;;
             --minimal)
                 INSTALL_AGENTS_SKILLS="false"
                 INSTALL_MCP="false"
+                INSTALL_AGENT_TEAMS="false"
                 shift
                 ;;
             --overwrite-settings)

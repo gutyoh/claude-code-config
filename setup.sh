@@ -10,7 +10,9 @@
 #   -y, --yes              Accept all defaults without prompting
 #   --no-mcp               Skip Brave Search MCP server installation
 #   --no-agents            Skip agents & skills installation
-#   --minimal              Core only (no agents, skills, or MCP)
+#   --agent-teams          Enable agent teams (experimental)
+#   --no-agent-teams       Disable agent teams
+#   --minimal              Core only (no agents, skills, MCP, or agent teams)
 #   --overwrite-settings   Replace settings.json with repo defaults
 #   --skip-settings        Don't modify settings.json
 #   --theme THEME          Statusline color theme (dark|light|colorblind|none)
@@ -50,6 +52,7 @@ STATUSLINE_COLOR_SCOPE="percentage"  # "percentage" = color usage only, "full" =
 STATUSLINE_ICON=""                   # Prefix icon: "✻", "A\", "❋", etc. or "" for none
 STATUSLINE_ICON_STYLE="plain"        # plain|bold|bracketed|rounded|reverse|bold-color|angle|double-bracket
 STATUSLINE_WEEKLY_SHOW_RESET="false" # Show weekly reset countdown inline
+INSTALL_AGENT_TEAMS="true"
 ACCEPT_DEFAULTS="false"
 USER_CUSTOMIZED_STATUSLINE="false" # Set to true when user goes through TUI statusline customization
 
@@ -174,6 +177,14 @@ main() {
 
         configure_statusline_conf "true"
 
+        echo ""
+
+        step=$((step + 1))
+        echo "Step ${step}: Configuring agent teams..."
+        echo ""
+
+        configure_agent_teams
+
     elif [[ "${SETTINGS_MODE}" == "merge" ]]; then
         step=$((step + 1))
         echo "Step ${step}: Configuring hooks (user scope)..."
@@ -238,6 +249,14 @@ EOF
         echo ""
 
         configure_statusline_conf "${USER_CUSTOMIZED_STATUSLINE}"
+
+        echo ""
+
+        step=$((step + 1))
+        echo "Step ${step}: Configuring agent teams..."
+        echo ""
+
+        configure_agent_teams
 
     else
         step=$((step + 1))

@@ -36,6 +36,13 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   │   │   ├── config-patterns.md
 │   │   │   ├── testing-patterns.md
 │   │   │   └── deployment-patterns.md
+│   │   ├── d2-tala-standards/
+│   │   │   ├── SKILL.md
+│   │   │   ├── core.md
+│   │   │   ├── layout-patterns.md
+│   │   │   ├── style-patterns.md
+│   │   │   ├── diagram-patterns.md
+│   │   │   └── cli-patterns.md
 │   │   ├── pr-operations/
 │   │   │   └── SKILL.md
 │   │   ├── pr-writing/
@@ -49,6 +56,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   │       ├── subprocess-patterns.md
 │   │       └── logging-patterns.md
 │   ├── agents/                  # Subagent definitions
+│   │   ├── d2-tala-expert.md
 │   │   ├── data-scientist.md
 │   │   ├── databricks-expert.md
 │   │   ├── internet-researcher.md
@@ -88,7 +96,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │       ├── tui.sh               # tui_readkey, tui_select, tui_multiselect, tui_confirm
 │       ├── preview.sh           # render_bar_preview, show_statusline_preview, show_preview_box
 │       ├── filesystem.sh        # create_symlink, check_prerequisite
-│       ├── settings.sh          # configure_ide_hook, configure_file_suggestion, configure_statusline
+│       ├── settings.sh          # configure_ide_hook, configure_file_suggestion, configure_statusline, configure_agent_teams
 │       ├── statusline-conf.sh   # configure_statusline_conf
 │       ├── mcp.sh               # configure_mcp_servers
 │       ├── cli.sh               # show_usage, parse_arguments
@@ -103,6 +111,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 - **brave-search**: Internet search via Brave Search API
 
 ### Skills
+- **d2-tala-standards**: D2 diagramming standards with TALA layout engine for clean, professional architecture diagrams
 - **databricks-standards**: Databricks engineering standards for safe, efficient workspace interaction via CLI
 - **internet-research**: Expert internet research capabilities using Brave Search
 - **kedro-standards**: Kedro engineering standards for building clean, modular, production-ready data pipelines (Kedro 1.0+)
@@ -111,6 +120,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 - **python-standards**: Python engineering standards for clean, type-safe, production-ready code (Python 3.12+)
 
 ### Agents
+- **d2-tala-expert**: Expert D2 diagrammer with TALA layout engine for software architecture diagrams
 - **data-scientist**: Expert data scientist for ML, deep learning, and statistical analysis
 - **databricks-expert**: Expert Databricks engineer for querying data, exploring Unity Catalog, managing permissions, and monitoring jobs/pipelines
 - **internet-researcher**: Deep research subagent for complex queries
@@ -125,6 +135,9 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 - `/web-search <query>`: Quick search using Claude's built-in WebSearch tool
 - `/brave-search <query>`: Search using Brave Search MCP (requires `BRAVE_API_KEY`)
 - `/pr [base-branch]`: Create PR/MR with Conventional Commits formatting (GitHub/GitLab/Azure DevOps)
+
+### Experimental Features
+- **agent-teams**: Multi-session coordinated teams (lead + teammates with shared task list). Enabled by default in macOS/Linux `setup.sh`. Use `--no-agent-teams` to disable. Sets `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `~/.claude/settings.json` env.
 
 ### Hooks
 - **enforce-git-pull-rebase**: Automatically adds `--rebase` to all `git pull` commands

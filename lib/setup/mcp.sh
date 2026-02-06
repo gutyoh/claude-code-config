@@ -18,18 +18,18 @@ configure_mcp_servers() {
     local user_scope_configured=false
 
     if [[ -f "${CLAUDE_JSON}" ]]; then
-        if python3 -c "
+        if python3 - "${CLAUDE_JSON}" <<'PYTHON_CHECK' 2>/dev/null; then
 import json
 import sys
 try:
-    with open('${CLAUDE_JSON}') as f:
+    with open(sys.argv[1]) as f:
         data = json.load(f)
     if 'brave-search' in data.get('mcpServers', {}):
         sys.exit(0)
     sys.exit(1)
 except Exception:
     sys.exit(1)
-" 2>/dev/null; then
+PYTHON_CHECK
             user_scope_configured=true
         fi
     fi
