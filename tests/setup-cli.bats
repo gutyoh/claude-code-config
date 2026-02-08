@@ -47,10 +47,12 @@ setup() {
     [ "$INSTALL_AGENTS_SKILLS" = "false" ]
 }
 
-@test "parse_arguments: --minimal disables MCP and agents" {
+@test "parse_arguments: --minimal disables MCP, agents, agent teams, and proxy PATH" {
     parse_arguments --minimal
     [ "$INSTALL_MCP" = "false" ]
     [ "$INSTALL_AGENTS_SKILLS" = "false" ]
+    [ "$INSTALL_AGENT_TEAMS" = "false" ]
+    [ "$INSTALL_PROXY_PATH" = "false" ]
 }
 
 @test "parse_arguments: --overwrite-settings sets overwrite mode" {
@@ -146,6 +148,19 @@ setup() {
     STATUSLINE_WEEKLY_SHOW_RESET="true"
     parse_arguments --no-weekly-show-reset
     [ "$STATUSLINE_WEEKLY_SHOW_RESET" = "false" ]
+}
+
+# --- Proxy PATH ---
+
+@test "parse_arguments: --proxy-path enables proxy PATH" {
+    INSTALL_PROXY_PATH="false"
+    parse_arguments --proxy-path
+    [ "$INSTALL_PROXY_PATH" = "true" ]
+}
+
+@test "parse_arguments: --no-proxy-path disables proxy PATH" {
+    parse_arguments --no-proxy-path
+    [ "$INSTALL_PROXY_PATH" = "false" ]
 }
 
 # --- Unknown option ---

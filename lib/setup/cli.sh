@@ -13,7 +13,7 @@ show_usage() {
     echo "  --no-agents            Skip agents & skills installation"
     echo "  --agent-teams          Enable agent teams (experimental)"
     echo "  --no-agent-teams       Disable agent teams"
-    echo "  --minimal              Core only (no agents, skills, MCP, or agent teams)"
+    echo "  --minimal              Core only (no agents, skills, MCP, agent teams, or proxy PATH)"
     echo "  --overwrite-settings   Replace settings.json with repo defaults"
     echo "  --skip-settings        Don't modify settings.json"
     echo "  --theme THEME          Statusline color theme (dark|light|colorblind|none)"
@@ -27,6 +27,8 @@ show_usage() {
     echo "  --icon-style STYLE     Icon style (plain|bold|bracketed|rounded|reverse|bold-color|angle|double-bracket)"
     echo "  --weekly-show-reset    Show weekly reset countdown inline"
     echo "  --no-weekly-show-reset Hide weekly reset countdown (default)"
+    echo "  --proxy-path           Add bin/ to PATH in shell profile (default)"
+    echo "  --no-proxy-path        Skip proxy launcher PATH setup"
     echo "  -h, --help             Show this help message"
     echo ""
     echo "Available components:"
@@ -70,6 +72,7 @@ parse_arguments() {
                 INSTALL_AGENTS_SKILLS="false"
                 INSTALL_MCP="false"
                 INSTALL_AGENT_TEAMS="false"
+                INSTALL_PROXY_PATH="false"
                 shift
                 ;;
             --overwrite-settings)
@@ -169,6 +172,14 @@ parse_arguments() {
                 ;;
             --no-weekly-show-reset)
                 STATUSLINE_WEEKLY_SHOW_RESET="false"
+                shift
+                ;;
+            --proxy-path)
+                INSTALL_PROXY_PATH="true"
+                shift
+                ;;
+            --no-proxy-path)
+                INSTALL_PROXY_PATH="false"
                 shift
                 ;;
             --icon-style)

@@ -24,7 +24,11 @@ show_install_menu() {
 
     echo "  agents & skills:                  ${agents_label}"
     echo "  brave search MCP:                 ${mcp_label}"
+    local proxy_path_label="yes"
+    [[ "${INSTALL_PROXY_PATH}" == "false" ]] && proxy_path_label="no"
+
     echo "  agent teams (experimental):       ${teams_label}"
+    echo "  proxy launcher PATH:              ${proxy_path_label}"
     echo "  settings.json:                    ${settings_label}"
     echo "  statusline color theme:           ${STATUSLINE_THEME}"
     echo "  statusline components:            ${comp_display}"
@@ -86,6 +90,15 @@ customize_installation() {
         INSTALL_AGENT_TEAMS="true"
     else
         INSTALL_AGENT_TEAMS="false"
+    fi
+
+    # --- Proxy Launcher PATH ---
+    local proxy_default="yes"
+    [[ "${INSTALL_PROXY_PATH}" == "false" ]] && proxy_default="no"
+    if tui_confirm "Add proxy launcher (bin/) to PATH? (enables 'claude-proxy' from anywhere)" "${proxy_default}"; then
+        INSTALL_PROXY_PATH="true"
+    else
+        INSTALL_PROXY_PATH="false"
     fi
 
     # --- Settings mode ---

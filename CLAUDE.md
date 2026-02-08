@@ -11,6 +11,10 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 ```
 .
 ├── .mcp.json                    # MCP server configurations (portable)
+├── bin/                                # Proxy launcher scripts
+│   ├── claude-proxy                    # Single entry point for all proxy profiles
+│   ├── proxy-start-codex.sh            # Profile: CLIProxyAPI + OpenAI Codex
+│   └── proxy-start-antigravity.sh      # Profile: Antigravity (Google Cloud Code)
 ├── .claude/
 │   ├── settings.json            # Claude Code settings with hooks
 │   ├── hooks/                   # Git and workflow hooks

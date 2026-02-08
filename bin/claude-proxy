@@ -1,0 +1,392 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# claude-proxy
+# Path: bin/claude-proxy
+#
+# Run Claude Code against a local proxy, optionally starting it if not reachable.
+#
+# This is intentionally *not* coupled to a single provider.
+# - "profiles" control how to start the proxy (auth import, config, etc.)
+# - model selection is validated per profile and passed to Claude via env defaults
+#
+# Usage:
+#   ./bin/claude-proxy [options] [--] [claude args...]
+#
+# Options:
+#   -m, --model MODEL        Model string (validated per profile; uses profile default if omitted)
+#   -p, --profile PROFILE    Proxy profile: codex | antigravity | none (default: codex)
+#   --models                 List available models for the selected profile and exit
+#   --host HOST              Proxy host (default: 127.0.0.1)
+#   --port PORT              Proxy port (auto-set per profile if omitted)
+#   --api-key KEY            Proxy API key (auto-set per profile if omitted)
+#   --no-start               Require proxy to be already running (skip auto-start)
+#   --no-validate            Skip model validation
+#   -h, --help               Show help
+#
+# Custom profiles:
+#   Provide an executable script at: bin/proxy-start-<profile>.sh
+#   It should start the proxy in the foreground (the launcher handles backgrounding).
+#
+# Examples:
+#   ./bin/claude-proxy                                             # codex default
+#   ./bin/claude-proxy -m 'gpt-5.3-codex(medium)'                 # codex + medium effort
+#   ./bin/claude-proxy -p antigravity                              # antigravity default
+#   ./bin/claude-proxy -p antigravity -m 'gemini-3-pro-high[1m]'  # antigravity + gemini
+#   ./bin/claude-proxy -p antigravity --models                     # list antigravity models
+#   ./bin/claude-proxy --no-start -m 'claude-opus-4-6'            # external proxy
+
+# --- Model Registry ---
+
+readonly ANTIGRAVITY_MODELS=(
+    "claude-opus-4-5-thinking"
+    "claude-sonnet-4-5-thinking"
+    "claude-sonnet-4-5"
+    "gemini-3-pro-high"
+    "gemini-3-pro-low"
+    "gemini-3-pro-image"
+    "gemini-3-flash"
+    "gemini-2.5-pro"
+    "gemini-2.5-flash"
+    "gemini-2.5-flash-thinking"
+    "gemini-2.5-flash-lite"
+)
+readonly ANTIGRAVITY_DEFAULT="claude-opus-4-5-thinking"
+
+readonly CODEX_MODELS=(
+    "gpt-5.3-codex"
+    "gpt-5.2-codex"
+    "gpt-5.2"
+    "gpt-5.1-codex-max"
+    "gpt-5.1-codex-mini"
+)
+readonly CODEX_EFFORTS=("low" "medium" "high")
+readonly CODEX_XHIGH_MODELS=("gpt-5.2-codex" "gpt-5.2")
+readonly CODEX_DEFAULT="gpt-5.3-codex(high)"
+
+# --- Helpers ---
+
+need_cmd() {
+    command -v "$1" >/dev/null 2>&1 || {
+        echo "Missing required command: $1" >&2
+        exit 1
+    }
+}
+
+usage() {
+    cat <<'EOF'
+claude-proxy — Run Claude Code against a local proxy
+
+Usage: claude-proxy [options] [--] [claude args...]
+
+Options:
+  -m, --model MODEL        Model string (validated per profile; uses profile default if omitted)
+  -p, --profile PROFILE    Proxy profile: codex | antigravity | none (default: codex)
+  --models                 List available models for the selected profile and exit
+  --host HOST              Proxy host (default: 127.0.0.1)
+  --port PORT              Proxy port (auto-set per profile if omitted)
+  --api-key KEY            Proxy API key (auto-set per profile if omitted)
+  --no-start               Require proxy to be already running (skip auto-start)
+  --no-validate            Skip model validation
+  -h, --help               Show this help message
+
+Custom profiles:
+  Provide an executable script at: bin/proxy-start-<profile>.sh
+  It should start the proxy in the foreground (the launcher handles backgrounding).
+
+Examples:
+  claude-proxy                                             # codex default
+  claude-proxy -m 'gpt-5.3-codex(medium)'                  # codex + medium effort
+  claude-proxy -p antigravity                              # antigravity default
+  claude-proxy -p antigravity -m 'gemini-3-pro-high[1m]'   # antigravity + gemini
+  claude-proxy -p antigravity --models                     # list antigravity models
+  claude-proxy --no-start -m 'claude-opus-4-6'             # external proxy
+EOF
+}
+
+_in_array() {
+    local needle="$1"
+    shift
+    local item
+    for item in "$@"; do
+        [[ "${item}" == "${needle}" ]] && return 0
+    done
+    return 1
+}
+
+list_models() {
+    local profile="$1"
+    case "${profile}" in
+        antigravity)
+            echo "Available models for profile 'antigravity':"
+            echo ""
+            echo "  Claude"
+            printf "    %-30s %s\n" "claude-opus-4-5-thinking" "(default)"
+            printf "    %-30s\n" "claude-sonnet-4-5-thinking"
+            printf "    %-30s\n" "claude-sonnet-4-5"
+            echo ""
+            echo "  Gemini"
+            printf "    %-30s %s\n" "gemini-3-pro-high" "gemini-2.5-pro"
+            printf "    %-30s %s\n" "gemini-3-pro-low" "gemini-2.5-flash"
+            printf "    %-30s %s\n" "gemini-3-pro-image" "gemini-2.5-flash-thinking"
+            printf "    %-30s %s\n" "gemini-3-flash" "gemini-2.5-flash-lite"
+            echo ""
+            echo "  Gemini models accept an optional context window suffix: model[1m]"
+            echo "  Default: ${ANTIGRAVITY_DEFAULT}"
+            ;;
+        codex)
+            echo "Available models for profile 'codex':"
+            echo ""
+            printf "  %-25s %s\n" "MODEL" "EFFORT LEVELS"
+            printf "  %-25s %s\n" "-----" "-------------"
+            printf "  %-25s %s\n" "gpt-5.3-codex" "low  medium  high           (default: high)"
+            printf "  %-25s %s\n" "gpt-5.2-codex" "low  medium  high  xhigh"
+            printf "  %-25s %s\n" "gpt-5.2" "low  medium  high  xhigh"
+            printf "  %-25s %s\n" "gpt-5.1-codex-max" "low  medium  high"
+            printf "  %-25s %s\n" "gpt-5.1-codex-mini" "low  medium  high"
+            echo ""
+            echo "  Format: model(effort)  e.g. gpt-5.3-codex(high)"
+            echo "  Default: ${CODEX_DEFAULT}"
+            ;;
+        *)
+            echo "No model registry for profile '${profile}'."
+            echo "Use any model string supported by the backend."
+            ;;
+    esac
+}
+
+validate_model() {
+    local model="$1"
+    local profile="$2"
+
+    case "${profile}" in
+        antigravity)
+            # Strip optional [context] suffix: gemini-3-pro-high[1m] → gemini-3-pro-high
+            local base="${model%%\[*}"
+            if ! _in_array "${base}" "${ANTIGRAVITY_MODELS[@]}"; then
+                echo "Error: unknown model '${model}' for profile '${profile}'." >&2
+                echo "  Use --no-validate to bypass (e.g. for newly added models)." >&2
+                echo "" >&2
+                list_models "${profile}" >&2
+                return 1
+            fi
+            ;;
+        codex)
+            local base="" effort=""
+            if [[ "${model}" =~ ^([^(]+)\(([^)]+)\)$ ]]; then
+                base="${BASH_REMATCH[1]}"
+                effort="${BASH_REMATCH[2]}"
+            else
+                base="${model}"
+            fi
+
+            if ! _in_array "${base}" "${CODEX_MODELS[@]}"; then
+                echo "Error: unknown model '${base}' for profile '${profile}'." >&2
+                echo "  Use --no-validate to bypass (e.g. for newly added models)." >&2
+                echo "" >&2
+                list_models "${profile}" >&2
+                return 1
+            fi
+
+            if [[ -n "${effort}" ]]; then
+                if [[ "${effort}" == "xhigh" ]]; then
+                    if ! _in_array "${base}" "${CODEX_XHIGH_MODELS[@]}"; then
+                        echo "Error: effort 'xhigh' is not supported for '${base}'." >&2
+                        echo "  xhigh is available for: ${CODEX_XHIGH_MODELS[*]}" >&2
+                        return 1
+                    fi
+                elif ! _in_array "${effort}" "${CODEX_EFFORTS[@]}"; then
+                    echo "Error: unknown effort level '${effort}'." >&2
+                    echo "  Valid levels: ${CODEX_EFFORTS[*]}, xhigh (select models only)" >&2
+                    return 1
+                fi
+            fi
+            ;;
+        *)
+            # No validation for custom/unknown profiles
+            ;;
+    esac
+}
+
+# --- Init ---
+
+need_cmd claude
+need_cmd curl
+need_cmd nohup
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly ROOT_DIR
+
+HOST="127.0.0.1"
+PORT=""
+PORT_EXPLICIT="false"
+API_KEY="sk-dummy"
+MODEL=""
+PROFILE="codex"
+NO_START="false"
+SHOW_MODELS="false"
+NO_VALIDATE="false"
+
+# --- Args ---
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -m | --model)
+            MODEL="${2:-}"
+            shift 2
+            ;;
+        -p | --profile)
+            PROFILE="${2:-}"
+            shift 2
+            ;;
+        --models)
+            SHOW_MODELS="true"
+            shift
+            ;;
+        --host)
+            HOST="${2:-}"
+            shift 2
+            ;;
+        --port)
+            PORT="${2:-}"
+            PORT_EXPLICIT="true"
+            shift 2
+            ;;
+        --api-key)
+            API_KEY="${2:-}"
+            shift 2
+            ;;
+        --no-start)
+            NO_START="true"
+            shift
+            ;;
+        --no-validate)
+            NO_VALIDATE="true"
+            shift
+            ;;
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+# --- Per-profile defaults ---
+
+if [[ "${SHOW_MODELS}" == "true" ]]; then
+    list_models "${PROFILE}"
+    exit 0
+fi
+
+if [[ "${PORT_EXPLICIT}" == "false" ]]; then
+    case "${PROFILE}" in
+        antigravity) PORT="8080" ;;
+        *) PORT="8317" ;;
+    esac
+fi
+if [[ "${API_KEY}" == "sk-dummy" ]]; then
+    case "${PROFILE}" in
+        antigravity) API_KEY="test" ;;
+        *) ;;
+    esac
+fi
+
+# Default model per profile (when -m is not provided)
+if [[ -z "${MODEL}" ]]; then
+    case "${PROFILE}" in
+        antigravity) MODEL="${ANTIGRAVITY_DEFAULT}" ;;
+        codex) MODEL="${CODEX_DEFAULT}" ;;
+        *) ;;
+    esac
+fi
+
+# Validate model against profile's known models
+if [[ -n "${MODEL}" && "${NO_VALIDATE}" == "false" ]]; then
+    validate_model "${MODEL}" "${PROFILE}" || exit 1
+fi
+
+proxy_url="http://${HOST}:${PORT}"
+readonly proxy_url
+
+# --- Proxy lifecycle ---
+
+is_proxy_up() {
+    curl -s --max-time 0.2 -o /dev/null "$proxy_url/" 2>/dev/null || return 1
+}
+
+start_proxy_bg() {
+    local start_script=""
+
+    case "${PROFILE}" in
+        codex)
+            start_script="${ROOT_DIR}/bin/proxy-start-codex.sh"
+            ;;
+        none)
+            echo "Profile 'none' cannot start the proxy." >&2
+            return 1
+            ;;
+        *)
+            start_script="${ROOT_DIR}/bin/proxy-start-${PROFILE}.sh"
+            ;;
+    esac
+
+    if [[ ! -x "${start_script}" ]]; then
+        echo "Start script not found or not executable: ${start_script}" >&2
+        echo "Either use --no-start, or create bin/proxy-start-${PROFILE}.sh" >&2
+        return 1
+    fi
+
+    local proxy_log
+    proxy_log="${PROXY_LOG:-$HOME/.cli-proxy-api/cli-proxy-api.log}"
+    mkdir -p "$(dirname "${proxy_log}")"
+
+    HOST="${HOST}" \
+        PORT="${PORT}" \
+        API_KEY="${API_KEY}" \
+        MODEL="${MODEL:-}" \
+        CLI_PROXY_DIR="${CLI_PROXY_DIR:-}" \
+        nohup "${start_script}" >"${proxy_log}" 2>&1 &
+}
+
+if ! is_proxy_up; then
+    if [[ "${NO_START}" == "true" ]]; then
+        echo "Proxy not reachable at ${proxy_url} (and --no-start was set)." >&2
+        exit 1
+    fi
+
+    echo "Proxy not reachable at ${proxy_url} — starting (profile=${PROFILE})..." >&2
+    start_proxy_bg
+
+    for _ in {1..50}; do
+        if is_proxy_up; then
+            break
+        fi
+        sleep 0.1
+    done
+
+    if ! is_proxy_up; then
+        echo "Proxy still not reachable at ${proxy_url}." >&2
+        echo "Check logs: ${PROXY_LOG:-$HOME/.cli-proxy-api/cli-proxy-api.log}" >&2
+        exit 1
+    fi
+fi
+
+# --- Run Claude ---
+if [[ -n "${MODEL}" ]]; then
+    ANTHROPIC_BASE_URL="${proxy_url}" \
+        ANTHROPIC_AUTH_TOKEN="${API_KEY}" \
+        ANTHROPIC_DEFAULT_OPUS_MODEL="${MODEL}" \
+        ANTHROPIC_DEFAULT_SONNET_MODEL="${MODEL}" \
+        ANTHROPIC_DEFAULT_HAIKU_MODEL="${MODEL}" \
+        exec claude "$@"
+else
+    ANTHROPIC_BASE_URL="${proxy_url}" \
+        ANTHROPIC_AUTH_TOKEN="${API_KEY}" \
+        exec claude "$@"
+fi

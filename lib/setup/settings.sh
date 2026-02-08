@@ -177,6 +177,58 @@ PYTHON_SCRIPT
     fi
 }
 
+configure_proxy_path() {
+    local bin_dir="${REPO_DIR}/bin"
+    local marker="# claude-code-config: proxy launcher PATH"
+
+    # Detect shell profile
+    local shell_profile=""
+    case "${SHELL:-}" in
+        */zsh) shell_profile="${HOME}/.zshrc" ;;
+        */bash) shell_profile="${HOME}/.bashrc" ;;
+        *) shell_profile="${HOME}/.profile" ;;
+    esac
+
+    if [[ ! -f "${shell_profile}" ]]; then
+        touch "${shell_profile}"
+    fi
+
+    # Check if already configured (with any path — handles repo moves)
+    if grep -qF "${marker}" "${shell_profile}" 2>/dev/null; then
+        # Extract the current path from the existing line
+        local existing_path
+        existing_path="$(grep -A1 "${marker}" "${shell_profile}" | grep 'export PATH=' | head -1 | sed 's/.*PATH="\(.*\)\/bin:.*/\1/')"
+
+        if [[ "${existing_path}" == "${REPO_DIR}" ]]; then
+            echo "  ✓ Proxy launcher PATH already configured in ${shell_profile}"
+        else
+            echo "  ↻ Updating proxy launcher PATH (repo moved)..."
+            # Remove old marker + export line, then re-add
+            local tmp
+            tmp="$(mktemp)"
+            awk -v marker="${marker}" '
+                $0 == marker { skip=1; next }
+                skip && /^export PATH=/ { skip=0; next }
+                { skip=0; print }
+            ' "${shell_profile}" >"${tmp}"
+            mv "${tmp}" "${shell_profile}"
+
+            printf '\n%s\nexport PATH="%s:$PATH"\n' "${marker}" "${bin_dir}" >>"${shell_profile}"
+            echo "  ✓ Proxy launcher PATH updated in ${shell_profile}"
+            echo "    Old: ${existing_path}/bin"
+            echo "    New: ${bin_dir}"
+        fi
+    else
+        printf '\n%s\nexport PATH="%s:$PATH"\n' "${marker}" "${bin_dir}" >>"${shell_profile}"
+        echo "  ✓ Proxy launcher PATH added to ${shell_profile}"
+    fi
+
+    echo ""
+    echo "  Run 'source ${shell_profile}' or open a new terminal, then:"
+    echo "    claude-proxy --help"
+    echo "    claude-proxy -p antigravity --models"
+}
+
 configure_statusline() {
     if python3 - "${SETTINGS_JSON}" <<'PYTHON_CHECK' 2>/dev/null; then
 import json

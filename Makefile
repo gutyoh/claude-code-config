@@ -12,11 +12,16 @@
 
 # --- Configuration ---
 
-# All shell scripts in the repo (excluding node_modules, .venv, etc.)
+# All shell scripts in the repo (excluding node_modules, .venv, tmp dirs, etc.)
 SHELL_SCRIPTS := $(shell find . -name '*.sh' \
 	-not -path './.git/*' \
 	-not -path './node_modules/*' \
 	-not -path './.venv/*' \
+	-not -path './tmp-*/.venv/*' \
+	| sort)
+
+# Extensionless executables in bin/ (bash scripts without .sh suffix)
+BIN_SCRIPTS := $(shell find ./bin -maxdepth 1 -type f ! -name '*.sh' ! -name '*.ps1' \
 	| sort)
 
 # shfmt flags: 4-space indent, case indent, binary ops start of line
@@ -45,21 +50,21 @@ help: ## Show this help message
 	@echo "  install-tools - Install shellcheck, shfmt, and bats-core"
 	@echo "  clean         - Remove temporary files (lock files, timestamps)"
 	@echo ""
-	@echo "Shell scripts found: $(words $(SHELL_SCRIPTS))"
+	@echo "Shell scripts found: $(words $(SHELL_SCRIPTS) $(BIN_SCRIPTS))"
 
 lint: ## Lint all shell scripts with shellcheck
-	@echo "Running shellcheck on $(words $(SHELL_SCRIPTS)) scripts..."
-	@shellcheck $(SHELLCHECK_FLAGS) $(SHELL_SCRIPTS)
+	@echo "Running shellcheck on $(words $(SHELL_SCRIPTS) $(BIN_SCRIPTS)) scripts..."
+	@shellcheck $(SHELLCHECK_FLAGS) $(SHELL_SCRIPTS) $(BIN_SCRIPTS)
 	@echo "shellcheck: all scripts pass"
 
 format: ## Format all shell scripts with shfmt (modifies files)
-	@echo "Formatting $(words $(SHELL_SCRIPTS)) scripts..."
-	@shfmt -w $(SHFMT_FLAGS) $(SHELL_SCRIPTS)
+	@echo "Formatting $(words $(SHELL_SCRIPTS) $(BIN_SCRIPTS)) scripts..."
+	@shfmt -w $(SHFMT_FLAGS) $(SHELL_SCRIPTS) $(BIN_SCRIPTS)
 	@echo "shfmt: all scripts formatted"
 
 format-check: ## Check formatting without modifying files
-	@echo "Checking formatting on $(words $(SHELL_SCRIPTS)) scripts..."
-	@shfmt -d $(SHFMT_FLAGS) $(SHELL_SCRIPTS)
+	@echo "Checking formatting on $(words $(SHELL_SCRIPTS) $(BIN_SCRIPTS)) scripts..."
+	@shfmt -d $(SHFMT_FLAGS) $(SHELL_SCRIPTS) $(BIN_SCRIPTS)
 	@echo "shfmt: all scripts correctly formatted"
 
 test: ## Run bats-core test suite

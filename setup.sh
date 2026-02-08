@@ -12,7 +12,8 @@
 #   --no-agents            Skip agents & skills installation
 #   --agent-teams          Enable agent teams (experimental)
 #   --no-agent-teams       Disable agent teams
-#   --minimal              Core only (no agents, skills, MCP, or agent teams)
+#   --no-proxy-path        Skip proxy launcher PATH setup
+#   --minimal              Core only (no agents, skills, MCP, agent teams, or proxy PATH)
 #   --overwrite-settings   Replace settings.json with repo defaults
 #   --skip-settings        Don't modify settings.json
 #   --theme THEME          Statusline color theme (dark|light|colorblind|none)
@@ -53,6 +54,7 @@ STATUSLINE_ICON=""                   # Prefix icon: "✻", "A\", "❋", etc. or 
 STATUSLINE_ICON_STYLE="plain"        # plain|bold|bracketed|rounded|reverse|bold-color|angle|double-bracket
 STATUSLINE_WEEKLY_SHOW_RESET="false" # Show weekly reset countdown inline
 INSTALL_AGENT_TEAMS="true"
+INSTALL_PROXY_PATH="true"
 ACCEPT_DEFAULTS="false"
 USER_CUSTOMIZED_STATUSLINE="false" # Set to true when user goes through TUI statusline customization
 
@@ -261,6 +263,20 @@ EOF
     else
         step=$((step + 1))
         echo "Step ${step}: Skipping settings.json configuration (not selected)"
+    fi
+
+    echo ""
+
+    # --- Configure proxy launcher PATH ---
+    if [[ "${INSTALL_PROXY_PATH}" == "true" ]]; then
+        step=$((step + 1))
+        echo "Step ${step}: Configuring proxy launcher PATH..."
+        echo ""
+
+        configure_proxy_path
+    else
+        step=$((step + 1))
+        echo "Step ${step}: Skipping proxy launcher PATH (not selected)"
     fi
 
     echo ""
