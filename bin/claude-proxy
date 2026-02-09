@@ -61,7 +61,7 @@ readonly CODEX_MODELS=(
     "gpt-5.1-codex-mini"
 )
 readonly CODEX_EFFORTS=("low" "medium" "high")
-readonly CODEX_XHIGH_MODELS=("gpt-5.2-codex" "gpt-5.2")
+readonly CODEX_XHIGH_MODELS=("gpt-5.3-codex" "gpt-5.2-codex" "gpt-5.2")
 readonly CODEX_DEFAULT="gpt-5.3-codex(high)"
 
 # --- Helpers ---
@@ -139,7 +139,7 @@ list_models() {
             echo ""
             printf "  %-25s %s\n" "MODEL" "EFFORT LEVELS"
             printf "  %-25s %s\n" "-----" "-------------"
-            printf "  %-25s %s\n" "gpt-5.3-codex" "low  medium  high           (default: high)"
+            printf "  %-25s %s\n" "gpt-5.3-codex" "low  medium  high  xhigh    (default: high)"
             printf "  %-25s %s\n" "gpt-5.2-codex" "low  medium  high  xhigh"
             printf "  %-25s %s\n" "gpt-5.2" "low  medium  high  xhigh"
             printf "  %-25s %s\n" "gpt-5.1-codex-max" "low  medium  high"
@@ -286,7 +286,7 @@ fi
 
 if [[ "${PORT_EXPLICIT}" == "false" ]]; then
     case "${PROFILE}" in
-        antigravity) PORT="8080" ;;
+        antigravity) PORT="8081" ;;
         *) PORT="8317" ;;
     esac
 fi
@@ -374,6 +374,53 @@ if ! is_proxy_up; then
         echo "Proxy still not reachable at ${proxy_url}." >&2
         echo "Check logs: ${PROXY_LOG:-$HOME/.cli-proxy-api/cli-proxy-api.log}" >&2
         exit 1
+    fi
+fi
+
+# --- Session verification (antigravity) ---
+
+_test_antigravity_session() {
+    local http_code
+    http_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+        -X POST "${proxy_url}/v1/messages" \
+        -H "Content-Type: application/json" \
+        -H "x-api-key: ${API_KEY}" \
+        -H "anthropic-version: 2023-06-01" \
+        -d '{"model":"'"${MODEL}"'","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}')
+    case "${http_code}" in
+        405 | 401 | 403) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+_open_url() {
+    if command -v open >/dev/null 2>&1; then
+        open "$1"
+    elif command -v xdg-open >/dev/null 2>&1; then
+        xdg-open "$1"
+    else
+        echo "  Open in your browser: $1" >&2
+    fi
+}
+
+if [[ "${PROFILE}" == "antigravity" ]]; then
+    if ! _test_antigravity_session; then
+        echo "" >&2
+        echo "Antigravity session expired or no Google account linked." >&2
+        echo "" >&2
+        _open_url "${proxy_url}"
+        echo "Re-authenticate in your browser:" >&2
+        echo "  1. Go to Accounts → add or re-add your Google account" >&2
+        echo "  2. Complete Google OAuth" >&2
+        echo "  3. Return here and press Enter" >&2
+        echo "" >&2
+        read -r -p "Press Enter when done (Ctrl+C to abort)... "
+
+        if ! _test_antigravity_session; then
+            echo "Session still invalid. Check ${proxy_url} and try again." >&2
+            exit 1
+        fi
+        echo "Session verified — launching Claude Code." >&2
     fi
 fi
 

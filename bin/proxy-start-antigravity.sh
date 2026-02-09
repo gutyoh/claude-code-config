@@ -17,4 +17,4 @@ need_cmd() {
 need_cmd node
 need_cmd npx
 
-PORT="${PORT:-8080}" exec npx antigravity-claude-proxy@latest start
+PORT="${PORT:-8081}" exec npx antigravity-claude-proxy@latest start

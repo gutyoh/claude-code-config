@@ -695,7 +695,7 @@ Uses your Google account to access Claude and Gemini models for free via [Antigr
 # Start the proxy manually
 npx antigravity-claude-proxy@latest start
 
-# Open http://localhost:8080 in your browser
+# Open http://localhost:8081 in your browser
 # Go to Accounts → Add Account → complete Google OAuth
 # Once linked, press Ctrl+C to stop
 ```
@@ -735,7 +735,7 @@ Uses your existing OpenAI Codex/ChatGPT subscription tokens via [CLIProxyAPI](ht
 | Profile | Backend | Port | Auth Token | Models |
 |---------|---------|------|------------|--------|
 | `codex` (default) | [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) | 8317 | `sk-dummy` | GPT / Codex |
-| `antigravity` | [Antigravity Claude Proxy](https://github.com/badrisnarayanan/antigravity-claude-proxy) | 8080 | `test` | Claude / Gemini |
+| `antigravity` | [Antigravity Claude Proxy](https://github.com/badrisnarayanan/antigravity-claude-proxy) | 8081 | `test` | Claude / Gemini |
 | `none` | (external) | 8317 | `sk-dummy` | Any (proxy must be pre-started) |
 
 Port and auth token are per-profile defaults — override them with `--port` and `--api-key` if needed.
@@ -832,7 +832,7 @@ Common causes:
 <details>
 <summary><strong>Antigravity shows "No accounts in config"</strong></summary>
 
-The proxy is running but no Google account is linked. Open `http://localhost:8080`, go to **Accounts**, and click **Add Account** to complete OAuth.
+The proxy is running but no Google account is linked. Open `http://localhost:8081`, go to **Accounts**, and click **Add Account** to complete OAuth.
 
 </details>
 
@@ -861,7 +861,7 @@ CLI_PROXY_DIR=~/path/to/CLIProxyAPI ./bin/claude-proxy -m 'gpt-5.3-codex(high)'
 Since each profile uses a different port, you can run them side-by-side:
 
 ```bash
-# Terminal 1: Antigravity on :8080
+# Terminal 1: Antigravity on :8081
 ./bin/claude-proxy -p antigravity -m 'claude-sonnet-4-5-thinking'
 
 # Terminal 2: Codex on :8317
@@ -880,9 +880,9 @@ The proxy launcher is an alternative to manually setting environment variables. 
 ./bin/claude-proxy -p antigravity -m 'claude-sonnet-4-5-thinking'
 
 # Option B: Manual environment variables
-export ANTHROPIC_BASE_URL="http://localhost:8080"
+export ANTHROPIC_BASE_URL="http://localhost:8081"
 export ANTHROPIC_AUTH_TOKEN="test"
-export ANTHROPIC_DEFAULT_OPUS_MODEL="claude-sonnet-4-5-thinking"
+export ANTHROPIC_DEFAULT_OPUS_MODEL="claude-opus-4-5-thinking"
 export ANTHROPIC_DEFAULT_SONNET_MODEL="claude-sonnet-4-5-thinking"
 export ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-sonnet-4-5-thinking"
 claude
