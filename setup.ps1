@@ -494,7 +494,7 @@ if ($InstallMcp) {
         Write-Host "    2. Under User variables, click New"
         Write-Host "    3. Set BRAVE_API_KEY with your API key value"
         Write-Host ""
-        Write-Host "  Get a free API key (2,000 searches/month):"
+        Write-Host "  Get a free API key (1,000 searches/month, `$5 free credits):"
         Write-Host "    https://api-dashboard.search.brave.com/"
     }
 } else {

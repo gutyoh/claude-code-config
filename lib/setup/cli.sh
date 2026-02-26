@@ -9,7 +9,8 @@ show_usage() {
     echo ""
     echo "Options:"
     echo "  -y, --yes              Accept all defaults without prompting"
-    echo "  --no-mcp               Skip Brave Search MCP server installation"
+    echo "  --mcp LIST             Comma-separated MCP servers to install (brave-search,tavily)"
+    echo "  --no-mcp               Skip all MCP server installation"
     echo "  --no-agents            Skip agents & skills installation"
     echo "  --agent-teams          Enable agent teams (experimental)"
     echo "  --no-agent-teams       Disable agent teams"
@@ -35,10 +36,15 @@ show_usage() {
     echo "  model, usage, weekly, reset, tokens_in, tokens_out, tokens_cache,"
     echo "  cost, burn_rate, email, version, lines, session_time, cwd"
     echo ""
+    echo "Available MCP servers:"
+    echo "  brave-search, tavily"
+    echo ""
     echo "Examples:"
     echo "  ./setup.sh                     # Interactive mode (recommended)"
     echo "  ./setup.sh -y                  # Full install, no prompts"
-    echo "  ./setup.sh -y --no-mcp         # Full install without Brave Search MCP"
+    echo "  ./setup.sh -y --no-mcp         # Full install without MCP servers"
+    echo "  ./setup.sh -y --mcp brave-search  # Only install Brave Search MCP"
+    echo "  ./setup.sh -y --mcp brave-search,tavily  # Install both (default)"
     echo "  ./setup.sh -y --minimal        # Core only (hooks, scripts, commands)"
     echo "  ./setup.sh -y --theme colorblind  # Full install with colorblind theme"
     echo "  ./setup.sh -y --bar-style block --bar-pct-inside --components model,usage,cost"
@@ -52,8 +58,33 @@ parse_arguments() {
                 ACCEPT_DEFAULTS="true"
                 shift
                 ;;
+            --mcp)
+                if [[ $# -lt 2 ]]; then
+                    echo "Error: --mcp requires a comma-separated list (brave-search,tavily)"
+                    exit 1
+                fi
+                INSTALL_MCP_SERVERS=()
+                IFS=',' read -ra _mcp_items <<<"$2"
+                local _mcp_item
+                for _mcp_item in "${_mcp_items[@]}"; do
+                    local _mcp_valid=false
+                    local _mcp_key
+                    for _mcp_key in "${MCP_SERVER_KEYS[@]}"; do
+                        if [[ "${_mcp_item}" == "${_mcp_key}" ]]; then
+                            _mcp_valid=true
+                            break
+                        fi
+                    done
+                    if [[ "${_mcp_valid}" == "false" ]]; then
+                        echo "Error: Unknown MCP server '${_mcp_item}'. Available: ${MCP_SERVER_KEYS[*]}"
+                        exit 1
+                    fi
+                    INSTALL_MCP_SERVERS+=("${_mcp_item}")
+                done
+                shift 2
+                ;;
             --no-mcp)
-                INSTALL_MCP="false"
+                INSTALL_MCP_SERVERS=()
                 shift
                 ;;
             --no-agents)
@@ -70,7 +101,7 @@ parse_arguments() {
                 ;;
             --minimal)
                 INSTALL_AGENTS_SKILLS="false"
-                INSTALL_MCP="false"
+                INSTALL_MCP_SERVERS=()
                 INSTALL_AGENT_TEAMS="false"
                 INSTALL_PROXY_PATH="false"
                 shift

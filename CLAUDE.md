@@ -87,6 +87,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   └── commands/                # Custom slash commands
 │       ├── web-search.md
 │       ├── brave-search.md
+│       ├── tavily-search.md
 │       └── pr.md
 ├── branch_protection_rules/     # GitHub Ruleset templates
 │   ├── trunk-based/             # GitHub Flow (current)
@@ -112,12 +113,13 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 ## Available Capabilities
 
 ### MCP Servers
-- **brave-search**: Internet search via Brave Search API
+- **brave-search**: Internet search via Brave Search API (web, image, video, news, local)
+- **tavily**: AI-native search, extract, crawl, map, and research via Tavily API
 
 ### Skills
 - **d2-tala-standards**: D2 diagramming standards with TALA layout engine for clean, professional architecture diagrams
 - **databricks-standards**: Databricks engineering standards for safe, efficient workspace interaction via CLI
-- **internet-research**: Expert internet research capabilities using Brave Search
+- **internet-research**: Expert internet research using Tavily and Brave Search (task-based routing)
 - **kedro-standards**: Kedro engineering standards for building clean, modular, production-ready data pipelines (Kedro 1.0+)
 - **pr-operations**: Cross-platform PR/MR operations for GitHub, GitLab, and Azure DevOps (platform detection, CLI commands, workflow detection)
 - **pr-writing**: Expert PR and commit message writing following Conventional Commits
@@ -137,6 +139,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 
 ### Commands
 - `/web-search <query>`: Quick search using Claude's built-in WebSearch tool
+- `/tavily-search <query>`: AI-native search using Tavily MCP (requires `TAVILY_API_KEY`)
 - `/brave-search <query>`: Search using Brave Search MCP (requires `BRAVE_API_KEY`)
 - `/pr [base-branch]`: Create PR/MR with Conventional Commits formatting (GitHub/GitLab/Azure DevOps)
 
@@ -155,6 +158,7 @@ Set these in your shell before running Claude Code:
 
 ```bash
 export BRAVE_API_KEY="your-key-here"
+export TAVILY_API_KEY="your-key-here"
 
 # Optional: Brave Search rate limit (default: 1100ms for free tier)
 # Set to 50 for paid plans (20 req/sec)

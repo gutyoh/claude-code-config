@@ -161,7 +161,7 @@ Then reload: `source ~/.zshrc`
 
 | | |
 |---|---|
-| **Free tier** | 2,000 searches/month |
+| **Free tier** | 1,000 searches/month ($5 free credits) |
 | **Sign up** | https://api-dashboard.search.brave.com/ |
 
 **Steps:**
@@ -169,6 +169,19 @@ Then reload: `source ~/.zshrc`
 2. Sign up or log in with your account
 3. Click **"Create API Key"**
 4. Copy the key and add to your shell profile
+
+### Tavily API (Required for `/tavily-search`)
+
+| | |
+|---|---|
+| **Free tier** | 1,000 credits/month |
+| **Sign up** | https://tavily.com |
+
+**Steps:**
+1. Go to https://tavily.com
+2. Sign up or log in with your account
+3. Copy your API key from the dashboard
+4. Add to your shell profile
 
 ### SonarQube API (Optional for `sonarqube-fixer`)
 

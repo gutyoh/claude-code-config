@@ -39,7 +39,8 @@ set -euo pipefail
 # --- Model Registry ---
 
 readonly ANTIGRAVITY_MODELS=(
-    "claude-opus-4-5-thinking"
+    "claude-opus-4-6-thinking"
+    "claude-sonnet-4-6"
     "claude-sonnet-4-5-thinking"
     "claude-sonnet-4-5"
     "gemini-3-pro-high"
@@ -51,7 +52,7 @@ readonly ANTIGRAVITY_MODELS=(
     "gemini-2.5-flash-thinking"
     "gemini-2.5-flash-lite"
 )
-readonly ANTIGRAVITY_DEFAULT="claude-opus-4-5-thinking"
+readonly ANTIGRAVITY_DEFAULT="claude-opus-4-6-thinking"
 
 readonly CODEX_MODELS=(
     "gpt-5.3-codex"
@@ -116,12 +117,40 @@ _in_array() {
 
 list_models() {
     local profile="$1"
+    local proxy_url="${2:-}"
+
+    # Try live discovery first
+    if [[ -n "${proxy_url}" ]]; then
+        local live_models
+        if live_models=$(fetch_proxy_models "${proxy_url}"); then
+            echo "Available models for profile '${profile}' (live from proxy):"
+            echo ""
+            while IFS= read -r model_id; do
+                echo "  ${model_id}"
+            done <<<"${live_models}"
+            echo ""
+            case "${profile}" in
+                antigravity)
+                    echo "  Gemini models accept an optional context window suffix: model[1m]"
+                    echo "  Default: ${ANTIGRAVITY_DEFAULT}"
+                    ;;
+                codex)
+                    echo "  Format: model(effort)  e.g. gpt-5.3-codex(high)"
+                    echo "  Default: ${CODEX_DEFAULT}"
+                    ;;
+            esac
+            return 0
+        fi
+    fi
+
+    # Fall back to static lists
     case "${profile}" in
         antigravity)
-            echo "Available models for profile 'antigravity':"
+            echo "Available models for profile 'antigravity' (static — proxy not reachable):"
             echo ""
             echo "  Claude"
-            printf "    %-30s %s\n" "claude-opus-4-5-thinking" "(default)"
+            printf "    %-30s %s\n" "claude-opus-4-6-thinking" "(default)"
+            printf "    %-30s\n" "claude-sonnet-4-6"
             printf "    %-30s\n" "claude-sonnet-4-5-thinking"
             printf "    %-30s\n" "claude-sonnet-4-5"
             echo ""
@@ -135,7 +164,7 @@ list_models() {
             echo "  Default: ${ANTIGRAVITY_DEFAULT}"
             ;;
         codex)
-            echo "Available models for profile 'codex':"
+            echo "Available models for profile 'codex' (static — proxy not reachable):"
             echo ""
             printf "  %-25s %s\n" "MODEL" "EFFORT LEVELS"
             printf "  %-25s %s\n" "-----" "-------------"
@@ -158,16 +187,34 @@ list_models() {
 validate_model() {
     local model="$1"
     local profile="$2"
+    local proxy_url="${3:-}"
 
     case "${profile}" in
         antigravity)
             # Strip optional [context] suffix: gemini-3-pro-high[1m] → gemini-3-pro-high
             local base="${model%%\[*}"
+
+            # Try live validation first
+            if [[ -n "${proxy_url}" ]]; then
+                local live_models
+                if live_models=$(fetch_proxy_models "${proxy_url}"); then
+                    if echo "${live_models}" | grep -qx "${base}"; then
+                        return 0
+                    fi
+                    echo "Error: unknown model '${model}' for profile '${profile}'." >&2
+                    echo "  Use --no-validate to bypass (e.g. for newly added models)." >&2
+                    echo "" >&2
+                    list_models "${profile}" "${proxy_url}" >&2
+                    return 1
+                fi
+            fi
+
+            # Fall back to static validation
             if ! _in_array "${base}" "${ANTIGRAVITY_MODELS[@]}"; then
                 echo "Error: unknown model '${model}' for profile '${profile}'." >&2
                 echo "  Use --no-validate to bypass (e.g. for newly added models)." >&2
                 echo "" >&2
-                list_models "${profile}" >&2
+                list_models "${profile}" "${proxy_url}" >&2
                 return 1
             fi
             ;;
@@ -180,14 +227,34 @@ validate_model() {
                 base="${model}"
             fi
 
-            if ! _in_array "${base}" "${CODEX_MODELS[@]}"; then
-                echo "Error: unknown model '${base}' for profile '${profile}'." >&2
-                echo "  Use --no-validate to bypass (e.g. for newly added models)." >&2
-                echo "" >&2
-                list_models "${profile}" >&2
-                return 1
+            # Try live validation for base model (effort is always validated statically)
+            local live_validated="false"
+            if [[ -n "${proxy_url}" ]]; then
+                local live_models
+                if live_models=$(fetch_proxy_models "${proxy_url}"); then
+                    if ! echo "${live_models}" | grep -qx "${base}"; then
+                        echo "Error: unknown model '${base}' for profile '${profile}'." >&2
+                        echo "  Use --no-validate to bypass (e.g. for newly added models)." >&2
+                        echo "" >&2
+                        list_models "${profile}" "${proxy_url}" >&2
+                        return 1
+                    fi
+                    live_validated="true"
+                fi
             fi
 
+            # Fall back to static base-model validation
+            if [[ "${live_validated}" == "false" ]]; then
+                if ! _in_array "${base}" "${CODEX_MODELS[@]}"; then
+                    echo "Error: unknown model '${base}' for profile '${profile}'." >&2
+                    echo "  Use --no-validate to bypass (e.g. for newly added models)." >&2
+                    echo "" >&2
+                    list_models "${profile}" "${proxy_url}" >&2
+                    return 1
+                fi
+            fi
+
+            # Effort validation is always static (proxy doesn't know about effort levels)
             if [[ -n "${effort}" ]]; then
                 if [[ "${effort}" == "xhigh" ]]; then
                     if ! _in_array "${base}" "${CODEX_XHIGH_MODELS[@]}"; then
@@ -216,6 +283,8 @@ need_cmd nohup
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly ROOT_DIR
+
+source "${ROOT_DIR}/lib/proxy/preflight.sh"
 
 HOST="127.0.0.1"
 PORT=""
@@ -279,11 +348,8 @@ done
 
 # --- Per-profile defaults ---
 
-if [[ "${SHOW_MODELS}" == "true" ]]; then
-    list_models "${PROFILE}"
-    exit 0
-fi
-
+# PORT and API_KEY defaults must be set before --models so the proxy URL
+# can be constructed for live /v1/models queries.
 if [[ "${PORT_EXPLICIT}" == "false" ]]; then
     case "${PROFILE}" in
         antigravity) PORT="8081" ;;
@@ -297,6 +363,11 @@ if [[ "${API_KEY}" == "sk-dummy" ]]; then
     esac
 fi
 
+if [[ "${SHOW_MODELS}" == "true" ]]; then
+    list_models "${PROFILE}" "http://${HOST}:${PORT}"
+    exit 0
+fi
+
 # Default model per profile (when -m is not provided)
 if [[ -z "${MODEL}" ]]; then
     case "${PROFILE}" in
@@ -308,7 +379,15 @@ fi
 
 # Validate model against profile's known models
 if [[ -n "${MODEL}" && "${NO_VALIDATE}" == "false" ]]; then
-    validate_model "${MODEL}" "${PROFILE}" || exit 1
+    validate_model "${MODEL}" "${PROFILE}" "http://${HOST}:${PORT}" || exit 1
+fi
+
+# --- Preflight: codex token freshness ---
+if [[ "${PROFILE}" == "codex" ]]; then
+    _codex_auth="${HOME}/.codex/auth.json"
+    if [[ -f "$_codex_auth" ]]; then
+        check_codex_token_freshness "$_codex_auth" "${CODEX_TOKEN_MAX_AGE_HOURS:-48}" || true
+    fi
 fi
 
 proxy_url="http://${HOST}:${PORT}"
@@ -378,37 +457,12 @@ if ! is_proxy_up; then
 fi
 
 # --- Session verification (antigravity) ---
-
-_test_antigravity_session() {
-    local http_code
-    http_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
-        -X POST "${proxy_url}/v1/messages" \
-        -H "Content-Type: application/json" \
-        -H "x-api-key: ${API_KEY}" \
-        -H "anthropic-version: 2023-06-01" \
-        -d '{"model":"'"${MODEL}"'","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}')
-    case "${http_code}" in
-        405 | 401 | 403) return 1 ;;
-        *) return 0 ;;
-    esac
-}
-
-_open_url() {
-    if command -v open >/dev/null 2>&1; then
-        open "$1"
-    elif command -v xdg-open >/dev/null 2>&1; then
-        xdg-open "$1"
-    else
-        echo "  Open in your browser: $1" >&2
-    fi
-}
-
 if [[ "${PROFILE}" == "antigravity" ]]; then
-    if ! _test_antigravity_session; then
+    if ! test_antigravity_session "${proxy_url}" "${API_KEY}" "${MODEL}"; then
         echo "" >&2
         echo "Antigravity session expired or no Google account linked." >&2
         echo "" >&2
-        _open_url "${proxy_url}"
+        open_url "${proxy_url}"
         echo "Re-authenticate in your browser:" >&2
         echo "  1. Go to Accounts → add or re-add your Google account" >&2
         echo "  2. Complete Google OAuth" >&2
@@ -416,7 +470,7 @@ if [[ "${PROFILE}" == "antigravity" ]]; then
         echo "" >&2
         read -r -p "Press Enter when done (Ctrl+C to abort)... "
 
-        if ! _test_antigravity_session; then
+        if ! test_antigravity_session "${proxy_url}" "${API_KEY}" "${MODEL}"; then
             echo "Session still invalid. Check ${proxy_url} and try again." >&2
             exit 1
         fi

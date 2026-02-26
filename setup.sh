@@ -42,9 +42,9 @@ readonly CLAUDE_JSON="${HOME}/.claude.json"
 # --- Installation Options (defaults) ---
 
 INSTALL_AGENTS_SKILLS="true"
-INSTALL_MCP="true"
-SETTINGS_MODE="merge"   # merge | overwrite | skip
-STATUSLINE_THEME="dark" # dark | light | colorblind | none
+INSTALL_MCP_SERVERS=("brave-search" "tavily") # populated from MCP_SERVER_KEYS
+SETTINGS_MODE="merge"                         # merge | overwrite | skip
+STATUSLINE_THEME="dark"                       # dark | light | colorblind | none
 STATUSLINE_COMPONENTS="model,usage,weekly,reset,tokens_in,tokens_out,tokens_cache,cost,burn_rate,email"
 STATUSLINE_BAR_STYLE="text"
 STATUSLINE_BAR_PCT_INSIDE="false"
@@ -282,7 +282,7 @@ EOF
     echo ""
 
     # --- Configure MCP servers ---
-    if [[ "${INSTALL_MCP}" == "true" ]]; then
+    if [[ ${#INSTALL_MCP_SERVERS[@]} -gt 0 ]]; then
         step=$((step + 1))
         echo "Step ${step}: Configuring MCP servers (user scope)..."
         echo ""
@@ -295,17 +295,7 @@ EOF
         echo "Step ${step}: Environment variables"
         echo ""
 
-        if [[ -n "${BRAVE_API_KEY:-}" ]]; then
-            echo "  ✓ BRAVE_API_KEY is set (${#BRAVE_API_KEY} chars)"
-        else
-            echo "  ⚠ BRAVE_API_KEY not set. Add to your shell profile:"
-            echo ""
-            echo "    # Add to ~/.zshrc or ~/.bashrc:"
-            echo "    export BRAVE_API_KEY=\"your-api-key-here\""
-            echo ""
-            echo "    Get a free API key (2,000 searches/month):"
-            echo "    https://api-dashboard.search.brave.com/"
-        fi
+        check_mcp_env_vars
     else
         step=$((step + 1))
         echo "Step ${step}: Skipping MCP servers (not selected)"
@@ -321,8 +311,14 @@ EOF
     echo "  claude"
     echo "  > /help           # Should show custom commands"
 
-    if [[ "${INSTALL_MCP}" == "true" ]]; then
-        echo "  > /brave-search   # Test the MCP integration"
+    if [[ ${#INSTALL_MCP_SERVERS[@]} -gt 0 ]]; then
+        local _mcp_key
+        for _mcp_key in "${INSTALL_MCP_SERVERS[@]}"; do
+            case "${_mcp_key}" in
+                brave-search) echo "  > /brave-search   # Test Brave Search MCP" ;;
+                tavily) echo "  > /tavily-search  # Test Tavily MCP" ;;
+            esac
+        done
         echo ""
         echo "To check MCP server status:"
         echo "  claude mcp list"

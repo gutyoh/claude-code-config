@@ -17,7 +17,9 @@ setup() {
 
 @test "parse_arguments: defaults are set before parsing" {
     [ "$ACCEPT_DEFAULTS" = "false" ]
-    [ "$INSTALL_MCP" = "true" ]
+    [ "${#INSTALL_MCP_SERVERS[@]}" -eq 2 ]
+    [ "${INSTALL_MCP_SERVERS[0]}" = "brave-search" ]
+    [ "${INSTALL_MCP_SERVERS[1]}" = "tavily" ]
     [ "$INSTALL_AGENTS_SKILLS" = "true" ]
     [ "$SETTINGS_MODE" = "merge" ]
     [ "$STATUSLINE_THEME" = "dark" ]
@@ -37,9 +39,45 @@ setup() {
     [ "$ACCEPT_DEFAULTS" = "true" ]
 }
 
-@test "parse_arguments: --no-mcp disables MCP" {
+@test "parse_arguments: --no-mcp disables all MCP servers" {
     parse_arguments --no-mcp
-    [ "$INSTALL_MCP" = "false" ]
+    [ "${#INSTALL_MCP_SERVERS[@]}" -eq 0 ]
+}
+
+@test "parse_arguments: --mcp with single server" {
+    parse_arguments --mcp brave-search
+    [ "${#INSTALL_MCP_SERVERS[@]}" -eq 1 ]
+    [ "${INSTALL_MCP_SERVERS[0]}" = "brave-search" ]
+}
+
+@test "parse_arguments: --mcp with multiple servers" {
+    parse_arguments --mcp brave-search,tavily
+    [ "${#INSTALL_MCP_SERVERS[@]}" -eq 2 ]
+    [ "${INSTALL_MCP_SERVERS[0]}" = "brave-search" ]
+    [ "${INSTALL_MCP_SERVERS[1]}" = "tavily" ]
+}
+
+@test "parse_arguments: --mcp tavily only" {
+    parse_arguments --mcp tavily
+    [ "${#INSTALL_MCP_SERVERS[@]}" -eq 1 ]
+    [ "${INSTALL_MCP_SERVERS[0]}" = "tavily" ]
+}
+
+@test "parse_arguments: --mcp with invalid server exits with error" {
+    run bash -c "source '$SETUP' && parse_arguments --mcp nonexistent"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Unknown MCP server"* ]]
+}
+
+@test "parse_arguments: --mcp without value exits with error" {
+    run bash -c "source '$SETUP' && parse_arguments --mcp"
+    [ "$status" -ne 0 ]
+}
+
+@test "parse_arguments: --no-mcp then --mcp overrides" {
+    parse_arguments --no-mcp --mcp tavily
+    [ "${#INSTALL_MCP_SERVERS[@]}" -eq 1 ]
+    [ "${INSTALL_MCP_SERVERS[0]}" = "tavily" ]
 }
 
 @test "parse_arguments: --no-agents disables agents" {
@@ -49,7 +87,7 @@ setup() {
 
 @test "parse_arguments: --minimal disables MCP, agents, agent teams, and proxy PATH" {
     parse_arguments --minimal
-    [ "$INSTALL_MCP" = "false" ]
+    [ "${#INSTALL_MCP_SERVERS[@]}" -eq 0 ]
     [ "$INSTALL_AGENTS_SKILLS" = "false" ]
     [ "$INSTALL_AGENT_TEAMS" = "false" ]
     [ "$INSTALL_PROXY_PATH" = "false" ]
@@ -132,7 +170,7 @@ setup() {
 @test "parse_arguments: multiple flags combine correctly" {
     parse_arguments -y --no-mcp --theme colorblind --bar-style smooth
     [ "$ACCEPT_DEFAULTS" = "true" ]
-    [ "$INSTALL_MCP" = "false" ]
+    [ "${#INSTALL_MCP_SERVERS[@]}" -eq 0 ]
     [ "$STATUSLINE_THEME" = "colorblind" ]
     [ "$STATUSLINE_BAR_STYLE" = "smooth" ]
 }
