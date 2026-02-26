@@ -4,15 +4,20 @@
 
 show_install_menu() {
     local agents_label="yes"
-    local mcp_label="yes"
     local settings_label="merge (preserve existing, add new)"
     local pct_label="no"
 
     [[ "${INSTALL_AGENTS_SKILLS}" == "false" ]] && agents_label="no"
-    [[ "${INSTALL_MCP}" == "false" ]] && mcp_label="no"
     [[ "${SETTINGS_MODE}" == "overwrite" ]] && settings_label="overwrite (replace with repo defaults)"
     [[ "${SETTINGS_MODE}" == "skip" ]] && settings_label="skip (don't modify)"
     [[ "${STATUSLINE_BAR_PCT_INSIDE}" == "true" ]] && pct_label="yes"
+
+    # Build MCP servers display
+    local mcp_label="none"
+    if [[ ${#INSTALL_MCP_SERVERS[@]} -gt 0 ]]; then
+        mcp_label="${INSTALL_MCP_SERVERS[*]}"
+        mcp_label="${mcp_label// /, }"
+    fi
 
     local comp_display="${STATUSLINE_COMPONENTS//,/, }"
     [[ ${#comp_display} -gt 50 ]] && comp_display="${comp_display:0:47}..."
@@ -23,7 +28,7 @@ show_install_menu() {
     [[ "${INSTALL_AGENT_TEAMS}" == "false" ]] && teams_label="no"
 
     echo "  agents & skills:                  ${agents_label}"
-    echo "  brave search MCP:                 ${mcp_label}"
+    echo "  MCP search servers:               ${mcp_label}"
     local proxy_path_label="yes"
     [[ "${INSTALL_PROXY_PATH}" == "false" ]] && proxy_path_label="no"
 
@@ -74,14 +79,36 @@ customize_installation() {
         INSTALL_AGENTS_SKILLS="false"
     fi
 
-    # --- MCP ---
-    local mcp_default="yes"
-    [[ "${INSTALL_MCP}" == "false" ]] && mcp_default="no"
-    if tui_confirm "Install Brave Search MCP server?" "${mcp_default}"; then
-        INSTALL_MCP="true"
-    else
-        INSTALL_MCP="false"
-    fi
+    # --- MCP Servers (multi-select) ---
+    local mcp_init_selected=()
+    local i
+    for i in "${!MCP_SERVER_KEYS[@]}"; do
+        local key="${MCP_SERVER_KEYS[$i]}"
+        local j
+        for j in "${!INSTALL_MCP_SERVERS[@]}"; do
+            if [[ "${INSTALL_MCP_SERVERS[$j]}" == "${key}" ]]; then
+                mcp_init_selected+=("${i}")
+                break
+            fi
+        done
+    done
+
+    local mcp_descs=()
+    for key in "${MCP_SERVER_KEYS[@]}"; do
+        mcp_descs+=("${MCP_SERVER_DESCS[${key}]}")
+    done
+
+    local mcp_selected_indices=()
+    tui_multiselect mcp_selected_indices \
+        "MCP search servers (space: toggle, a: all, n: none, enter: confirm):" \
+        mcp_init_selected \
+        MCP_SERVER_KEYS \
+        mcp_descs
+
+    INSTALL_MCP_SERVERS=()
+    for i in "${mcp_selected_indices[@]}"; do
+        INSTALL_MCP_SERVERS+=("${MCP_SERVER_KEYS[$i]}")
+    done
 
     # --- Agent Teams ---
     local teams_default="yes"

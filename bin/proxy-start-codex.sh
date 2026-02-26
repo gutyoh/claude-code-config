@@ -22,6 +22,9 @@ need_cmd() {
 need_cmd jq
 need_cmd go
 
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "${_SCRIPT_DIR}/lib/proxy/preflight.sh"
+
 CLI_PROXY_DIR="${CLI_PROXY_DIR:-$HOME/Documents/dev/CLIProxyAPI}"
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8317}"
@@ -55,10 +58,10 @@ chmod 600 "$AUTH_FILE" || true
 
 cd "$CLI_PROXY_DIR"
 
-if [[ ! -x ./cli-proxy-api ]]; then
-    echo "Building ./cli-proxy-api ..."
-    go build -o cli-proxy-api ./cmd/server
-fi
+ensure_binary_current \
+    "./cli-proxy-api" \
+    "$CLI_PROXY_DIR" \
+    "go build -o cli-proxy-api ./cmd/server"
 
 CONFIG_FILE="./config.local.yaml"
 cat >"$CONFIG_FILE" <<EOF
