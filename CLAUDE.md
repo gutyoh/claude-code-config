@@ -11,7 +11,8 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 ```
 .
 ├── .mcp.json                    # MCP server configurations (portable)
-├── bin/                                # Proxy launcher scripts
+├── bin/                                # Utility scripts (installed to PATH by setup.sh)
+│   ├── mcp-key-rotate                  # MCP API key rotation (Brave, Tavily, etc.)
 │   ├── claude-proxy                    # Single entry point for all proxy profiles
 │   ├── proxy-start-codex.sh            # Profile: CLIProxyAPI + OpenAI Codex
 │   └── proxy-start-antigravity.sh      # Profile: Antigravity (Google Cloud Code)
@@ -88,6 +89,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │       ├── web-search.md
 │       ├── brave-search.md
 │       ├── tavily-search.md
+│       ├── mcp-key-rotate.md
 │       └── pr.md
 ├── branch_protection_rules/     # GitHub Ruleset templates
 │   ├── trunk-based/             # GitHub Flow (current)
@@ -141,6 +143,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 - `/web-search <query>`: Quick search using Claude's built-in WebSearch tool
 - `/tavily-search <query>`: AI-native search using Tavily MCP (requires `TAVILY_API_KEY`)
 - `/brave-search <query>`: Search using Brave Search MCP (requires `BRAVE_API_KEY`)
+- `/mcp-key-rotate <service> [action]`: Rotate MCP API keys, check quota (`--quota`), show pool (`--status`)
 - `/pr [base-branch]`: Create PR/MR with Conventional Commits formatting (GitHub/GitLab/Azure DevOps)
 
 ### Experimental Features
@@ -201,6 +204,18 @@ hotfix/* ──► PR to main (squash merge)
 See `branch_protection_rules/` for ready-to-use GitHub Ruleset configurations:
 - `trunk-based/` - Current workflow (recommended for 2026)
 - `gitflow/` - Enterprise/traditional workflow (archived)
+
+## MCP Quota Exhaustion (429 Handling)
+
+When a Brave Search or Tavily MCP call fails with HTTP 429 (quota exceeded):
+
+1. Tell the user their API quota is exhausted
+2. Run `mcp-key-rotate <service> --quota` to show per-key credit usage
+3. If another key has remaining credits, run `mcp-key-rotate <service>` to rotate
+4. Tell the user: **"Restart Claude Code for the new key to take effect"**
+5. Suggest `/web-search` as an immediate fallback (uses Claude's built-in search, no MCP key needed)
+
+Do NOT retry the same MCP call after a 429 — it will fail again with the same key.
 
 ## Conventions
 

@@ -139,6 +139,14 @@ main() {
     create_symlink "${REPO_DIR}/.claude/hooks" "${CLAUDE_DIR}/hooks" "hooks"
     create_symlink "${REPO_DIR}/.claude/scripts" "${CLAUDE_DIR}/scripts" "scripts"
 
+    # --- Install bin/ utilities to PATH ---
+    local bin_dir="${HOME}/.local/bin"
+    mkdir -p "${bin_dir}"
+    if [[ -x "${REPO_DIR}/bin/mcp-key-rotate" ]]; then
+        ln -sf "${REPO_DIR}/bin/mcp-key-rotate" "${bin_dir}/mcp-key-rotate"
+        echo "  ✓ ~/.local/bin/mcp-key-rotate -> ${REPO_DIR}/bin/mcp-key-rotate"
+    fi
+
     if [[ "${INSTALL_AGENTS_SKILLS}" == "true" ]]; then
         create_symlink "${REPO_DIR}/.claude/skills" "${CLAUDE_DIR}/skills" "skills"
         create_symlink "${REPO_DIR}/.claude/agents" "${CLAUDE_DIR}/agents" "agents"

@@ -1,0 +1,487 @@
+#!/usr/bin/env bash
+# mcp-key-rotate
+# Path: claude-code-config/bin/mcp-key-rotate
+#
+# API key rotation for MCP servers (Brave Search, Tavily, etc.).
+# Auto-detects backend: Doppler → .env file.
+#
+# Usage:
+#   mcp-key-rotate <service>            # Rotate to next key in pool
+#   mcp-key-rotate <service> --status   # Show current key and pool
+#   mcp-key-rotate <service> --quota    # Show per-key credit usage (live API check)
+#   mcp-key-rotate <service> --add KEY  # Add a new key to the pool
+#
+# Services: brave, tavily (or any MCP service with {SERVICE}_API_KEY vars)
+# Backends: doppler (auto-detected), dotenv (.env file)
+# Override: KEY_ROTATE_BACKEND=doppler|dotenv
+#
+# Requires: doppler CLI (for doppler backend) or .env file (for dotenv backend)
+
+set -euo pipefail
+
+# --- Config ---
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+readonly DOTENV_FILE="${KEY_ROTATE_DOTENV:-${REPO_ROOT}/.env}"
+readonly DOPPLER_PROJECT="${KEY_ROTATE_DOPPLER_PROJECT:-claude-code-config}"
+readonly DOPPLER_CONFIG="${KEY_ROTATE_DOPPLER_CONFIG:-dev}"
+
+# --- Parse service argument ---
+SERVICE="${1:-}"
+if [[ -z "${SERVICE}" || "${SERVICE}" == --* ]]; then
+    echo "Usage: mcp-key-rotate <service> [--status|--add KEY|--help]"
+    echo ""
+    echo "Services: brave, tavily (or any MCP service with {SERVICE}_API_KEY vars)"
+    echo "Backends: doppler (auto-detected), dotenv (.env file)"
+    echo "Override: KEY_ROTATE_BACKEND=doppler|dotenv"
+    exit 1
+fi
+shift
+
+# Normalize to uppercase for variable names
+SERVICE_UPPER="$(echo "${SERVICE}" | tr '[:lower:]' '[:upper:]')"
+readonly KEY_VAR="${SERVICE_UPPER}_API_KEY"
+readonly POOL_VAR="${SERVICE_UPPER}_API_KEY_POOL"
+
+# --- Backend: Doppler ---
+doppler_get() {
+    doppler secrets get "$1" --plain -p "${DOPPLER_PROJECT}" -c "${DOPPLER_CONFIG}" 2>/dev/null
+}
+
+doppler_set() {
+    doppler secrets set "$1=$2" -p "${DOPPLER_PROJECT}" -c "${DOPPLER_CONFIG}" >/dev/null
+}
+
+# --- Backend: dotenv ---
+dotenv_get() {
+    local var="$1"
+    # Try the .env file first
+    if [[ -f "${DOTENV_FILE}" ]]; then
+        local val
+        val="$(grep "^${var}=" "${DOTENV_FILE}" 2>/dev/null | head -1 | cut -d'=' -f2-)"
+        if [[ -n "${val}" ]]; then
+            echo "${val}"
+            return
+        fi
+    fi
+    # Fallback: read from current environment
+    echo "${!var:-}"
+}
+
+dotenv_set() {
+    local var="$1" val="$2"
+    if [[ -f "${DOTENV_FILE}" ]] && grep -q "^${var}=" "${DOTENV_FILE}" 2>/dev/null; then
+        # awk replacement: no delimiter risk (sed delimiters can clash with key values)
+        local tmp="${DOTENV_FILE}.tmp.$$"
+        awk -v name="${var}" -v value="${val}" \
+            'BEGIN{FS=OFS="="} $1==name{$0=name"="value} {print}' \
+            "${DOTENV_FILE}" > "${tmp}" && mv "${tmp}" "${DOTENV_FILE}"
+    else
+        # Append new entry
+        echo "${var}=${val}" >> "${DOTENV_FILE}"
+    fi
+}
+
+# --- Backend detection ---
+detect_backend() {
+    local requested="${KEY_ROTATE_BACKEND:-auto}"
+
+    if [[ "${requested}" != "auto" ]]; then
+        echo "${requested}"
+        return
+    fi
+
+    # Tier 1: Doppler CLI available and project configured
+    if command -v doppler &>/dev/null; then
+        if doppler secrets get "${KEY_VAR}" --plain -p "${DOPPLER_PROJECT}" -c "${DOPPLER_CONFIG}" &>/dev/null; then
+            echo "doppler"
+            return
+        fi
+    fi
+
+    # Tier 2: .env file with pool variable
+    if [[ -f "${DOTENV_FILE}" ]] && grep -q "^${POOL_VAR}=" "${DOTENV_FILE}" 2>/dev/null; then
+        echo "dotenv"
+        return
+    fi
+
+    # Tier 3: Pool variable in environment (can read, will write to .env)
+    if [[ -n "${!POOL_VAR:-}" ]]; then
+        echo "dotenv"
+        return
+    fi
+
+    echo ""
+}
+
+BACKEND="$(detect_backend)"
+if [[ -z "${BACKEND}" ]]; then
+    echo "Error: No backend available for service '${SERVICE}'."
+    echo ""
+    echo "Options:"
+    echo "  1. Install doppler CLI and run: doppler setup"
+    echo "  2. Add to ${DOTENV_FILE}:"
+    echo "       ${KEY_VAR}=your-active-key"
+    echo "       ${POOL_VAR}=key1,key2"
+    echo ""
+    echo "Override: KEY_ROTATE_BACKEND=doppler|dotenv"
+    exit 1
+fi
+
+# --- Unified read/write ---
+secret_get() {
+    case "${BACKEND}" in
+        doppler) doppler_get "$1" ;;
+        dotenv)  dotenv_get "$1" ;;
+        *) echo "Unknown backend: ${BACKEND}" >&2; exit 1 ;;
+    esac
+}
+
+secret_set() {
+    case "${BACKEND}" in
+        doppler) doppler_set "$1" "$2" ;;
+        dotenv)  dotenv_set "$1" "$2" ;;
+        *) echo "Unknown backend: ${BACKEND}" >&2; exit 1 ;;
+    esac
+}
+
+# --- Helpers ---
+mask_key() {
+    local key="$1"
+    if [[ ${#key} -lt 12 ]]; then
+        echo "${key:0:3}***"
+    else
+        echo "${key:0:6}...${key: -4}"
+    fi
+}
+
+# --- Quota cache ---
+readonly QUOTA_CACHE_DIR="${MCP_KEY_ROTATE_CACHE_DIR:-/tmp/mcp-key-rotate-cache}"
+readonly QUOTA_CACHE_TTL_SEC="${MCP_KEY_ROTATE_CACHE_TTL:-300}" # 5 minutes
+
+quota_cache_key() {
+    local key="$1"
+    # Use last 8 chars as cache filename (avoids exposing full key)
+    echo "${QUOTA_CACHE_DIR}/${SERVICE_UPPER}_${key: -8}"
+}
+
+quota_cache_read() {
+    local cache_file="$1"
+    if [[ -f "${cache_file}" ]]; then
+        # Cache format: line 1 = epoch timestamp, line 2 = data
+        local cached_epoch cached_data
+        cached_epoch="$(head -1 "${cache_file}")"
+        cached_data="$(tail -1 "${cache_file}")"
+        # Validate epoch is numeric (protects against corrupt/old-format cache)
+        if [[ "${cached_epoch}" =~ ^[0-9]+$ ]]; then
+            local now
+            now="$(date +%s)"
+            local age=$(( now - cached_epoch ))
+            if [[ ${age} -lt ${QUOTA_CACHE_TTL_SEC} ]]; then
+                echo "${cached_data}"
+                return 0
+            fi
+        fi
+    fi
+    return 1
+}
+
+quota_cache_write() {
+    local cache_file="$1" data="$2"
+    mkdir -p "${QUOTA_CACHE_DIR}"
+    # Store epoch on line 1, data on line 2 (no stat needed for age check)
+    printf '%s\n%s\n' "$(date +%s)" "${data}" > "${cache_file}"
+}
+
+# --- Quota providers ---
+# Each returns: used,limit,reset_info  (or "error,message" on failure)
+
+quota_tavily() {
+    local key="$1"
+    local cache_file
+    cache_file="$(quota_cache_key "${key}")"
+
+    local cached
+    if cached="$(quota_cache_read "${cache_file}")"; then
+        echo "${cached}"
+        return
+    fi
+
+    local response http_code body
+    response="$(${CURL_CMD:-curl} -sS -w "\n%{http_code}" \
+        "https://api.tavily.com/usage" \
+        -H "Authorization: Bearer ${key}" 2>&1)" || {
+        echo "error,request failed"
+        return
+    }
+
+    http_code="$(echo "${response}" | tail -1)"
+    body="$(echo "${response}" | sed '$d')"
+
+    if [[ "${http_code}" != "200" ]]; then
+        echo "error,HTTP ${http_code}"
+        return
+    fi
+
+    # Parse JSON with python3 via stdin (safe: no shell interpolation of body)
+    local result
+    result="$(echo "${body}" | python3 -c "
+import json, sys
+try:
+    d = json.loads(sys.stdin.read())
+    used = d.get('key', {}).get('usage', 0)
+    limit = d.get('key', {}).get('limit')
+    if limit is None:
+        limit = d.get('account', {}).get('plan_limit', 0)
+    print(f'{used},{limit},')
+except Exception as e:
+    print(f'error,{e}')
+" 2>&1)" || {
+        echo "error,parse failed"
+        return
+    }
+
+    quota_cache_write "${cache_file}" "${result}"
+    echo "${result}"
+}
+
+quota_brave() {
+    local key="$1"
+    local cache_file
+    cache_file="$(quota_cache_key "${key}")"
+
+    local cached
+    if cached="$(quota_cache_read "${cache_file}")"; then
+        echo "${cached}"
+        return
+    fi
+
+    # Lightweight search to get rate limit headers (costs 1 credit)
+    local headers
+    headers="$(${CURL_CMD:-curl} -sS -D - -o /dev/null \
+        "https://api.search.brave.com/res/v1/web/search?q=test&count=1" \
+        -H "X-Subscription-Token: ${key}" \
+        -H "Accept: application/json" 2>&1)" || {
+        echo "error,request failed"
+        return
+    }
+
+    # Parse X-RateLimit-Remaining: <per_sec>, <per_month>
+    # Parse X-RateLimit-Limit: <per_sec>, <per_month>
+    # Parse X-RateLimit-Reset: <sec_reset>, <month_reset_sec>
+    local remaining limit_header reset_header
+    remaining="$(echo "${headers}" | grep -i "^x-ratelimit-remaining:" | head -1 | sed 's/^[^:]*: *//' | tr -d '\r')"
+    limit_header="$(echo "${headers}" | grep -i "^x-ratelimit-limit:" | head -1 | sed 's/^[^:]*: *//' | tr -d '\r')"
+    reset_header="$(echo "${headers}" | grep -i "^x-ratelimit-reset:" | head -1 | sed 's/^[^:]*: *//' | tr -d '\r')"
+
+    if [[ -z "${remaining}" || -z "${limit_header}" ]]; then
+        echo "error,no rate limit headers"
+        return
+    fi
+
+    # Extract monthly values (second number after comma)
+    local month_remaining month_limit month_reset
+    month_remaining="$(echo "${remaining}" | awk -F', *' '{print $2}')"
+    month_limit="$(echo "${limit_header}" | awk -F', *' '{print $2}')"
+    month_reset="$(echo "${reset_header}" | awk -F', *' '{print $2}')"
+
+    local used=$(( month_limit - month_remaining ))
+    local reset_info=""
+    if [[ -n "${month_reset}" && "${month_reset}" -gt 0 ]] 2>/dev/null; then
+        local days=$(( month_reset / 86400 ))
+        local hours=$(( (month_reset % 86400) / 3600 ))
+        reset_info="resets in ${days}d ${hours}h"
+    fi
+
+    local result="${used},${month_limit},${reset_info}"
+    quota_cache_write "${cache_file}" "${result}"
+    echo "${result}"
+}
+
+# --- Commands ---
+cmd_status() {
+    local current pool
+    current="$(secret_get "${KEY_VAR}")"
+    pool="$(secret_get "${POOL_VAR}")"
+
+    if [[ -z "${pool}" ]]; then
+        echo "No pool found for ${SERVICE} (${POOL_VAR} is empty)."
+        exit 1
+    fi
+
+    IFS=',' read -ra keys <<< "${pool}"
+
+    echo "Service: ${SERVICE} (backend: ${BACKEND})"
+    echo "Pool: ${#keys[@]} keys"
+    echo ""
+    for i in "${!keys[@]}"; do
+        local marker=" "
+        if [[ "${keys[$i]}" == "${current}" ]]; then
+            marker=">"
+        fi
+        echo "  ${marker} [$((i + 1))] $(mask_key "${keys[$i]}")"
+    done
+    echo ""
+    echo "Active: $(mask_key "${current}")"
+}
+
+cmd_rotate() {
+    local current pool
+    current="$(secret_get "${KEY_VAR}")"
+    pool="$(secret_get "${POOL_VAR}")"
+
+    if [[ -z "${pool}" ]]; then
+        echo "No pool found for ${SERVICE} (${POOL_VAR} is empty)."
+        exit 1
+    fi
+
+    IFS=',' read -ra keys <<< "${pool}"
+
+    if [[ ${#keys[@]} -lt 2 ]]; then
+        echo "Only 1 key in ${SERVICE} pool — nothing to rotate to."
+        echo "Add more keys with: mcp-key-rotate ${SERVICE} --add NEW_KEY"
+        exit 1
+    fi
+
+    # Find current key index
+    local current_idx=-1
+    for i in "${!keys[@]}"; do
+        if [[ "${keys[$i]}" == "${current}" ]]; then
+            current_idx=$i
+            break
+        fi
+    done
+
+    # Pick next key (wraps around)
+    local next_idx=$(( (current_idx + 1) % ${#keys[@]} ))
+    local next_key="${keys[$next_idx]}"
+
+    secret_set "${KEY_VAR}" "${next_key}"
+
+    echo "Rotated ${SERVICE}: $(mask_key "${current}") -> $(mask_key "${next_key}")"
+    echo "Now active: key [$((next_idx + 1))] of ${#keys[@]} (backend: ${BACKEND})"
+}
+
+cmd_quota() {
+    local current pool
+    current="$(secret_get "${KEY_VAR}")"
+    pool="$(secret_get "${POOL_VAR}")"
+
+    if [[ -z "${pool}" ]]; then
+        echo "No pool found for ${SERVICE} (${POOL_VAR} is empty)."
+        exit 1
+    fi
+
+    # Resolve quota provider by service name (case dispatch, no bash 4+ needed)
+    local service_lower
+    service_lower="$(echo "${SERVICE_UPPER}" | tr '[:upper:]' '[:lower:]')"
+    local provider=""
+    case "${service_lower}" in
+        brave)  provider="quota_brave" ;;
+        tavily) provider="quota_tavily" ;;
+    esac
+    if [[ -z "${provider}" ]]; then
+        echo "No quota provider for service '${SERVICE}'."
+        echo "Supported: brave, tavily"
+        exit 1
+    fi
+
+    IFS=',' read -ra keys <<< "${pool}"
+
+    echo "Service: ${SERVICE} (backend: ${BACKEND})"
+    echo "Pool: ${#keys[@]} keys"
+    echo ""
+
+    for i in "${!keys[@]}"; do
+        local key="${keys[$i]}"
+        local marker=" "
+        if [[ "${key}" == "${current}" ]]; then
+            marker=">"
+        fi
+
+        local quota_data
+        quota_data="$("${provider}" "${key}")"
+
+        local field1 field2 field3
+        IFS=',' read -r field1 field2 field3 <<< "${quota_data}"
+
+        local quota_str
+        if [[ "${field1}" == "error" ]]; then
+            quota_str="(${field2})"
+        else
+            local used="${field1}" limit="${field2}" reset="${field3}"
+            local remaining=$(( limit - used ))
+            quota_str="${used}/${limit} used (${remaining} remaining)"
+            if [[ -n "${reset}" ]]; then
+                quota_str="${quota_str}, ${reset}"
+            fi
+        fi
+
+        echo "  ${marker} [$((i + 1))] $(mask_key "${key}")   ${quota_str}"
+    done
+    echo ""
+}
+
+cmd_add() {
+    local new_key="$1"
+    local pool
+    pool="$(secret_get "${POOL_VAR}")"
+
+    if [[ -z "${pool}" ]]; then
+        # Initialize pool with just the new key and set it as active
+        secret_set "${POOL_VAR}" "${new_key}"
+        secret_set "${KEY_VAR}" "${new_key}"
+        echo "Initialized ${SERVICE} pool with $(mask_key "${new_key}") (backend: ${BACKEND})"
+        return
+    fi
+
+    # Check for duplicates
+    IFS=',' read -ra keys <<< "${pool}"
+    for k in "${keys[@]}"; do
+        if [[ "${k}" == "${new_key}" ]]; then
+            echo "Key $(mask_key "${new_key}") already in ${SERVICE} pool."
+            exit 1
+        fi
+    done
+
+    secret_set "${POOL_VAR}" "${pool},${new_key}"
+    echo "Added $(mask_key "${new_key}") to ${SERVICE} pool (now $((${#keys[@]} + 1)) keys, backend: ${BACKEND})"
+}
+
+# --- Main ---
+case "${1:-}" in
+    --status|-s)
+        cmd_status
+        ;;
+    --quota|-q)
+        cmd_quota
+        ;;
+    --add|-a)
+        if [[ -z "${2:-}" ]]; then
+            echo "Usage: mcp-key-rotate ${SERVICE} --add KEY"
+            exit 1
+        fi
+        cmd_add "$2"
+        ;;
+    --help|-h)
+        echo "Usage: mcp-key-rotate <service> [--status|--quota|--add KEY]"
+        echo ""
+        echo "  (no args)     Rotate to next key in pool"
+        echo "  --status, -s  Show current key and pool"
+        echo "  --quota, -q   Show per-key credit usage (live API check)"
+        echo "  --add, -a     Add a new key to the pool"
+        echo "  --help, -h    Show this help"
+        echo ""
+        echo "Services: brave, tavily (or any MCP service with {SERVICE}_API_KEY + {SERVICE}_API_KEY_POOL)"
+        echo "Backends: doppler (auto-detected), dotenv (.env file)"
+        echo "Override: KEY_ROTATE_BACKEND=doppler|dotenv"
+        ;;
+    "")
+        cmd_rotate
+        ;;
+    *)
+        echo "Unknown option: $1"
+        echo "Run mcp-key-rotate ${SERVICE} --help for usage."
+        exit 1
+        ;;
+esac
