@@ -1,16 +1,12 @@
+---
+name: tavily-search
+description: Perform an AI-native web search using the official Tavily MCP server. Use when the user needs high-quality technical search results, coding documentation, or token-efficient AI-optimized search.
+argument-hint: <query>
+---
+
 # Tavily Search Command
 
 Perform an AI-native web search using the official Tavily MCP server.
-
-## Usage
-
-```
-/tavily-search <query>
-```
-
-## Description
-
-This command performs an AI-native web search using the official `tavily-mcp` package. Tavily returns pre-cleaned, structured, LLM-optimized results that are more token-efficient than traditional search snippets.
 
 ## Tool Binding
 

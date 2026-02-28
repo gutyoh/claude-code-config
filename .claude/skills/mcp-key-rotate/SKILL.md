@@ -1,3 +1,10 @@
+---
+name: mcp-key-rotate
+description: Check quota and rotate API keys for MCP servers (Brave Search, Tavily, etc.). Use when the user asks to rotate keys, check API quota, or manage MCP API key pools.
+argument-hint: <service> [action]
+disable-model-invocation: true
+---
+
 # MCP Key Rotate Command
 
 Check quota and rotate API keys for MCP servers (Brave Search, Tavily, etc.).

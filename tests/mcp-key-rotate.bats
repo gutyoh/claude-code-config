@@ -772,25 +772,25 @@ CURL_EOF
 }
 
 # ==========================================================================
-# INTEGRATION: Option E — slash command, CLAUDE.md, setup.sh
+# INTEGRATION: Option E — skill, CLAUDE.md, setup.sh
 # ==========================================================================
 
 REPO_ROOT="$BATS_TEST_DIRNAME/.."
 
-@test "option-e: slash command file exists" {
-    [ -f "${REPO_ROOT}/.claude/commands/mcp-key-rotate.md" ]
+@test "option-e: skill file exists" {
+    [ -f "${REPO_ROOT}/.claude/skills/mcp-key-rotate/SKILL.md" ]
 }
 
-@test "option-e: slash command references mcp-key-rotate script" {
-    grep -q "mcp-key-rotate" "${REPO_ROOT}/.claude/commands/mcp-key-rotate.md"
+@test "option-e: skill references mcp-key-rotate script" {
+    grep -q "mcp-key-rotate" "${REPO_ROOT}/.claude/skills/mcp-key-rotate/SKILL.md"
 }
 
-@test "option-e: slash command documents --quota flag" {
-    grep -q "\-\-quota" "${REPO_ROOT}/.claude/commands/mcp-key-rotate.md"
+@test "option-e: skill documents --quota flag" {
+    grep -q "\-\-quota" "${REPO_ROOT}/.claude/skills/mcp-key-rotate/SKILL.md"
 }
 
-@test "option-e: slash command documents restart requirement" {
-    grep -qi "restart" "${REPO_ROOT}/.claude/commands/mcp-key-rotate.md"
+@test "option-e: skill documents restart requirement" {
+    grep -qi "restart" "${REPO_ROOT}/.claude/skills/mcp-key-rotate/SKILL.md"
 }
 
 @test "option-e: CLAUDE.md has 429 handling instructions" {

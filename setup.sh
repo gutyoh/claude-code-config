@@ -135,7 +135,6 @@ main() {
 
     echo "Step ${step}: Creating symlinks..."
 
-    create_symlink "${REPO_DIR}/.claude/commands" "${CLAUDE_DIR}/commands" "commands"
     create_symlink "${REPO_DIR}/.claude/hooks" "${CLAUDE_DIR}/hooks" "hooks"
     create_symlink "${REPO_DIR}/.claude/scripts" "${CLAUDE_DIR}/scripts" "scripts"
 
@@ -145,6 +144,9 @@ main() {
     if [[ -x "${REPO_DIR}/bin/mcp-key-rotate" ]]; then
         ln -sf "${REPO_DIR}/bin/mcp-key-rotate" "${bin_dir}/mcp-key-rotate"
         echo "  ✓ ~/.local/bin/mcp-key-rotate -> ${REPO_DIR}/bin/mcp-key-rotate"
+    else
+        echo "  ⚠ bin/mcp-key-rotate not found or not executable (skipping)"
+        echo "    Run: chmod +x ${REPO_DIR}/bin/mcp-key-rotate"
     fi
 
     if [[ "${INSTALL_AGENTS_SKILLS}" == "true" ]]; then
@@ -317,7 +319,7 @@ EOF
     echo "Verify in any project:"
     echo "  cd ~/some-project"
     echo "  claude"
-    echo "  > /help           # Should show custom commands"
+    echo "  > /help           # Should show available skills"
 
     if [[ ${#INSTALL_MCP_SERVERS[@]} -gt 0 ]]; then
         local _mcp_key

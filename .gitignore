@@ -2,10 +2,10 @@
 # Claude Code Portable Configuration - .gitignore
 # ============================================================================
 # This gitignore is designed for a Claude Code configuration repository
-# that contains portable MCP servers, skills, agents, and commands.
+# that contains portable MCP servers, skills, agents, and hooks.
 #
 # Philosophy:
-#   - Commit shared configs (.mcp.json, CLAUDE.md, .claude/commands/, etc.)
+#   - Commit shared configs (.mcp.json, CLAUDE.md, .claude/skills/, etc.)
 #   - Ignore personal/local settings and sensitive data
 # ============================================================================
 
@@ -39,7 +39,6 @@ CLAUDE.local.md
 # Symlinks created by setup scripts (machine-specific, should not be tracked)
 # These are self-referential symlinks that can be accidentally created
 .claude/agents/agents
-.claude/commands/commands
 .claude/skills/skills
 .claude/hooks/hooks
 

@@ -510,7 +510,7 @@ Write-Host ""
 Write-Host "Verify in any project:"
 Write-Host "  cd ~\some-project"
 Write-Host "  claude"
-Write-Host "  > /help           # Should show custom commands"
+Write-Host "  > /help           # Should show available skills"
 
 if ($InstallMcp) {
     Write-Host "  > /brave-search   # Test the MCP integration"

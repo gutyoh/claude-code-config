@@ -1,7 +1,8 @@
 ---
 name: internet-researcher
 description: Deep research subagent for comprehensive internet research. Use when multiple searches are needed, comparing sources, or thorough topic coverage is required. Conducts multi-query research with source verification and synthesis.
-skills: internet-research
+skills:
+  - internet-research
 model: inherit
 color: cyan
 ---

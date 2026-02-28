@@ -33,7 +33,7 @@ readonly -A MCP_SERVER_SIGNUP_URLS=(
 )
 
 readonly -A MCP_SERVER_FREE_LIMITS=(
-    ["brave-search"]="1,000 searches/month ($5 free credits)"
+    ["brave-search"]="1,000 searches/month (\$5 free credits)"
     ["tavily"]="1,000 credits/month"
 )
 
