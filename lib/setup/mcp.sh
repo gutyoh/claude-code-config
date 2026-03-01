@@ -1,41 +1,33 @@
 # mcp.sh -- MCP server configuration
 # Path: lib/setup/mcp.sh
 # Sourced by setup.sh — do not execute directly.
+# Compatible with Bash 3.2+ (no associative arrays).
 
 # --- MCP Server Registry ---
-# Each server: KEY, LABEL, DESCRIPTION, ENV_VAR, NPX_PACKAGE
 
 readonly MCP_SERVER_KEYS=("brave-search" "tavily")
 
-readonly -A MCP_SERVER_LABELS=(
-    ["brave-search"]="brave-search"
-    ["tavily"]="tavily"
-)
-
-readonly -A MCP_SERVER_DESCS=(
-    ["brave-search"]="Web, image, video, news, local search (1,000/mo free)"
-    ["tavily"]="AI-native search, extract, crawl, map, research (1,000/mo free)"
-)
-
-readonly -A MCP_SERVER_ENV_VARS=(
-    ["brave-search"]="BRAVE_API_KEY"
-    ["tavily"]="TAVILY_API_KEY"
-)
-
-readonly -A MCP_SERVER_PACKAGES=(
-    ["brave-search"]="@brave/brave-search-mcp-server"
-    ["tavily"]="tavily-mcp@0.2.17"
-)
-
-readonly -A MCP_SERVER_SIGNUP_URLS=(
-    ["brave-search"]="https://api-dashboard.search.brave.com/"
-    ["tavily"]="https://tavily.com"
-)
-
-readonly -A MCP_SERVER_FREE_LIMITS=(
-    ["brave-search"]="1,000 searches/month ($5 free credits)"
-    ["tavily"]="1,000 credits/month"
-)
+# Lookup function — replaces associative arrays for Bash 3.2 compatibility.
+# Usage: mcp_get <key> <field>
+#   Fields: label, desc, env_var, package, signup_url, free_limit
+mcp_get() {
+    local key="$1" field="$2"
+    case "${key}:${field}" in
+        brave-search:label)      echo "brave-search" ;;
+        brave-search:desc)       echo "Web, image, video, news, local search (1,000/mo free)" ;;
+        brave-search:env_var)    echo "BRAVE_API_KEY" ;;
+        brave-search:package)    echo "@brave/brave-search-mcp-server" ;;
+        brave-search:signup_url) echo "https://api-dashboard.search.brave.com/" ;;
+        brave-search:free_limit) echo "1,000 searches/month (\$5 free credits)" ;;
+        tavily:label)            echo "tavily" ;;
+        tavily:desc)             echo "AI-native search, extract, crawl, map, research (1,000/mo free)" ;;
+        tavily:env_var)          echo "TAVILY_API_KEY" ;;
+        tavily:package)          echo "tavily-mcp@0.2.17" ;;
+        tavily:signup_url)       echo "https://tavily.com" ;;
+        tavily:free_limit)       echo "1,000 credits/month" ;;
+        *) return 1 ;;
+    esac
+}
 
 # --- Functions ---
 
@@ -57,8 +49,10 @@ configure_mcp_servers() {
 
 _configure_single_mcp() {
     local key="$1"
-    local env_var="${MCP_SERVER_ENV_VARS[${key}]}"
-    local package="${MCP_SERVER_PACKAGES[${key}]}"
+    local env_var
+    env_var="$(mcp_get "${key}" env_var)"
+    local package
+    package="$(mcp_get "${key}" package)"
     local already_configured=false
 
     if [[ -f "${CLAUDE_JSON}" ]]; then
@@ -98,9 +92,10 @@ PYTHON_CHECK
 check_mcp_env_vars() {
     local key
     for key in "${INSTALL_MCP_SERVERS[@]}"; do
-        local env_var="${MCP_SERVER_ENV_VARS[${key}]}"
-        local signup_url="${MCP_SERVER_SIGNUP_URLS[${key}]}"
-        local free_limit="${MCP_SERVER_FREE_LIMITS[${key}]}"
+        local env_var signup_url free_limit
+        env_var="$(mcp_get "${key}" env_var)"
+        signup_url="$(mcp_get "${key}" signup_url)"
+        free_limit="$(mcp_get "${key}" free_limit)"
 
         local env_val="${!env_var:-}"
         if [[ -n "${env_val}" ]]; then

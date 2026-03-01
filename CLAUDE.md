@@ -1,6 +1,6 @@
 # Claude Code Portable Configuration
 
-This repository contains a portable Claude Code configuration with MCP servers, skills, agents, commands, and hooks.
+This repository contains a portable Claude Code configuration with MCP servers, skills, agents, and hooks.
 
 ## Project Overview
 
@@ -11,7 +11,8 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 ```
 .
 ├── .mcp.json                    # MCP server configurations (portable)
-├── bin/                                # Proxy launcher scripts
+├── bin/                                # Utility scripts (installed to PATH by setup.sh)
+│   ├── mcp-key-rotate                  # MCP API key rotation (Brave, Tavily, etc.)
 │   ├── claude-proxy                    # Single entry point for all proxy profiles
 │   ├── proxy-start-codex.sh            # Profile: CLIProxyAPI + OpenAI Codex
 │   └── proxy-start-antigravity.sh      # Profile: Antigravity (Google Cloud Code)
@@ -51,14 +52,24 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   │   │   └── SKILL.md
 │   │   ├── pr-writing/
 │   │   │   └── SKILL.md
-│   │   └── python-standards/
-│   │       ├── SKILL.md
-│   │       ├── core.md
-│   │       ├── async-patterns.md
-│   │       ├── pydantic-patterns.md
-│   │       ├── cli-patterns.md
-│   │       ├── subprocess-patterns.md
-│   │       └── logging-patterns.md
+│   │   ├── python-standards/
+│   │   │   ├── SKILL.md
+│   │   │   ├── core.md
+│   │   │   ├── async-patterns.md
+│   │   │   ├── pydantic-patterns.md
+│   │   │   ├── cli-patterns.md
+│   │   │   ├── subprocess-patterns.md
+│   │   │   └── logging-patterns.md
+│   │   ├── web-search/
+│   │   │   └── SKILL.md
+│   │   ├── brave-search/
+│   │   │   └── SKILL.md
+│   │   ├── tavily-search/
+│   │   │   └── SKILL.md
+│   │   ├── mcp-key-rotate/
+│   │   │   └── SKILL.md
+│   │   └── pr/
+│   │       └── SKILL.md
 │   ├── agents/                  # Subagent definitions
 │   │   ├── d2-tala-expert.md
 │   │   ├── data-scientist.md
@@ -84,11 +95,6 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   │       ├── color.sh         # get_color_for_pct, get_utilization_color
 │   │       ├── components.sh    # 14 render_component_* functions
 │   │       └── assembly.sh      # render_all_components
-│   └── commands/                # Custom slash commands
-│       ├── web-search.md
-│       ├── brave-search.md
-│       ├── tavily-search.md
-│       └── pr.md
 ├── branch_protection_rules/     # GitHub Ruleset templates
 │   ├── trunk-based/             # GitHub Flow (current)
 │   │   └── main-branch-protection.json
@@ -124,6 +130,11 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 - **pr-operations**: Cross-platform PR/MR operations for GitHub, GitLab, and Azure DevOps (platform detection, CLI commands, workflow detection)
 - **pr-writing**: Expert PR and commit message writing following Conventional Commits
 - **python-standards**: Python engineering standards for clean, type-safe, production-ready code (Python 3.12+)
+- **web-search**: Quick internet search using Claude's built-in WebSearch tool
+- **brave-search**: Internet search using Brave Search MCP (web, image, video, news, local)
+- **tavily-search**: AI-native search using Tavily MCP (search, extract, crawl, map, research)
+- **mcp-key-rotate**: Rotate MCP API keys, check quota, show pool status
+- **pr**: Create PR/MR with Conventional Commits formatting (GitHub/GitLab/Azure DevOps)
 
 ### Agents
 - **d2-tala-expert**: Expert D2 diagrammer with TALA layout engine for software architecture diagrams
@@ -137,10 +148,11 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 - **sonarqube-fixer**: Expert SonarQube issue fixer for cognitive complexity, code smells, and security vulnerabilities
 - **ui-designer**: Expert UI designer for components, styling, design systems, and accessibility
 
-### Commands
+### Slash Commands (Skills)
 - `/web-search <query>`: Quick search using Claude's built-in WebSearch tool
 - `/tavily-search <query>`: AI-native search using Tavily MCP (requires `TAVILY_API_KEY`)
 - `/brave-search <query>`: Search using Brave Search MCP (requires `BRAVE_API_KEY`)
+- `/mcp-key-rotate <service> [action]`: Rotate MCP API keys, check quota (`--quota`), show pool (`--status`)
 - `/pr [base-branch]`: Create PR/MR with Conventional Commits formatting (GitHub/GitLab/Azure DevOps)
 
 ### Experimental Features
@@ -202,11 +214,31 @@ See `branch_protection_rules/` for ready-to-use GitHub Ruleset configurations:
 - `trunk-based/` - Current workflow (recommended for 2026)
 - `gitflow/` - Enterprise/traditional workflow (archived)
 
+## MCP Quota Exhaustion (429 Handling)
+
+When a Brave Search or Tavily MCP call fails with HTTP 429 (quota exceeded):
+
+1. Tell the user their API quota is exhausted
+2. Run `mcp-key-rotate <service> --quota` to show per-key credit usage
+3. If another key has remaining credits, run `mcp-key-rotate <service>` to rotate
+4. Tell the user: **"Restart Claude Code for the new key to take effect"**
+5. Suggest `/web-search` as an immediate fallback (uses Claude's built-in search, no MCP key needed)
+
+### All Keys Exhausted
+
+If `--quota` shows all keys in the pool are exhausted:
+
+1. Skip rotation (rotating to another exhausted key is pointless)
+2. Tell the user all keys are exhausted and suggest when credits may reset (monthly for both Brave and Tavily free tiers)
+3. Suggest `/web-search` as an immediate fallback
+4. Suggest `mcp-key-rotate <service> --add KEY` if the user has a new key to add
+
+Do NOT retry the same MCP call after a 429 — it will fail again with the same key.
+
 ## Conventions
 
 - All MCP configs use `${VAR}` syntax for secrets
 - Never commit API keys or secrets
 - Skills go in `.claude/skills/<skill-name>/SKILL.md`
 - Agents go in `.claude/agents/<agent-name>.md`
-- Commands go in `.claude/commands/<command-name>.md`
 - Hooks go in `.claude/hooks/<hook-name>.sh`

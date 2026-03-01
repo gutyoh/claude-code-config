@@ -1,3 +1,9 @@
+---
+name: web-search
+description: Perform a quick internet search using Claude's built-in WebSearch tool. Use when the user asks to search the web, look something up, or needs current information.
+argument-hint: <query>
+---
+
 # Web Search Command
 
 Perform a quick internet search using Claude's built-in WebSearch tool.
@@ -7,10 +13,6 @@ Perform a quick internet search using Claude's built-in WebSearch tool.
 ```
 /web-search <query>
 ```
-
-## Description
-
-This command performs an internet search using Claude Code's native `WebSearch` tool. Use this for quick searches when you don't need the Brave Search MCP server.
 
 ## Tool Binding
 

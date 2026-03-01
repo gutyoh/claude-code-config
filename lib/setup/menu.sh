@@ -95,7 +95,7 @@ customize_installation() {
 
     local mcp_descs=()
     for key in "${MCP_SERVER_KEYS[@]}"; do
-        mcp_descs+=("${MCP_SERVER_DESCS[${key}]}")
+        mcp_descs+=("$(mcp_get "${key}" desc)")
     done
 
     local mcp_selected_indices=()

@@ -48,7 +48,6 @@ This repo provides a complete, portable Claude Code setup including:
 | **MCP Servers** | `.mcp.json` | External tool integrations (Brave Search, etc.) |
 | **Skills** | `.claude/skills/` | Reusable capabilities with defined behaviors |
 | **Agents** | `.claude/agents/` | Specialized subagents for complex tasks |
-| **Commands** | `.claude/commands/` | Custom slash commands |
 | **Hooks** | `.claude/hooks/` | Git and workflow automation |
 | **Scripts** | `.claude/scripts/` | Utility scripts (file suggestion, etc.) |
 | **Settings** | `.claude/settings.json` | Claude Code configuration with hooks |
@@ -132,7 +131,7 @@ The setup script creates symlinks and **automatically configures MCP servers** i
  
 The script will:
 - Create `~/.claude/` if it doesn't exist
-- Symlink `commands/`, `skills/`, `agents/`, `hooks/` to your global config
+- Symlink `skills/`, `agents/`, `hooks/` to your global config
 - **Add Brave Search MCP server to user scope** (available in all projects)
 - Check for required environment variables
  
@@ -369,10 +368,6 @@ claude-code-config/
 │   │   ├── file-suggestion.sh
 │   │   ├── file-suggestion.ps1
 │   │   └── statusline.sh          # Two-tier statusline with billing
-│   └── commands/                  # Custom slash commands
-│       ├── web-search.md
-│       ├── brave-search.md
-│       └── pr.md
 ├── CLAUDE.md                      # Project context (committed)
 ├── CLAUDE.local.md                # Personal notes (gitignored)
 ├── .gitignore                     # Comprehensive gitignore
@@ -966,7 +961,6 @@ Claude Code supports multiple configuration scopes:
  
 | Component | User Scope | Project Scope |
 |-----------|------------|---------------|
-| Commands | `~/.claude/commands/` | `.claude/commands/` |
 | Skills | `~/.claude/skills/` | `.claude/skills/` |
 | Agents | `~/.claude/agents/` | `.claude/agents/` |
 | Settings | `~/.claude/settings.json` | `.claude/settings.json` |
@@ -1078,9 +1072,8 @@ This configuration follows the official Claude Code documentation:
  
 - [Claude Code Settings](https://code.claude.com/docs/en/settings) - Configuration scopes and file locations
 - [MCP Servers](https://code.claude.com/docs/en/mcp) - Adding and configuring MCP integrations
-- [Slash Commands](https://code.claude.com/docs/en/slash-commands) - Creating custom commands
 - [Subagents](https://code.claude.com/docs/en/sub-agents) - Defining specialized agents
-- [Agent Skills](https://code.claude.com/docs/en/skills) - Creating reusable skills
+- [Skills](https://code.claude.com/docs/en/skills) - Creating reusable skills and slash commands
 - [Common Workflows](https://code.claude.com/docs/en/common-workflows) - Best practices and examples
  
 ## License

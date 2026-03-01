@@ -4,24 +4,107 @@ Comprehensive reference for configuring Ghostty on macOS. Based on official docs
 
 ## Table of Contents
 
-1. [Quick Start](#quick-start)
-2. [Config Files](#config-files)
-3. [Font Settings](#font-settings)
-4. [Themes](#themes)
-5. [Cursor Settings](#cursor-settings)
-6. [macOS-Specific Settings](#macos-specific-settings)
-7. [Window and UI](#window-and-ui)
-8. [Transparency and Blur](#transparency-and-blur)
-9. [Shell Integration](#shell-integration)
-10. [Clipboard and Mouse](#clipboard-and-mouse)
-11. [Scrollback and Performance](#scrollback-and-performance)
-12. [Keybindings](#keybindings)
-13. [Quick Terminal (Dropdown)](#quick-terminal-dropdown)
-14. [Split Panes](#split-panes)
-15. [Notable Features (1.2.x and Upcoming 1.3.0)](#notable-features)
-16. [Ready-to-Use Configs](#ready-to-use-configs)
-17. [Useful Commands](#useful-commands)
-18. [Sources](#sources)
+1. [Installation](#installation)
+2. [Quick Start](#quick-start)
+3. [Config Files](#config-files)
+4. [Font Settings](#font-settings)
+5. [Themes](#themes)
+6. [Cursor Settings](#cursor-settings)
+7. [macOS-Specific Settings](#macos-specific-settings)
+8. [Window and UI](#window-and-ui)
+9. [Transparency and Blur](#transparency-and-blur)
+10. [Shell Integration](#shell-integration)
+11. [Clipboard and Mouse](#clipboard-and-mouse)
+12. [Scrollback and Performance](#scrollback-and-performance)
+13. [Keybindings](#keybindings)
+14. [Quick Terminal (Dropdown)](#quick-terminal-dropdown)
+15. [Split Panes](#split-panes)
+16. [Notable Features (1.2.x and Upcoming 1.3.0)](#notable-features)
+17. [Ready-to-Use Configs](#ready-to-use-configs)
+18. [Useful Commands](#useful-commands)
+19. [Sources](#sources)
+
+---
+
+## Installation
+
+### macOS — Stable Release
+
+The simplest way to install Ghostty on macOS:
+
+```bash
+brew install --cask ghostty
+```
+
+### macOS — Tip (Latest Beta / Bleeding Edge) (Recommended for 2026)
+
+"Tip" is Ghostty's term for the latest commit on the `main` branch. These builds are **signed and notarized** by the Ghostty project and generally stable enough for daily use.
+
+#### Option A: Fresh Install via Homebrew
+
+```bash
+brew install --cask ghostty@tip
+```
+
+To update to the latest tip:
+
+```bash
+brew upgrade --cask ghostty@tip
+```
+
+#### Option B: Switch an Existing Stable Install to Tip
+
+Add these lines to your Ghostty config (`~/.config/ghostty/config`):
+
+```ini
+auto-update = download
+auto-update-channel = tip
+```
+
+Then **quit and reopen Ghostty** (not just reload config). The built-in auto-updater will pull the latest tip build.
+
+#### Option C: Build from Source
+
+Requires [Zig](https://ziglang.org/) to be installed.
+
+```bash
+# Download source tarball from GitHub releases
+# https://github.com/ghostty-org/ghostty/releases (look for ghostty-source.tar.gz)
+curl -LO https://github.com/ghostty-org/ghostty/releases/download/tip/ghostty-source.tar.gz
+tar xzf ghostty-source.tar.gz
+cd ghostty-source
+zig build -Doptimize=ReleaseFast
+
+# App bundle output:
+# zig-out/Ghostty.app
+# Copy to /Applications:
+cp -r zig-out/Ghostty.app /Applications/
+```
+
+### Why Use Tip?
+
+| Benefit | Details |
+|---------|---------|
+| **Latest features** | Get 1.3.0 features now: scrollback search (Cmd+F), scrollbars, macOS 26 Liquid Glass |
+| **Signed & notarized** | Official builds, same security as stable |
+| **Auto-update** | With `auto-update-channel = tip`, you auto-receive new builds |
+| **Community tested** | Many power users daily-drive tip without issues |
+
+### Verifying Installation
+
+```bash
+# Check version (tip builds show the commit hash)
+ghostty --version
+
+# List available fonts
+ghostty +list-fonts
+
+# Browse themes interactively
+ghostty +list-themes
+
+# Show all config options with documentation
+ghostty +show-config --default --docs
+```
 
 ---
 

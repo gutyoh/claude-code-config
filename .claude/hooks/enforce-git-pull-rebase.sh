@@ -23,7 +23,6 @@ main() {
     # Check if jq is available
     if ! command -v jq &>/dev/null; then
         # jq not available, pass through unchanged
-        echo "${input}"
         exit 0
     fi
 
@@ -34,7 +33,6 @@ main() {
 
     # If no command found, pass through unchanged
     if [[ -z "${cmd}" ]]; then
-        echo "${input}"
         exit 0
     fi
 
@@ -46,13 +44,23 @@ main() {
         local modified_cmd
         modified_cmd=$(echo "${cmd}" | sed -E 's/(git[[:space:]]+pull)/\1 --rebase/')
 
-        # Update the command in the JSON and output
-        echo "${input}" | jq --arg cmd "${modified_cmd}" '.tool_input.command = $cmd'
+        # Return structured output per official hookSpecificOutput format
+        jq -n \
+            --arg cmd "${modified_cmd}" \
+            --arg reason "Added --rebase for clean linear history" \
+            '{
+                hookSpecificOutput: {
+                    hookEventName: "PreToolUse",
+                    permissionDecision: "allow",
+                    permissionDecisionReason: $reason,
+                    updatedInput: { command: $cmd }
+                }
+            }'
         exit 0
     fi
 
-    # Pass through unchanged for all other commands
-    echo "${input}"
+    # Pass through unchanged for all other commands (no output needed)
+    exit 0
 }
 
 main "$@"

@@ -1,16 +1,12 @@
+---
+name: brave-search
+description: Perform an internet search using the official Brave Search MCP server. Use when the user asks to search with Brave, needs image/video/news/local search, or wants Brave's privacy-focused index.
+argument-hint: <query>
+---
+
 # Brave Search Command
 
 Perform an internet search using the official Brave Search MCP server.
-
-## Usage
-
-```
-/brave-search <query>
-```
-
-## Description
-
-This command performs an internet search using the official `@brave/brave-search-mcp-server` package. It provides web results, images, videos, rich results, and AI summaries.
 
 ## Tool Binding
 

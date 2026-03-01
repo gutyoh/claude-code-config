@@ -1,3 +1,10 @@
+---
+name: pr
+description: Create a pull request (or merge request) with Conventional Commits formatting. Works with GitHub, GitLab, and Azure DevOps. Use when the user asks to create a PR or merge request.
+argument-hint: [base-branch]
+disable-model-invocation: true
+---
+
 # PR Command
 
 Create a pull request (or merge request) with Conventional Commits formatting. Works with GitHub, GitLab, and Azure DevOps.
@@ -8,10 +15,6 @@ Create a pull request (or merge request) with Conventional Commits formatting. W
 /pr [base-branch]
 ```
 
-## Description
-
-This command analyzes your commits, generates a properly formatted PR/MR title and description following Conventional Commits conventions, detects your git platform, and creates the pull/merge request.
-
 ## Arguments
 
 - `base-branch` (optional): Target branch for the PR/MR. Defaults to `main` (trunk-based workflow).
@@ -21,9 +24,9 @@ This command analyzes your commits, generates a properly formatted PR/MR title a
 When invoked, the command will:
 
 1. **Detect platform** - Run `git remote -v` and identify:
-   - `github.com` → GitHub (use `gh pr create`)
-   - `gitlab.com` or `gitlab.*` → GitLab (use `glab mr create`)
-   - `dev.azure.com` or `*.visualstudio.com` → Azure DevOps (use `az repos pr create`)
+   - `github.com` -> GitHub (use `gh pr create`)
+   - `gitlab.com` or `gitlab.*` -> GitLab (use `glab mr create`)
+   - `dev.azure.com` or `*.visualstudio.com` -> Azure DevOps (use `az repos pr create`)
 
 2. **Analyze commits** - Run `git log` to see all commits on current branch vs base
 
@@ -83,18 +86,15 @@ When invoked, the command will:
 If the platform CLI is not installed, output for manual copy/paste:
 
 ```markdown
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 PR READY FOR MANUAL CREATION
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Platform:      [GitHub/GitLab/Azure DevOps]
 Target branch: [base-branch]
 Source branch: [current-branch]
 
-━━━ TITLE (copy this) ━━━
-<type>: <description>
+TITLE: <type>: <description>
 
-━━━ BODY (copy this) ━━━
+BODY:
 ## Summary
 ...
 
@@ -104,9 +104,7 @@ Source branch: [current-branch]
 ## Test Plan
 ...
 
-━━━ CREATE AT ━━━
-[URL to create PR/MR on the platform]
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CREATE AT: [URL to create PR/MR on the platform]
 ```
 
 ## Notes
