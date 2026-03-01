@@ -115,11 +115,21 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     {
         builder.ConfigureTestServices(services =>
         {
-            // Replace real database with test container or in-memory
+            // Replace real database with shared in-memory SQLite connection
+            // IMPORTANT: SQLite in-memory DBs are per-connection — a shared open
+            // connection ensures all DbContext instances see the same database
             services.RemoveAll<DbContextOptions<ApplicationDbContext>>();
+            services.RemoveAll<DbConnection>();
 
-            services.AddDbContext<ApplicationDbContext>(options =>
-                options.UseSqlite("DataSource=:memory:"));
+            services.AddSingleton<DbConnection>(_ =>
+            {
+                var connection = new SqliteConnection("DataSource=:memory:");
+                connection.Open();
+                return connection;
+            });
+
+            services.AddDbContext<ApplicationDbContext>((sp, options) =>
+                options.UseSqlite(sp.GetRequiredService<DbConnection>()));
         });
     }
 }

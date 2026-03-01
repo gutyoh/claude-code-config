@@ -171,6 +171,8 @@ public class PerformanceBehaviour<TRequest, TResponse> : IPipelineBehavior<TRequ
 
         if (elapsedMs > 500)
         {
+            // WARNING: {@Request} destructures the full request — may expose PII.
+            // Use Serilog destructuring policies to mask sensitive properties.
             _logger.LogWarning(
                 "Long running request: {Name} ({ElapsedMs} ms) {@Request}",
                 typeof(TRequest).Name, elapsedMs, request);

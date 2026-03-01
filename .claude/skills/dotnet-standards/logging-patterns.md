@@ -124,6 +124,9 @@ public class LoggingBehaviour<TRequest> : IRequestPreProcessor<TRequest>
 
     public Task Process(TRequest request, CancellationToken cancellationToken)
     {
+        // WARNING: {@Request} destructures the full request object — may contain
+        // sensitive data (passwords, tokens, PII). Configure Serilog destructuring
+        // policies to mask sensitive properties, or limit to non-sensitive metadata.
         _logger.LogInformation(
             "Request: {Name} {@UserId} {@Request}",
             typeof(TRequest).Name, _user.Id, request);
