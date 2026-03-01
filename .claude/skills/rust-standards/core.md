@@ -72,7 +72,7 @@ Strongly prefer `impl Trait` syntax for function parameters. Changes are more lo
 fn process(input: impl AsRef<str>) -> Result<()> { ... }
 fn write_output(writer: impl Write) -> Result<()> { ... }
 
-// WRONG: Turbofish generics (less localized)
+// WRONG: Explicit generic type parameters (less localized)
 fn process<T: AsRef<str>>(input: T) -> Result<()> { ... }
 fn write_output<W: Write>(writer: W) -> Result<()> { ... }
 ```
@@ -401,7 +401,7 @@ unsafe { &*ptr }
 1. **`unwrap()` in library code**: Use `?`, `expect()` with message, or handle the error
 2. **`clone()` to satisfy the borrow checker**: Restructure code instead — cloning is a code smell
 3. **`String` parameters when `&str` suffices**: Borrow when you don't need ownership
-4. **Turbofish generics for simple cases**: Use `impl Trait` syntax
+4. **Explicit generic type parameters for simple cases**: Use `impl Trait` syntax
 5. **`#[allow()]` for lint suppression**: Use `#[expect()]` — it warns when unnecessary
 6. **Local imports**: All imports at the top of the file
 7. **God modules**: Split large modules by responsibility

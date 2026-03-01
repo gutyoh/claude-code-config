@@ -89,16 +89,19 @@ Test many cases from files (the pattern monty uses):
 
 ```rust
 // tests/datatest_runner.rs
+use std::path::Path;
+
 use datatest_stable::harness;
 
 fn run_test_case(path: &Path) -> datatest_stable::Result<()> {
     let source = std::fs::read_to_string(path)?;
+    let expected = extract_expected_output(&source);
     let result = execute(&source)?;
     assert_eq!(result, expected);
     Ok(())
 }
 
-harness!(run_test_case, "test_cases", r".*\.py$");
+harness!(run_test_case, "test_cases", r".*\.txt$");
 ```
 
 ---

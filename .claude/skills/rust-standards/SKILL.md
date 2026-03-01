@@ -78,7 +78,7 @@ fn process(input: impl AsRef<str>, writer: impl Write) -> Result<()> {
     // ...
 }
 
-// WRONG: Turbofish generics (changes are less localized)
+// WRONG: Explicit generic type parameters (changes are less localized)
 fn process<T: AsRef<str>, W: Write>(input: T, writer: W) -> Result<()> {
     // ...
 }

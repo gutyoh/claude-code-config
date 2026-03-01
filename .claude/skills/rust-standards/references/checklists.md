@@ -21,7 +21,7 @@ Run through these checklists before completing code.
 ### Code Style
 - [ ] All imports at top of file — no local imports
 - [ ] Imports grouped: std → external → crate-internal
-- [ ] `impl Trait` syntax used for function parameters (not turbofish generics)
+- [ ] `impl Trait` syntax used for function parameters (not explicit generic type parameters)
 - [ ] `#[expect()]` used instead of `#[allow()]` for lint suppression
 - [ ] Newspaper style: public functions first, private utilities below
 

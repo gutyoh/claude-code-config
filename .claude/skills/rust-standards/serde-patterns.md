@@ -76,7 +76,9 @@ pub enum Message {
 ## Custom Serialization
 
 ```rust
-use serde::{self, Serializer, Deserializer};
+use std::time::Duration;
+
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Serialize, Deserialize)]
 pub struct Record {

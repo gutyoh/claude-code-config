@@ -102,6 +102,7 @@ impl RateLimitedClient {
 ## Timeouts
 
 ```rust
+use anyhow::Context;
 use tokio::time::{timeout, Duration};
 
 async fn fetch_with_timeout(url: &str) -> Result<Response> {
@@ -126,7 +127,10 @@ async fn pipeline() -> Result<()> {
     // Producer
     tokio::spawn(async move {
         for item in generate_items() {
-            tx.send(item).await.expect("receiver dropped");
+            if tx.send(item).await.is_err() {
+                // Receiver dropped; stop producing
+                break;
+            }
         }
     });
 

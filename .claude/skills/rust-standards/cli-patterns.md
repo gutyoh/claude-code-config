@@ -111,6 +111,8 @@ struct Cli {
 ## Argument Validation
 
 ```rust
+use std::path::PathBuf;
+
 use clap::Parser;
 
 #[derive(Parser)]
@@ -153,7 +155,7 @@ fn main() -> Result<()> {
 ## Colored Output with Stdout/Stderr
 
 ```rust
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 
 /// Write informational output to stdout.
 fn print_info(msg: &str) {
