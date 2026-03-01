@@ -149,6 +149,14 @@ main() {
         echo "    Run: chmod +x ${REPO_DIR}/bin/mcp-key-rotate"
     fi
 
+    if [[ -x "${REPO_DIR}/bin/mcp-env-inject" ]]; then
+        ln -sf "${REPO_DIR}/bin/mcp-env-inject" "${bin_dir}/mcp-env-inject"
+        echo "  ✓ ~/.local/bin/mcp-env-inject -> ${REPO_DIR}/bin/mcp-env-inject"
+    else
+        echo "  ⚠ bin/mcp-env-inject not found or not executable (skipping)"
+        echo "    Run: chmod +x ${REPO_DIR}/bin/mcp-env-inject"
+    fi
+
     if [[ "${INSTALL_AGENTS_SKILLS}" == "true" ]]; then
         create_symlink "${REPO_DIR}/.claude/skills" "${CLAUDE_DIR}/skills" "skills"
         create_symlink "${REPO_DIR}/.claude/agents" "${CLAUDE_DIR}/agents" "agents"

@@ -29,6 +29,31 @@ mcp_get() {
     esac
 }
 
+# --- MCP Backend Detection ---
+# Determines whether to use Doppler wrapper or mcp-env-inject wrapper.
+# Returns: "doppler" or "envfile"
+
+readonly DOPPLER_PROJECT="${MCP_DOPPLER_PROJECT:-claude-code-config}"
+readonly DOPPLER_CONFIG="${MCP_DOPPLER_CONFIG:-dev}"
+readonly MCP_KEYS_ENV_FILE="${MCP_KEYS_ENV_FILE:-${HOME}/.claude/mcp-keys.env}"
+
+detect_mcp_backend() {
+    # Tier 1: Doppler CLI available and project accessible
+    if command -v doppler &>/dev/null; then
+        # Test that at least one MCP key is accessible via Doppler
+        local test_var
+        test_var="$(mcp_get "brave-search" env_var)"
+        if doppler secrets get "${test_var}" --plain \
+            -p "${DOPPLER_PROJECT}" -c "${DOPPLER_CONFIG}" &>/dev/null; then
+            echo "doppler"
+            return
+        fi
+    fi
+
+    # Tier 2: Fall back to env file wrapper
+    echo "envfile"
+}
+
 # --- Functions ---
 
 configure_mcp_servers() {
@@ -41,20 +66,30 @@ configure_mcp_servers() {
         return
     fi
 
+    local backend
+    backend="$(detect_mcp_backend)"
+    echo "  MCP backend: ${backend}"
+    echo ""
+
     local key
     for key in "${INSTALL_MCP_SERVERS[@]}"; do
-        _configure_single_mcp "${key}"
+        _configure_single_mcp "${key}" "${backend}"
     done
+
+    # For envfile backend: create the keys env file
+    if [[ "${backend}" == "envfile" ]]; then
+        _create_mcp_keys_env
+    fi
 }
 
 _configure_single_mcp() {
     local key="$1"
-    local env_var
+    local backend="$2"
+    local env_var package
     env_var="$(mcp_get "${key}" env_var)"
-    local package
     package="$(mcp_get "${key}" package)"
-    local already_configured=false
 
+    # Remove existing config so we can re-register with correct backend
     if [[ -f "${CLAUDE_JSON}" ]]; then
         if python3 - "${CLAUDE_JSON}" "${key}" <<'PYTHON_CHECK' 2>/dev/null; then
 import json
@@ -68,46 +103,115 @@ try:
 except Exception:
     sys.exit(1)
 PYTHON_CHECK
-            already_configured=true
+            # Remove old config to re-register with correct wrapper
+            claude mcp remove "${key}" --scope user 2>/dev/null || true
         fi
     fi
 
-    if [[ "${already_configured}" == "true" ]]; then
-        echo "  ✓ ${key} MCP already configured (user scope)"
-    else
-        echo "  Adding ${key} MCP server to user scope..."
+    echo "  Adding ${key} MCP server (${backend} backend)..."
+
+    if [[ "${backend}" == "doppler" ]]; then
+        # Doppler wrapper: doppler run -- npx -y <package>
         if claude mcp add "${key}" --scope user \
-            -e "${env_var}=\${${env_var}}" \
+            -- doppler run \
+            -p "${DOPPLER_PROJECT}" -c "${DOPPLER_CONFIG}" \
             -- npx -y "${package}" 2>/dev/null; then
-            echo "  ✓ ${key} MCP added to user scope"
+            echo "  ✓ ${key} MCP added (doppler wrapper)"
         else
-            echo "  ⚠ Failed to add ${key} MCP. You can add it manually:"
-            echo "    claude mcp add ${key} --scope user \\"
-            echo "      -e ${env_var}='\${${env_var}}' \\"
-            echo "      -- npx -y ${package}"
+            echo "  ⚠ Failed to add ${key} MCP with doppler wrapper."
+            echo "    Manual: claude mcp add ${key} --scope user \\"
+            echo "      -- doppler run -p ${DOPPLER_PROJECT} -c ${DOPPLER_CONFIG} -- npx -y ${package}"
+        fi
+    else
+        # Env file wrapper: mcp-env-inject npx -y <package>
+        if claude mcp add "${key}" --scope user \
+            -- mcp-env-inject npx -y "${package}" 2>/dev/null; then
+            echo "  ✓ ${key} MCP added (mcp-env-inject wrapper)"
+        else
+            echo "  ⚠ Failed to add ${key} MCP with env-inject wrapper."
+            echo "    Manual: claude mcp add ${key} --scope user \\"
+            echo "      -- mcp-env-inject npx -y ${package}"
         fi
     fi
 }
 
-check_mcp_env_vars() {
-    local key
-    for key in "${INSTALL_MCP_SERVERS[@]}"; do
-        local env_var signup_url free_limit
-        env_var="$(mcp_get "${key}" env_var)"
-        signup_url="$(mcp_get "${key}" signup_url)"
-        free_limit="$(mcp_get "${key}" free_limit)"
+# Create ~/.claude/mcp-keys.env from available sources.
+# Sources (in priority order):
+#   1. Current environment variables (set via .env + direnv, or manual export)
+#   2. Repo .env file (if we're running from the repo directory)
+_create_mcp_keys_env() {
+    local keys_written=0
+    local env_content=""
 
+    echo ""
+    echo "  Creating ${MCP_KEYS_ENV_FILE}..."
+
+    local key
+    for key in "${MCP_SERVER_KEYS[@]}"; do
+        local env_var
+        env_var="$(mcp_get "${key}" env_var)"
+
+        # Try current environment first
         local env_val="${!env_var:-}"
+
+        # Fall back to repo .env file
+        if [[ -z "${env_val}" && -f "${REPO_DIR}/.env" ]]; then
+            env_val="$(grep "^${env_var}=" "${REPO_DIR}/.env" 2>/dev/null | head -1 | cut -d'=' -f2- || true)"
+        fi
+
         if [[ -n "${env_val}" ]]; then
-            echo "  ✓ ${env_var} is set (${#env_val} chars)"
+            env_content+="${env_var}=${env_val}"$'\n'
+            keys_written=$((keys_written + 1))
+            echo "  ✓ ${env_var} written (${#env_val} chars)"
         else
-            echo "  ⚠ ${env_var} not set. Add to your shell profile:"
-            echo ""
-            echo "    # Add to ~/.zshrc or ~/.bashrc:"
-            echo "    export ${env_var}=\"your-api-key-here\""
-            echo ""
-            echo "    Get a free API key (${free_limit}):"
-            echo "    ${signup_url}"
+            echo "  ⚠ ${env_var} not found — add it later with:"
+            local signup_url
+            signup_url="$(mcp_get "${key}" signup_url)"
+            echo "    echo '${env_var}=YOUR_KEY' >> ${MCP_KEYS_ENV_FILE}"
+            echo "    Get a key: ${signup_url}"
         fi
     done
+
+    if [[ ${keys_written} -gt 0 ]]; then
+        mkdir -p "$(dirname "${MCP_KEYS_ENV_FILE}")"
+        printf '%s' "${env_content}" > "${MCP_KEYS_ENV_FILE}"
+        chmod 600 "${MCP_KEYS_ENV_FILE}"
+        echo ""
+        echo "  ✓ ${MCP_KEYS_ENV_FILE} created (${keys_written} keys, mode 600)"
+    else
+        echo ""
+        echo "  ⚠ No MCP keys found. Add them to ${MCP_KEYS_ENV_FILE} before using MCP servers."
+    fi
+}
+
+check_mcp_env_vars() {
+    local backend
+    backend="$(detect_mcp_backend)"
+
+    if [[ "${backend}" == "doppler" ]]; then
+        echo "  ✓ Doppler backend active — keys injected at MCP server launch"
+        return
+    fi
+
+    # For envfile backend: check the env file exists and has keys
+    if [[ -f "${MCP_KEYS_ENV_FILE}" ]]; then
+        local key
+        for key in "${MCP_SERVER_KEYS[@]}"; do
+            local env_var
+            env_var="$(mcp_get "${key}" env_var)"
+            if grep -q "^${env_var}=" "${MCP_KEYS_ENV_FILE}" 2>/dev/null; then
+                echo "  ✓ ${env_var} found in ${MCP_KEYS_ENV_FILE}"
+            else
+                local signup_url free_limit
+                signup_url="$(mcp_get "${key}" signup_url)"
+                free_limit="$(mcp_get "${key}" free_limit)"
+                echo "  ⚠ ${env_var} missing from ${MCP_KEYS_ENV_FILE}"
+                echo "    echo '${env_var}=YOUR_KEY' >> ${MCP_KEYS_ENV_FILE}"
+                echo "    Get a free API key (${free_limit}): ${signup_url}"
+            fi
+        done
+    else
+        echo "  ⚠ ${MCP_KEYS_ENV_FILE} not found."
+        echo "    Re-run setup.sh or create it manually with your MCP API keys."
+    fi
 }
