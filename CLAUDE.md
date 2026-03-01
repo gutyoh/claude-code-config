@@ -41,6 +41,18 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   │   │   ├── config-patterns.md
 │   │   │   ├── testing-patterns.md
 │   │   │   └── deployment-patterns.md
+│   │   ├── rust-standards/
+│   │   │   ├── SKILL.md
+│   │   │   ├── core.md
+│   │   │   ├── async-patterns.md
+│   │   │   ├── serde-patterns.md
+│   │   │   ├── cli-patterns.md
+│   │   │   ├── testing-patterns.md
+│   │   │   ├── workspace-patterns.md
+│   │   │   ├── logging-patterns.md
+│   │   │   └── references/
+│   │   │       ├── api-design.md
+│   │   │       └── checklists.md
 │   │   ├── d2-tala-standards/
 │   │   │   ├── SKILL.md
 │   │   │   ├── core.md
@@ -74,6 +86,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   │   ├── d2-tala-expert.md
 │   │   ├── data-scientist.md
 │   │   ├── databricks-expert.md
+│   │   ├── rust-expert.md
 │   │   ├── internet-researcher.md
 │   │   ├── kedro-expert.md
 │   │   ├── pr-manager.md
@@ -130,6 +143,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 - **pr-operations**: Cross-platform PR/MR operations for GitHub, GitLab, and Azure DevOps (platform detection, CLI commands, workflow detection)
 - **pr-writing**: Expert PR and commit message writing following Conventional Commits
 - **python-standards**: Python engineering standards for clean, type-safe, production-ready code (Python 3.12+)
+- **rust-standards**: Rust engineering standards for safe, performant, idiomatic code (Edition 2024, clippy pedantic, async, serde, workspace management)
 - **web-search**: Quick internet search using Claude's built-in WebSearch tool
 - **brave-search**: Internet search using Brave Search MCP (web, image, video, news, local)
 - **tavily-search**: AI-native search using Tavily MCP (search, extract, crawl, map, research)
@@ -145,6 +159,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 - **linus-torvalds**: Stern software engineering mentor channeling Linus Torvalds for brutally honest technical advice, career guidance, and no-bullshit industry perspectives
 - **pr-manager**: Expert PR/MR manager for full lifecycle (list, view, create, review, edit, close, reopen) with automatic workflow detection (GitFlow vs Trunk-based)
 - **python-expert**: Expert Python engineer for clean, type-safe, production-ready code
+- **rust-expert**: Expert Rust engineer for safe, performant, idiomatic code with modern 2024 edition patterns
 - **sonarqube-fixer**: Expert SonarQube issue fixer for cognitive complexity, code smells, and security vulnerabilities
 - **ui-designer**: Expert UI designer for components, styling, design systems, and accessibility
 
