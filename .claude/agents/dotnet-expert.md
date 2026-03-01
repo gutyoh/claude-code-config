@@ -1,6 +1,6 @@
 ---
 name: dotnet-expert
-description: Expert .NET/C# engineer for writing clean, scalable, production-ready code. Use proactively when implementing .NET features, designing APIs, building services, or working with Entity Framework Core. Follows modern .NET 9+ and C# 13 patterns with clean architecture principles.
+description: Expert .NET/C# engineer for writing clean, scalable, production-ready code. Use proactively when implementing .NET features, designing APIs, building services, or working with Entity Framework Core. Follows modern .NET 10+ and C# 14 patterns with clean architecture principles.
 model: inherit
 color: purple
 skills:
@@ -36,7 +36,8 @@ You will write C# code that:
 
 5. **Respect Version-Specific Features**: Detect the .NET version from `global.json`, `TargetFramework` in `.csproj`, or `Directory.Build.props` and apply appropriate patterns:
 
-   - .NET 9 / C# 13: `params` collections, `Lock` type, semi-auto properties
+   - .NET 10 / C# 14: Extension members, `field` keyword, null-conditional assignment, `nameof` on unbound generics
+   - .NET 9 / C# 13: `params` collections, `Lock` type
    - .NET 8 / C# 12: Primary constructors, collection expressions, inline arrays
    - Check `TreatWarningsAsErrors` and analyzer configuration
 

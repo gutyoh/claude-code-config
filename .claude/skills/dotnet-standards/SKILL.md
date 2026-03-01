@@ -1,6 +1,6 @@
 ---
 name: dotnet-standards
-description: ".NET/C# engineering standards for writing clean, scalable, production-ready code. Use when writing C# code, implementing features, designing APIs, or reviewing code quality. Covers modern .NET 9+, C# 13, clean architecture, CQRS, EF Core, testing, and project configuration."
+description: ".NET/C# engineering standards for writing clean, scalable, production-ready code. Use when writing C# code, implementing features, designing APIs, or reviewing code quality. Covers modern .NET 10+, C# 14, clean architecture, CQRS, EF Core, testing, and project configuration."
 ---
 
 # .NET Standards
@@ -16,7 +16,7 @@ Detect the .NET version from project files:
 1. Check `global.json` for SDK version
 2. Check `Directory.Build.props` for `TargetFramework`
 3. Check individual `.csproj` files for `TargetFramework`
-4. Default to .NET 9 / C# 13 if not found
+4. Default to .NET 10 / C# 14 if not found
 
 ## Core Knowledge
 

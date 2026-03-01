@@ -124,10 +124,27 @@ public async Task<IResult> GetOrder(...)
 ## OpenAPI / Scalar
 
 ```csharp
-// Program.cs
-app.MapOpenApi();              // Built-in OpenAPI 3.1 support (.NET 9+)
+// Program.cs — OpenAPI 3.1 is the default in .NET 10
+app.MapOpenApi();              // Built-in OpenAPI 3.1 (default in .NET 10, was 3.0 in .NET 9)
 app.MapScalarApiReference();   // Scalar UI (replaces Swagger UI)
+
+// Optional: Fall back to OpenAPI 3.0 if needed
+builder.Services.AddOpenApi(options =>
+{
+    options.OpenApiVersion = Microsoft.OpenApi.OpenApiSpecVersion.OpenApi3_0;
+});
+
+// Optional: Serve YAML format (.NET 10)
+app.MapOpenApi("/openapi/v1.yaml");
 ```
+
+### OpenAPI Enhancements (.NET 10)
+
+- **OpenAPI 3.1 by default** — JSON Schema 2020-12 support, nullable as `type: ["string", "null"]`
+- **YAML output** — serve OpenAPI docs in YAML for human readability
+- **XML doc integration** — `<summary>` and `<remarks>` auto-populate OpenAPI descriptions
+- **`ProducesResponseType` descriptions** — optional `Description` parameter for response context
+- **`IOpenApiDocumentProvider`** — DI-injectable access to OpenAPI docs outside HTTP context
 
 ---
 
@@ -196,4 +213,4 @@ builder.Services.AddApiVersioning(options =>
 3. **Missing `RequireAuthorization()`**: Endpoints are anonymous by default — always add auth
 4. **Hardcoded routes**: Use endpoint group pattern for consistent `/api/{GroupName}` routing
 5. **No `public partial class Program`**: Required for `WebApplicationFactory<Program>` in tests
-6. **Swagger instead of Scalar**: Use `.MapScalarApiReference()` (modern, .NET 9+ aligned)
+6. **Swagger instead of Scalar**: Use `.MapScalarApiReference()` (modern, .NET 10+ aligned)

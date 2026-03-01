@@ -216,6 +216,72 @@ public class ApplicationDbContextInitialiser
 
 ---
 
+## EF Core 10 Features
+
+### Vector Search (AI/RAG Workloads)
+
+```csharp
+using Microsoft.EntityFrameworkCore.SqlServer;
+
+public class Document
+{
+    public int Id { get; set; }
+    public string Title { get; set; } = null!;
+    public string Content { get; set; } = null!;
+
+    [Column(TypeName = "vector(1536)")]
+    public SqlVector Embedding { get; set; }
+}
+
+// Query: Find most similar documents
+float[] searchVector = await embeddingGenerator.GenerateAsync(query);
+
+var results = await _context.Documents
+    .OrderBy(d => EF.Functions.VectorDistance(d.Embedding, searchVector))
+    .Take(10)
+    .ToListAsync(cancellationToken);
+```
+
+### Hybrid Search (Vector + Full-Text)
+
+```csharp
+// Combine vector similarity with full-text search via RRF
+var results = await _context.Documents
+    .OrderBy(d => EF.Functions.Rrf(
+        EF.Functions.FullTextScore(d.Content, "search terms"),
+        EF.Functions.VectorDistance(d.Embedding, searchVector)))
+    .Take(10)
+    .ToListAsync(cancellationToken);
+```
+
+### Named Query Filters
+
+```csharp
+// Define multiple named filters per entity
+modelBuilder.Entity<User>()
+    .HasQueryFilter("ActiveOnly", u => u.IsActive)
+    .HasQueryFilter("SameTenant", u => u.TenantId == currentTenantId);
+
+// Selectively disable specific filters in queries
+var allUsers = await _context.Users
+    .IgnoreQueryFilters(["ActiveOnly"])  // keeps tenant filter
+    .ToListAsync(cancellationToken);
+```
+
+### ExecuteUpdate for JSON Columns
+
+```csharp
+// Update JSON properties without loading the entity
+await _context.Users
+    .Where(u => u.Email == request.Email)
+    .ExecuteUpdateAsync(setters => setters
+        .SetProperty(u => u.Profile.DisplayName, request.DisplayName)
+        .SetProperty(u => u.Profile.LastActive, DateTime.UtcNow),
+    cancellationToken);
+```
+
+---
+
 ## Anti-Patterns
 
 1. **Missing `.AsNoTracking()`**: Always use for read-only queries — saves memory and CPU

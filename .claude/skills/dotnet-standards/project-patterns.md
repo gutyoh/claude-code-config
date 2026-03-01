@@ -8,7 +8,7 @@ Shared properties applied to all projects in the solution:
 <!-- Directory.Build.props (solution root) -->
 <Project>
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -21,7 +21,7 @@ Shared properties applied to all projects in the solution:
 
 | Property | Value | Purpose |
 |----------|-------|---------|
-| `TargetFramework` | `net9.0` | .NET version for all projects |
+| `TargetFramework` | `net10.0` | .NET version for all projects |
 | `TreatWarningsAsErrors` | `true` | Fail build on any warning |
 | `ImplicitUsings` | `enable` | Auto-import common namespaces |
 | `Nullable` | `enable` | Nullable reference type checking |
@@ -42,8 +42,8 @@ Pin all NuGet versions in one file:
 
   <PropertyGroup>
     <!-- Version variables for packages that should stay in sync -->
-    <AspnetVersion>9.0.0</AspnetVersion>
-    <EfcoreVersion>9.0.0</EfcoreVersion>
+    <AspnetVersion>10.0.0</AspnetVersion>
+    <EfcoreVersion>10.0.0</EfcoreVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -89,7 +89,7 @@ Pin the SDK version for reproducible builds:
 ```json
 {
   "sdk": {
-    "version": "9.0.100",
+    "version": "10.0.100",
     "rollForward": "latestFeature"
   }
 }
@@ -214,7 +214,7 @@ jobs:
 
 ```dockerfile
 # Build stage
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 COPY Directory.Build.props Directory.Packages.props global.json ./
@@ -228,7 +228,7 @@ COPY src/ src/
 RUN dotnet publish src/Web/Web.csproj -c Release -o /app --no-restore
 
 # Runtime stage
-FROM mcr.microsoft.com/dotnet/aspnet:9.0
+FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
 COPY --from=build /app .
 EXPOSE 8080

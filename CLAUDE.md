@@ -151,7 +151,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 ### Skills
 - **d2-tala-standards**: D2 diagramming standards with TALA layout engine for clean, professional architecture diagrams
 - **databricks-standards**: Databricks engineering standards for safe, efficient workspace interaction via CLI
-- **dotnet-standards**: .NET/C# engineering standards for clean, scalable code (.NET 9+, C# 13, clean architecture, CQRS, EF Core, testing, project configuration)
+- **dotnet-standards**: .NET/C# engineering standards for clean, scalable code (.NET 10+, C# 14, clean architecture, CQRS, EF Core, testing, project configuration)
 - **internet-research**: Expert internet research using Tavily and Brave Search (task-based routing)
 - **kedro-standards**: Kedro engineering standards for building clean, modular, production-ready data pipelines (Kedro 1.0+)
 - **pr-operations**: Cross-platform PR/MR operations for GitHub, GitLab, and Azure DevOps (platform detection, CLI commands, workflow detection)
@@ -168,7 +168,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 - **d2-tala-expert**: Expert D2 diagrammer with TALA layout engine for software architecture diagrams
 - **data-scientist**: Expert data scientist for ML, deep learning, and statistical analysis
 - **databricks-expert**: Expert Databricks engineer for querying data, exploring Unity Catalog, managing permissions, and monitoring jobs/pipelines
-- **dotnet-expert**: Expert .NET/C# engineer for clean, scalable, production-ready code with modern .NET 9+ and clean architecture
+- **dotnet-expert**: Expert .NET/C# engineer for clean, scalable, production-ready code with modern .NET 10+ and clean architecture
 - **internet-researcher**: Deep research subagent for complex queries
 - **kedro-expert**: Expert Kedro engineer for building data pipelines, managing catalogs, configuring environments, and deploying projects
 - **linus-torvalds**: Stern software engineering mentor channeling Linus Torvalds for brutally honest technical advice, career guidance, and no-bullshit industry perspectives

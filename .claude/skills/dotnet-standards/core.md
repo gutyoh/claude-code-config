@@ -355,6 +355,92 @@ return exception switch
 };
 ```
 
+### Extension Members (C# 14)
+
+```csharp
+// CORRECT: C# 14 extension block syntax — properties, methods, operators
+public static class StringExtensions
+{
+    extension(string input)
+    {
+        public bool IsNullOrEmpty => string.IsNullOrEmpty(input);
+        public string Cleaned => input.Trim().ToLowerInvariant();
+        public string Truncate(int maxLength) =>
+            input.Length <= maxLength ? input : input[..maxLength] + "...";
+    }
+}
+
+// Usage — feels like native members
+var name = "  Hello World  ";
+bool empty = name.IsNullOrEmpty;     // Extension property
+string clean = name.Cleaned;         // Extension property
+string short_ = name.Truncate(5);    // Extension method
+
+// WRONG: Old C# 13 extension method syntax (still works but prefer extension blocks)
+public static class StringExtensions
+{
+    public static bool IsNullOrEmpty(this string input) => string.IsNullOrEmpty(input);
+}
+```
+
+### `field` Keyword — Semi-Auto Properties (C# 14)
+
+```csharp
+// CORRECT: field keyword eliminates manual backing fields
+public string Name
+{
+    get;
+    set => field = value ?? throw new ArgumentNullException(nameof(value));
+}
+
+public int Age
+{
+    get;
+    set => field = value >= 0 ? value : throw new ArgumentOutOfRangeException(nameof(value));
+}
+
+// WRONG: Manual backing field (pre-C# 14)
+private string _name = null!;
+public string Name
+{
+    get => _name;
+    set => _name = value ?? throw new ArgumentNullException(nameof(value));
+}
+```
+
+### Null-Conditional Assignment (C# 14)
+
+```csharp
+// CORRECT: Assign only if receiver is not null
+customer?.Name = "Updated Name";
+order?.Items?.Add(newItem);
+
+// WRONG: Verbose null check (pre-C# 14)
+if (customer is not null)
+{
+    customer.Name = "Updated Name";
+}
+```
+
+### Other C# 14 Features
+
+```csharp
+// nameof on unbound generics — no dummy type arguments needed
+string name = nameof(List<>);          // "List"
+string dict = nameof(Dictionary<,>);   // "Dictionary"
+
+// Partial constructors and events — for source generators
+public partial class MyService
+{
+    public partial MyService(ILogger logger);
+    public partial event EventHandler<DataEventArgs> DataReceived;
+}
+
+// ref/in/out in lambdas without explicit parameter types
+Span<int> span = stackalloc int[] { 1, 2, 3 };
+span.Sort((ref readonly x, ref readonly y) => x.CompareTo(y));
+```
+
 ### Collection Expressions (C# 12+)
 
 ```csharp
