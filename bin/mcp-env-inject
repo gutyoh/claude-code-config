@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# mcp-env-inject
+# Path: claude-code-config/bin/mcp-env-inject
+#
+# Wrapper script that injects MCP API keys into a child process.
+# Used as the MCP server command on machines without Doppler.
+#
+# The `doppler run --` command does the same thing on Doppler machines;
+# this script provides the identical pattern using a local env file.
+#
+# Usage (in ~/.claude.json mcpServers):
+#   "command": "mcp-env-inject",
+#   "args": ["npx", "-y", "tavily-mcp@0.2.17"]
+#
+# Environment file: ~/.claude/mcp-keys.env
+#   Created by setup.sh or mcp-key-rotate --sync.
+#   Format: VAR=value (one per line, no `export` prefix).
+
+set -euo pipefail
+
+readonly MCP_KEYS_ENV="${MCP_KEYS_ENV_FILE:-${HOME}/.claude/mcp-keys.env}"
+
+if [[ -f "${MCP_KEYS_ENV}" ]]; then
+    # `set -a` marks every variable assigned as exported (equivalent to `export`)
+    set -a
+    # shellcheck source=/dev/null
+    source "${MCP_KEYS_ENV}"
+    set +a
+fi
+
+# Replace this process with the real MCP server command
+exec "$@"

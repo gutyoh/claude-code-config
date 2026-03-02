@@ -145,6 +145,65 @@ secret_set() {
     esac
 }
 
+# --- MCP keys env file sync ---
+# When using the dotenv backend, also update ~/.claude/mcp-keys.env
+# so the mcp-env-inject wrapper picks up the new key on next MCP restart.
+readonly MCP_KEYS_ENV_FILE="${MCP_KEYS_ENV_FILE:-${HOME}/.claude/mcp-keys.env}"
+
+sync_mcp_keys_env() {
+    # Only sync for dotenv backend (Doppler injects keys live at MCP launch)
+    if [[ "${BACKEND}" == "doppler" ]]; then
+        return
+    fi
+
+    if [[ ! -f "${MCP_KEYS_ENV_FILE}" ]]; then
+        # No env file exists yet — nothing to sync
+        return
+    fi
+
+    local current_key
+    current_key="$(secret_get "${KEY_VAR}")"
+    if [[ -z "${current_key}" ]]; then
+        return
+    fi
+
+    # Update or append the key in the env file
+    if grep -q "^${KEY_VAR}=" "${MCP_KEYS_ENV_FILE}" 2>/dev/null; then
+        local tmp="${MCP_KEYS_ENV_FILE}.tmp.$$"
+        awk -v name="${KEY_VAR}" -v value="${current_key}" \
+            'BEGIN{FS=OFS="="} $1==name{$0=name"="value} {print}' \
+            "${MCP_KEYS_ENV_FILE}" > "${tmp}" && mv "${tmp}" "${MCP_KEYS_ENV_FILE}"
+    else
+        echo "${KEY_VAR}=${current_key}" >> "${MCP_KEYS_ENV_FILE}"
+    fi
+    chmod 600 "${MCP_KEYS_ENV_FILE}"
+    echo "Synced ${KEY_VAR} to ${MCP_KEYS_ENV_FILE}"
+}
+
+cmd_sync() {
+    # Explicitly sync all known MCP keys to the env file
+    local current_key
+    current_key="$(secret_get "${KEY_VAR}")"
+
+    if [[ -z "${current_key}" ]]; then
+        echo "No active key found for ${SERVICE} (${KEY_VAR})."
+        exit 1
+    fi
+
+    mkdir -p "$(dirname "${MCP_KEYS_ENV_FILE}")"
+
+    if [[ -f "${MCP_KEYS_ENV_FILE}" ]] && grep -q "^${KEY_VAR}=" "${MCP_KEYS_ENV_FILE}" 2>/dev/null; then
+        local tmp="${MCP_KEYS_ENV_FILE}.tmp.$$"
+        awk -v name="${KEY_VAR}" -v value="${current_key}" \
+            'BEGIN{FS=OFS="="} $1==name{$0=name"="value} {print}' \
+            "${MCP_KEYS_ENV_FILE}" > "${tmp}" && mv "${tmp}" "${MCP_KEYS_ENV_FILE}"
+    else
+        echo "${KEY_VAR}=${current_key}" >> "${MCP_KEYS_ENV_FILE}"
+    fi
+    chmod 600 "${MCP_KEYS_ENV_FILE}"
+    echo "Synced ${SERVICE} key to ${MCP_KEYS_ENV_FILE} ($(mask_key "${current_key}"))"
+}
+
 # --- Helpers ---
 mask_key() {
     local key="$1"
@@ -360,6 +419,9 @@ cmd_rotate() {
 
     echo "Rotated ${SERVICE}: $(mask_key "${current}") -> $(mask_key "${next_key}")"
     echo "Now active: key [$((next_idx + 1))] of ${#keys[@]} (backend: ${BACKEND})"
+
+    # Auto-sync to mcp-keys.env for mcp-env-inject wrapper
+    sync_mcp_keys_env
 }
 
 cmd_quota() {
@@ -463,13 +525,17 @@ case "${1:-}" in
         fi
         cmd_add "$2"
         ;;
+    --sync)
+        cmd_sync
+        ;;
     --help|-h)
-        echo "Usage: mcp-key-rotate <service> [--status|--quota|--add KEY]"
+        echo "Usage: mcp-key-rotate <service> [--status|--quota|--add KEY|--sync]"
         echo ""
         echo "  (no args)     Rotate to next key in pool"
         echo "  --status, -s  Show current key and pool"
         echo "  --quota, -q   Show per-key credit usage (live API check)"
         echo "  --add, -a     Add a new key to the pool"
+        echo "  --sync        Sync active key to ~/.claude/mcp-keys.env"
         echo "  --help, -h    Show this help"
         echo ""
         echo "Services: brave, tavily (or any MCP service with {SERVICE}_API_KEY + {SERVICE}_API_KEY_POOL)"
