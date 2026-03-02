@@ -306,6 +306,144 @@ EOF
 }
 
 # ==========================================================================
+# UNIT TESTS: _create_mcp_keys_env respects INSTALL_MCP_SERVERS (not MCP_SERVER_KEYS)
+# ==========================================================================
+
+@test "_create_mcp_keys_env: only writes keys for selected servers (tavily only)" {
+    # Simulate: user selected only tavily, not brave-search
+    export TAVILY_API_KEY="${KEY_A}"
+
+    local env_file="${TEST_TMPDIR}/mcp-keys-subset.env"
+
+    run env PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+        TAVILY_API_KEY="${KEY_A}" \
+        MCP_KEYS_ENV_FILE="${env_file}" \
+        REPO_DIR="${TEST_TMPDIR}" \
+        bash -c '
+            INSTALL_MCP_SERVERS=("tavily")
+            source "'"${MCP_SH}"'"
+            _create_mcp_keys_env
+        '
+    [ "$status" -eq 0 ]
+
+    # tavily key should be written
+    grep -q "^TAVILY_API_KEY=${KEY_A}" "${env_file}"
+
+    # brave key should NOT be written (not in INSTALL_MCP_SERVERS)
+    ! grep -q "^BRAVE_API_KEY=" "${env_file}"
+
+    # Output should NOT warn about BRAVE_API_KEY
+    [[ "$output" != *"BRAVE_API_KEY"* ]]
+}
+
+@test "_create_mcp_keys_env: only writes keys for selected servers (brave-search only)" {
+    local env_file="${TEST_TMPDIR}/mcp-keys-subset2.env"
+
+    run env PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+        BRAVE_API_KEY="${KEY_B}" \
+        MCP_KEYS_ENV_FILE="${env_file}" \
+        REPO_DIR="${TEST_TMPDIR}" \
+        bash -c '
+            INSTALL_MCP_SERVERS=("brave-search")
+            source "'"${MCP_SH}"'"
+            _create_mcp_keys_env
+        '
+    [ "$status" -eq 0 ]
+
+    # brave key should be written
+    grep -q "^BRAVE_API_KEY=${KEY_B}" "${env_file}"
+
+    # tavily key should NOT be written
+    ! grep -q "^TAVILY_API_KEY=" "${env_file}"
+
+    # Output should NOT mention TAVILY_API_KEY
+    [[ "$output" != *"TAVILY_API_KEY"* ]]
+}
+
+@test "_create_mcp_keys_env: writes all keys when all servers selected" {
+    local env_file="${TEST_TMPDIR}/mcp-keys-all.env"
+
+    run env PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+        BRAVE_API_KEY="${KEY_A}" \
+        TAVILY_API_KEY="${KEY_B}" \
+        MCP_KEYS_ENV_FILE="${env_file}" \
+        REPO_DIR="${TEST_TMPDIR}" \
+        bash -c '
+            INSTALL_MCP_SERVERS=("brave-search" "tavily")
+            source "'"${MCP_SH}"'"
+            _create_mcp_keys_env
+        '
+    [ "$status" -eq 0 ]
+
+    grep -q "^BRAVE_API_KEY=${KEY_A}" "${env_file}"
+    grep -q "^TAVILY_API_KEY=${KEY_B}" "${env_file}"
+}
+
+# ==========================================================================
+# UNIT TESTS: check_mcp_env_vars respects INSTALL_MCP_SERVERS (not MCP_SERVER_KEYS)
+# ==========================================================================
+
+@test "check_mcp_env_vars: only checks selected servers (tavily only)" {
+    # Create env file with only tavily key
+    echo "TAVILY_API_KEY=${KEY_A}" > "${MCP_KEYS_ENV_FILE}"
+
+    run env PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+        MCP_KEYS_ENV_FILE="${MCP_KEYS_ENV_FILE}" \
+        bash -c '
+            INSTALL_MCP_SERVERS=("tavily")
+            source "'"${MCP_SH}"'"
+            check_mcp_env_vars
+        '
+    [ "$status" -eq 0 ]
+
+    # Should report tavily found
+    [[ "$output" == *"TAVILY_API_KEY found"* ]]
+
+    # Should NOT warn about brave (not in INSTALL_MCP_SERVERS)
+    [[ "$output" != *"BRAVE_API_KEY"* ]]
+}
+
+@test "check_mcp_env_vars: only checks selected servers (brave-search only)" {
+    # Create env file with only brave key
+    echo "BRAVE_API_KEY=${KEY_B}" > "${MCP_KEYS_ENV_FILE}"
+
+    run env PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+        MCP_KEYS_ENV_FILE="${MCP_KEYS_ENV_FILE}" \
+        bash -c '
+            INSTALL_MCP_SERVERS=("brave-search")
+            source "'"${MCP_SH}"'"
+            check_mcp_env_vars
+        '
+    [ "$status" -eq 0 ]
+
+    # Should report brave found
+    [[ "$output" == *"BRAVE_API_KEY found"* ]]
+
+    # Should NOT warn about tavily
+    [[ "$output" != *"TAVILY_API_KEY"* ]]
+}
+
+@test "check_mcp_env_vars: warns about missing key only for selected server" {
+    # Create env file with NO keys
+    touch "${MCP_KEYS_ENV_FILE}"
+
+    run env PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+        MCP_KEYS_ENV_FILE="${MCP_KEYS_ENV_FILE}" \
+        bash -c '
+            INSTALL_MCP_SERVERS=("tavily")
+            source "'"${MCP_SH}"'"
+            check_mcp_env_vars
+        '
+    [ "$status" -eq 0 ]
+
+    # Should warn about tavily being missing
+    [[ "$output" == *"TAVILY_API_KEY missing"* ]]
+
+    # Should NOT warn about brave (not selected)
+    [[ "$output" != *"BRAVE_API_KEY"* ]]
+}
+
+# ==========================================================================
 # INTEGRATION: Repo structure validation
 # ==========================================================================
 

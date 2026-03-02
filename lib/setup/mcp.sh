@@ -147,7 +147,7 @@ _create_mcp_keys_env() {
     echo "  Creating ${MCP_KEYS_ENV_FILE}..."
 
     local key
-    for key in "${MCP_SERVER_KEYS[@]}"; do
+    for key in "${INSTALL_MCP_SERVERS[@]}"; do
         local env_var
         env_var="$(mcp_get "${key}" env_var)"
 
@@ -196,7 +196,7 @@ check_mcp_env_vars() {
     # For envfile backend: check the env file exists and has keys
     if [[ -f "${MCP_KEYS_ENV_FILE}" ]]; then
         local key
-        for key in "${MCP_SERVER_KEYS[@]}"; do
+        for key in "${INSTALL_MCP_SERVERS[@]}"; do
             local env_var
             env_var="$(mcp_get "${key}" env_var)"
             if grep -q "^${env_var}=" "${MCP_KEYS_ENV_FILE}" 2>/dev/null; then
