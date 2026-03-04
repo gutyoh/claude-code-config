@@ -45,7 +45,7 @@ npx langfuse-cli api traces list --json
 ### Method 3: Inline flags
 
 ```bash
-npx langfuse-cli --public-key pk-lf-... --secret-key sk-lf-... --server http://localhost:3000 \
+npx langfuse-cli --public-key pk-lf-... --secret-key sk-lf-... --host http://localhost:3000 \
   api traces list --json
 ```
 
@@ -55,7 +55,7 @@ npx langfuse-cli --public-key pk-lf-... --secret-key sk-lf-... --server http://l
 npx langfuse-cli api healths list --json
 ```
 
-If auth fails, guide the user to their Langfuse UI → Settings → API Keys.
+If auth fails, instruct the user to create API keys in the Langfuse UI (Settings → API Keys) and configure them locally (shell export, `.env` file, or `.claude/settings.local.json`). Never request or accept raw key values in chat.
 
 ---
 

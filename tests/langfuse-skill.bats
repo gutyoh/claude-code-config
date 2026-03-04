@@ -250,7 +250,7 @@ CLAUDE_MD="$BATS_TEST_DIRNAME/../CLAUDE.md"
             echo "BROKEN LINK: $link -> $target" >&2
             failed=1
         fi
-    done < <(grep -oP '\[.*?\]\(\K[^)]+' "$SKILL_DIR/SKILL.md" | grep -v '^http')
+    done < <(grep -oE '\[[^]]+\]\([^)]+\)' "$SKILL_DIR/SKILL.md" | sed -E 's/^[^(]*\(([^)]*)\).*$/\1/' | grep -v '^http')
     [ "$failed" -eq 0 ]
 }
 

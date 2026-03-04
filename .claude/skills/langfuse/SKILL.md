@@ -25,7 +25,7 @@ export LANGFUSE_SECRET_KEY=sk-lf-...
 export LANGFUSE_HOST=http://localhost:3000  # self-hosted, or https://cloud.langfuse.com
 ```
 
-If not set, ask the user for their API keys (found in Langfuse UI → Settings → API Keys).
+If not set, instruct the user to create API keys in the Langfuse UI (Settings → API Keys) and configure `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and `LANGFUSE_HOST` in their environment (shell export, `.env` file, or `.claude/settings.local.json`). Never request or accept raw key values in chat.
 
 ## Core Knowledge
 
