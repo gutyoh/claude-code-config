@@ -72,6 +72,13 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   │   │   ├── style-patterns.md
 │   │   │   ├── diagram-patterns.md
 │   │   │   └── cli-patterns.md
+│   │   ├── langfuse/
+│   │   │   ├── SKILL.md
+│   │   │   ├── core.md
+│   │   │   └── references/
+│   │   │       ├── cli.md
+│   │   │       ├── instrumentation.md
+│   │   │       └── prompt-migration.md
 │   │   ├── pr-operations/
 │   │   │   └── SKILL.md
 │   │   ├── pr-writing/
@@ -102,6 +109,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   │   ├── dotnet-expert.md
 │   │   ├── internet-researcher.md
 │   │   ├── kedro-expert.md
+│   │   ├── langfuse-expert.md
 │   │   ├── pr-manager.md
 │   │   ├── linus-torvalds.md
 │   │   ├── python-expert.md
@@ -154,6 +162,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 - **dotnet-standards**: .NET/C# engineering standards for clean, scalable code (.NET 10+, C# 14, clean architecture, CQRS, EF Core, testing, project configuration)
 - **internet-research**: Expert internet research using Tavily and Brave Search (task-based routing)
 - **kedro-standards**: Kedro engineering standards for building clean, modular, production-ready data pipelines (Kedro 1.0+)
+- **langfuse**: Langfuse observability platform standards for querying traces, managing prompts, debugging LLM applications, and accessing data via `langfuse-cli` (26 API resources, self-hosted or cloud)
 - **pr-operations**: Cross-platform PR/MR operations for GitHub, GitLab, and Azure DevOps (platform detection, CLI commands, workflow detection)
 - **pr-writing**: Expert PR and commit message writing following Conventional Commits
 - **python-standards**: Python engineering standards for clean, type-safe, production-ready code (Python 3.12+)
@@ -171,6 +180,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 - **dotnet-expert**: Expert .NET/C# engineer for clean, scalable, production-ready code with modern .NET 10+ and clean architecture
 - **internet-researcher**: Deep research subagent for complex queries
 - **kedro-expert**: Expert Kedro engineer for building data pipelines, managing catalogs, configuring environments, and deploying projects
+- **langfuse-expert**: Expert Langfuse engineer for querying traces, debugging LLM applications, managing prompts, analyzing sessions, and instrumenting observability
 - **linus-torvalds**: Stern software engineering mentor channeling Linus Torvalds for brutally honest technical advice, career guidance, and no-bullshit industry perspectives
 - **pr-manager**: Expert PR/MR manager for full lifecycle (list, view, create, review, edit, close, reopen) with automatic workflow detection (GitFlow vs Trunk-based)
 - **python-expert**: Expert Python engineer for clean, type-safe, production-ready code
@@ -201,6 +211,11 @@ Set these in your shell before running Claude Code:
 ```bash
 export BRAVE_API_KEY="your-key-here"
 export TAVILY_API_KEY="your-key-here"
+
+# Langfuse (for langfuse skill/agent — self-hosted or cloud)
+export LANGFUSE_PUBLIC_KEY="pk-lf-..."
+export LANGFUSE_SECRET_KEY="sk-lf-..."
+export LANGFUSE_HOST="http://localhost:3000"  # or https://cloud.langfuse.com
 
 # Optional: Brave Search rate limit (default: 1100ms for free tier)
 # Set to 50 for paid plans (20 req/sec)
