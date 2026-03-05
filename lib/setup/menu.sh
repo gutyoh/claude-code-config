@@ -49,6 +49,9 @@ show_install_menu() {
     local weekly_reset_label="no"
     [[ "${STATUSLINE_WEEKLY_SHOW_RESET}" == "true" ]] && weekly_reset_label="yes"
     echo "  statusline weekly reset:          ${weekly_reset_label}"
+    if [[ "${STATUSLINE_COMPONENTS}" == *"cc_status"* ]]; then
+        echo "  statusline cc status:             ${STATUSLINE_CC_STATUS_POSITION}, ${STATUSLINE_CC_STATUS_VISIBILITY}, ${STATUSLINE_CC_STATUS_COLOR}"
+    fi
     echo ""
 
     local menu_choice
@@ -242,6 +245,50 @@ customize_statusline_with_preview() {
             else
                 STATUSLINE_WEEKLY_SHOW_RESET="false"
             fi
+        fi
+
+        # --- Claude Code Status (conditional drill-down when cc_status selected) ---
+        if [[ "${STATUSLINE_COMPONENTS}" == *"cc_status"* ]]; then
+            # Position
+            local cc_pos_choice
+            tui_select cc_pos_choice "Claude Code status position:" \
+                "inline   - After email on same line (... | email | status)" \
+                "newline  - Separate second line (cc status <label>)"
+
+            case "${cc_pos_choice}" in
+                newline*) STATUSLINE_CC_STATUS_POSITION="newline" ;;
+                *) STATUSLINE_CC_STATUS_POSITION="inline" ;;
+            esac
+
+            # Visibility
+            local cc_vis_choice
+            tui_select cc_vis_choice "Claude Code status visibility:" \
+                "always        - Always show status" \
+                "problem_only  - Only show when there is a problem"
+
+            case "${cc_vis_choice}" in
+                problem*) STATUSLINE_CC_STATUS_VISIBILITY="problem_only" ;;
+                *) STATUSLINE_CC_STATUS_VISIBILITY="always" ;;
+            esac
+
+            # Color (options vary by position)
+            local cc_color_choice
+            if [[ "${STATUSLINE_CC_STATUS_POSITION}" == "inline" ]]; then
+                tui_select cc_color_choice "Claude Code status color:" \
+                    "none  - Plain text, no color" \
+                    "full  - Color the status label"
+            else
+                tui_select cc_color_choice "Claude Code status color:" \
+                    "none         - Plain text, no color" \
+                    "full         - Color both prefix and label" \
+                    "status_only  - Color only the status label"
+            fi
+
+            case "${cc_color_choice}" in
+                full*) STATUSLINE_CC_STATUS_COLOR="full" ;;
+                status*) STATUSLINE_CC_STATUS_COLOR="status_only" ;;
+                *) STATUSLINE_CC_STATUS_COLOR="none" ;;
+            esac
         fi
 
         # --- Icon Prefix ---

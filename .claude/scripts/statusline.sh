@@ -17,7 +17,7 @@
 #
 # Components (configurable order):
 #   model, usage, weekly, reset, tokens_in, tokens_out, tokens_cache,
-#   cost, burn_rate, email, version, lines, session_time, cwd
+#   cost, burn_rate, email, cc_status, version, lines, session_time, cwd
 #
 # Bar styles (for 'usage' component, wide mode):
 #   text      session: 21% used
@@ -65,6 +65,9 @@ CONF_COLOR_SCOPE="percentage"  # "percentage" = color usage component only, "ful
 CONF_ICON=""                   # Prefix icon: e.g. "✻", "A\\", "❋", or "" for none
 CONF_ICON_STYLE="plain"        # plain|bold|bracketed|rounded|reverse|bold-color|angle|double-bracket
 CONF_WEEKLY_SHOW_RESET="false" # Show weekly reset countdown inline with weekly %
+CONF_CC_STATUS_POSITION="inline"        # inline | newline
+CONF_CC_STATUS_VISIBILITY="always"      # always | problem_only
+CONF_CC_STATUS_COLOR="full"             # none | full | status_only
 
 # --- Color Globals ---
 # Four tiers: ok (<50%), caution (>=50%), warn (>=75%), crit (>=90%)
@@ -95,6 +98,7 @@ DATA_LINES_ADDED=""
 DATA_LINES_REMOVED=""
 DATA_SESSION_TIME_MS=""
 DATA_CWD=""
+DATA_CC_STATUS=""
 
 # --- Width Flag ---
 
@@ -124,6 +128,7 @@ source "${_STATUSLINE_DIR}/lib/statusline/cache.sh"
 source "${_STATUSLINE_DIR}/lib/statusline/data.sh"
 source "${_STATUSLINE_DIR}/lib/statusline/bar.sh"
 source "${_STATUSLINE_DIR}/lib/statusline/color.sh"
+source "${_STATUSLINE_DIR}/lib/statusline/status.sh"
 source "${_STATUSLINE_DIR}/lib/statusline/components.sh"
 source "${_STATUSLINE_DIR}/lib/statusline/assembly.sh"
 
@@ -209,6 +214,37 @@ main() {
         fi
     else
         printf "%s%s" "${icon_prefix}" "${output}"
+    fi
+
+    # Newline mode: emit cc_status as a second line
+    if [[ "${CONF_COMPONENTS}" == *"cc_status"* \
+        && "${CONF_CC_STATUS_POSITION}" == "newline" \
+        && -n "${DATA_CC_STATUS}" ]]; then
+
+        # problem_only: skip when operational
+        if [[ "${CONF_CC_STATUS_VISIBILITY}" == "problem_only" \
+            && "${DATA_CC_STATUS}" == "on" ]]; then
+            :  # no second line
+        else
+            local cc_label="${DATA_CC_STATUS}"
+            local cc_color=""
+
+            if [[ "${CONF_CC_STATUS_COLOR}" != "none" ]]; then
+                cc_color=$(get_cc_status_color "${cc_label}")
+            fi
+
+            printf "\n"
+            if [[ "${CONF_CC_STATUS_COLOR}" == "full" && -n "${cc_color}" ]]; then
+                # Color both prefix and label
+                printf "%scc status %s%s" "${cc_color}" "${cc_label}" "${COLOR_RESET}"
+            elif [[ "${CONF_CC_STATUS_COLOR}" == "status_only" && -n "${cc_color}" ]]; then
+                # Color only the label
+                printf "cc status %s%s%s" "${cc_color}" "${cc_label}" "${COLOR_RESET}"
+            else
+                # No color
+                printf "cc status %s" "${cc_label}"
+            fi
+        fi
     fi
 }
 

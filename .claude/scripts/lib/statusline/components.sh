@@ -124,6 +124,31 @@ render_component_email() {
     printf "%s" "${DATA_EMAIL}"
 }
 
+render_component_cc_status() {
+    # Empty data — nothing to show
+    [[ -z "${DATA_CC_STATUS}" ]] && return
+
+    # Newline mode is handled by main() in statusline.sh, not here
+    [[ "${CONF_CC_STATUS_POSITION}" == "newline" ]] && return
+
+    # problem_only: hide when operational
+    [[ "${CONF_CC_STATUS_VISIBILITY}" == "problem_only" && "${DATA_CC_STATUS}" == "on" ]] && return
+
+    local label="${DATA_CC_STATUS}"
+    local color=""
+
+    # Apply color when configured (for inline, "status_only" behaves same as "full")
+    if [[ "${CONF_CC_STATUS_COLOR}" != "none" ]]; then
+        color=$(get_cc_status_color "${label}")
+    fi
+
+    if [[ -n "${color}" ]]; then
+        printf "%s%s%s" "${color}" "${label}" "${COLOR_RESET}"
+    else
+        printf "%s" "${label}"
+    fi
+}
+
 render_component_version() {
     [[ -z "${DATA_VERSION}" ]] && return
     printf "%s" "${DATA_VERSION}"
