@@ -3,10 +3,16 @@
 # Path: .claude/scripts/statusline.sh
 #
 # Displays real-time session metrics in Claude Code's status bar.
-# Uses Anthropic OAuth API for accurate utilization % and reset timer (ground truth).
-# Caches API with global lock + exponential backoff + stale-while-error.
-# Only one process across N sessions queries the API (prevents thundering herd).
-# On 429/failure: serves last known good cache (any age) — never falls back to estimation.
+#
+# Usage data priority chain (future-proof):
+#   1. Stdin JSON rate_limit.* fields (future Anthropic native — not yet available)
+#   2. Hook cache ~/.claude/cache/claude-usage.json (PreToolUse Haiku ping headers)
+#   3. OAuth API /api/oauth/usage with stale-while-error (legacy fallback)
+#
+# The PreToolUse hook (refresh-usage-cache.sh) fires a tiny Haiku API call
+# (~$0.00001) every 15 min and caches rate limit headers. The statusline
+# reads the cache file — zero API calls in the render path.
+#
 # Uses ccusage for token breakdown, cost, and burn rate.
 #
 # Components (configurable order):

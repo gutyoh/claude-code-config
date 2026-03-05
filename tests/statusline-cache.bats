@@ -333,6 +333,8 @@ mock_api_failure() {
     source "$MODULES_DIR/utils.sh"
     source "$MODULES_DIR/data.sh"
 
+    # Ensure hook cache doesn't interfere
+    export HOOK_USAGE_CACHE="$BATS_TEST_TMPDIR/nonexistent-hook.json"
     mock_api_failure
     # Mock ccusage returning a block with high token count
     eval 'get_ccusage_block() { echo "{\"totalTokens\":14000000,\"tokenCounts\":{\"inputTokens\":5000,\"outputTokens\":40000,\"cacheReadInputTokens\":13000000},\"costUSD\":10.0,\"burnRate\":{\"costPerHour\":2.5}}"; }'
@@ -349,6 +351,8 @@ mock_api_failure() {
     source "$MODULES_DIR/utils.sh"
     source "$MODULES_DIR/data.sh"
 
+    # Ensure hook cache doesn't interfere
+    export HOOK_USAGE_CACHE="$BATS_TEST_TMPDIR/nonexistent-hook.json"
     write_cache_aged "11.0\t2026-03-05T20:00:00Z\t\t" 7200
     mock_api_failure
     eval 'get_ccusage_block() { echo "{\"totalTokens\":14000000,\"tokenCounts\":{\"inputTokens\":5000,\"outputTokens\":40000,\"cacheReadInputTokens\":13000000},\"costUSD\":10.0,\"burnRate\":{\"costPerHour\":2.5}}"; }'
@@ -360,4 +364,81 @@ mock_api_failure() {
 
     # Should be 11 (from stale-while-error cache), NOT 81 (from token estimation)
     [[ "$DATA_SESSION_PCT" == "11" ]]
+}
+
+# =========================================================================
+# Priority chain: native stdin > hook cache > OAuth API
+# =========================================================================
+
+@test "priority 1: native stdin rate_limit wins over everything" {
+    source "$MODULES_DIR/utils.sh"
+    source "$MODULES_DIR/data.sh"
+
+    # Hook cache says 14%
+    export HOOK_USAGE_CACHE="$BATS_TEST_TMPDIR/hook-cache.json"
+    echo '{"five_hour_pct":14,"five_hour_reset_epoch":1772740800}' > "$HOOK_USAGE_CACHE"
+
+    # OAuth cache says 11%
+    write_cache_aged "11.0\t2026-03-05T20:00:00Z\t\t" 0
+    mock_api_failure
+
+    DATA_SESSION_PCT="--"
+    # Stdin JSON has native rate_limit (future Anthropic feature)
+    local json='{"model":{"display_name":"Opus 4.6"},"version":"1.0","cost":{},"rate_limit":{"five_hour_percentage":25,"five_hour_reset_seconds":7200}}'
+    collect_data "$json"
+
+    # Should be 25 (from stdin native), not 14 (hook) or 11 (OAuth)
+    [[ "$DATA_SESSION_PCT" == "25" ]]
+}
+
+@test "priority 2: hook cache wins over OAuth API" {
+    source "$MODULES_DIR/utils.sh"
+    source "$MODULES_DIR/data.sh"
+
+    # Hook cache says 14%
+    export HOOK_USAGE_CACHE="$BATS_TEST_TMPDIR/hook-cache.json"
+    echo '{"five_hour_pct":14,"five_hour_reset_epoch":1772740800}' > "$HOOK_USAGE_CACHE"
+
+    # OAuth cache says 11%
+    write_cache_aged "11.0\t2026-03-05T20:00:00Z\t\t" 0
+    mock_api_failure
+
+    DATA_SESSION_PCT="--"
+    local json='{"model":{"display_name":"Opus 4.6"},"version":"1.0","cost":{}}'
+    collect_data "$json"
+
+    # Should be 14 (from hook cache), not 11 (OAuth)
+    [[ "$DATA_SESSION_PCT" == "14" ]]
+}
+
+@test "priority 3: OAuth API used when no hook cache exists" {
+    source "$MODULES_DIR/utils.sh"
+    source "$MODULES_DIR/data.sh"
+
+    # No hook cache
+    export HOOK_USAGE_CACHE="$BATS_TEST_TMPDIR/nonexistent.json"
+
+    # OAuth cache says 11%
+    write_cache_aged "11.0\t2026-03-05T20:00:00Z\t\t" 0
+
+    DATA_SESSION_PCT="--"
+    local json='{"model":{"display_name":"Opus 4.6"},"version":"1.0","cost":{}}'
+    collect_data "$json"
+
+    # Should be 11 (from OAuth)
+    [[ "$DATA_SESSION_PCT" == "11" ]]
+}
+
+@test "no data sources: DATA_SESSION_PCT stays --" {
+    source "$MODULES_DIR/utils.sh"
+    source "$MODULES_DIR/data.sh"
+
+    export HOOK_USAGE_CACHE="$BATS_TEST_TMPDIR/nonexistent.json"
+    mock_api_failure
+
+    DATA_SESSION_PCT="--"
+    local json='{"model":{"display_name":"Opus 4.6"},"version":"1.0","cost":{}}'
+    collect_data "$json"
+
+    [[ "$DATA_SESSION_PCT" == "--" ]]
 }

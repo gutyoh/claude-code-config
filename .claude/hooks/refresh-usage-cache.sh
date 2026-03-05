@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# refresh-usage-cache.sh — PreToolUse hook for rate limit usage caching
+# Path: .claude/hooks/refresh-usage-cache.sh
+#
+# Fires on every tool call. Checks cache age — if fresh, exits in <1ms.
+# If stale (>15 min), fires a BACKGROUND Haiku API call (~$0.00001) and
+# extracts rate limit utilization from response headers:
+#   anthropic-ratelimit-unified-5h-utilization: 0.13  (= 13%)
+#   anthropic-ratelimit-unified-5h-reset: 1772740800  (epoch)
+#
+# This avoids the /api/oauth/usage endpoint entirely (which is rate-limited
+# to the point of being unusable with multiple sessions).
+#
+# The statusline reads this cache file — zero API calls in the render path.
+#
+# Future-proof: when Anthropic adds rate_limit data to statusline stdin JSON,
+# remove this hook from settings.json and the statusline reads stdin directly.
+#
+# Cache: ~/.claude/cache/claude-usage.json
+# Cost:  ~$0.00001/call (8 input + 1 output Haiku tokens)
+# Frequency: at most once per USAGE_CACHE_TTL (default 900s = 15 min)
+
+set -uo pipefail
+
+# Consume stdin (hook receives tool_input JSON — we don't need it)
+cat >/dev/null
+
+CACHE_DIR="${HOME}/.claude/cache"
+CACHE_FILE="${CACHE_DIR}/claude-usage.json"
+USAGE_CACHE_TTL="${USAGE_CACHE_TTL:-900}"
+KEYCHAIN_SERVICE="Claude Code-credentials"
+HAIKU_MODEL="claude-haiku-4-5-20251001"
+
+# --- Fast exit if cache is fresh ---
+
+is_cache_fresh() {
+    [[ ! -f "${CACHE_FILE}" ]] && return 1
+
+    local mtime now age
+    case "$(uname -s)" in
+        Darwin) mtime=$(stat -f "%m" "${CACHE_FILE}" 2>/dev/null) ;;
+        Linux)  mtime=$(stat -c "%Y" "${CACHE_FILE}" 2>/dev/null) ;;
+        *)      return 1 ;;
+    esac
+    [[ -z "${mtime}" ]] && return 1
+
+    now=$(date +%s)
+    age=$((now - mtime))
+    [[ ${age} -lt ${USAGE_CACHE_TTL} ]]
+}
+
+if is_cache_fresh; then
+    exit 0
+fi
+
+# --- Background fetch ---
+
+_get_token() {
+    local creds=""
+    case "$(uname -s)" in
+        Darwin)
+            creds=$(security find-generic-password -s "${KEYCHAIN_SERVICE}" -w 2>/dev/null) || return 1
+            ;;
+        Linux)
+            if command -v secret-tool &>/dev/null; then
+                creds=$(secret-tool lookup service "${KEYCHAIN_SERVICE}" 2>/dev/null) || return 1
+            else
+                return 1
+            fi
+            ;;
+        *) return 1 ;;
+    esac
+    [[ -z "${creds}" ]] && return 1
+    echo "${creds}" | jq -r '.claudeAiOauth.accessToken // empty'
+}
+
+_fetch_and_cache() {
+    local token
+    token=$(_get_token) || return 1
+    [[ -z "${token}" ]] && return 1
+
+    mkdir -p "${CACHE_DIR}" 2>/dev/null
+
+    # Tiny Haiku call: 8 input + 1 output token ≈ $0.00001
+    local response
+    response=$(curl -si --max-time 15 "https://api.anthropic.com/v1/messages" \
+        -H "Authorization: Bearer ${token}" \
+        -H "Content-Type: application/json" \
+        -H "anthropic-version: 2023-06-01" \
+        -H "anthropic-beta: oauth-2025-04-20" \
+        -d "{\"model\":\"${HAIKU_MODEL}\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}" \
+        2>/dev/null) || return 1
+
+    # Extract rate limit headers
+    local util_5h reset_5h status overage_util overage_reset
+    util_5h=$(echo "${response}" | grep -i "anthropic-ratelimit-unified-5h-utilization:" | awk '{print $2}' | tr -d '[:space:]')
+    reset_5h=$(echo "${response}" | grep -i "anthropic-ratelimit-unified-5h-reset:" | awk '{print $2}' | tr -d '[:space:]')
+    status=$(echo "${response}" | grep -i "anthropic-ratelimit-unified-status:" | awk '{print $2}' | tr -d '[:space:]')
+    overage_util=$(echo "${response}" | grep -i "anthropic-ratelimit-unified-overage-utilization:" | awk '{print $2}' | tr -d '[:space:]')
+    overage_reset=$(echo "${response}" | grep -i "anthropic-ratelimit-unified-overage-reset:" | awk '{print $2}' | tr -d '[:space:]')
+
+    [[ -z "${util_5h}" ]] && return 1
+
+    # Convert 0.13 fraction to 13 percentage (integer)
+    local pct
+    pct=$(echo "${util_5h}" | awk '{printf "%d", $1 * 100}')
+
+    local overage_pct="0"
+    if [[ -n "${overage_util}" ]]; then
+        overage_pct=$(echo "${overage_util}" | awk '{printf "%d", $1 * 100}')
+    fi
+
+    local now
+    now=$(date +%s)
+
+    # Write cache as JSON
+    cat >"${CACHE_FILE}" <<EOF
+{"five_hour_pct":${pct},"five_hour_reset_epoch":${reset_5h:-0},"overage_pct":${overage_pct},"overage_reset_epoch":${overage_reset:-0},"status":"${status:-unknown}","fetched_at":${now}}
+EOF
+}
+
+# Run in background so the hook returns instantly
+_fetch_and_cache &
+disown 2>/dev/null
+exit 0

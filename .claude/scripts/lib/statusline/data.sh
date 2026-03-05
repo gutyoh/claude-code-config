@@ -1,6 +1,11 @@
 # data.sh -- ccusage, time formatting, and data collection
 # Path: .claude/scripts/lib/statusline/data.sh
 # Sourced by statusline.sh — do not execute directly.
+#
+# Usage data priority chain (future-proof):
+#   1. Stdin JSON: rate_limit.five_hour_percentage (future Anthropic native)
+#   2. Hook cache: ~/.claude/cache/claude-usage.json (PreToolUse Haiku ping)
+#   3. OAuth API:  /api/oauth/usage with stale-while-error (legacy fallback)
 
 get_ccusage_block() {
     local ccdata active_block
@@ -37,6 +42,85 @@ calculate_time_remaining() {
     echo "${hours}h${mins}m"
 }
 
+# Calculate time remaining from an epoch timestamp (not ISO)
+calculate_time_remaining_epoch() {
+    local reset_epoch="$1"
+    [[ -z "${reset_epoch}" || "${reset_epoch}" == "0" ]] && echo "--" && return
+
+    local now_epoch remaining_seconds hours mins
+    now_epoch=$(date "+%s")
+    remaining_seconds=$((reset_epoch - now_epoch))
+
+    if [[ "${remaining_seconds}" -le 0 ]]; then
+        echo "0h0m"
+        return
+    fi
+
+    hours=$((remaining_seconds / 3600))
+    mins=$(((remaining_seconds % 3600) / 60))
+    echo "${hours}h${mins}m"
+}
+
+# Priority 1: Check stdin JSON for native rate_limit data (future Anthropic feature)
+get_native_usage_data() {
+    local input="$1"
+    local pct
+    pct=$(echo "${input}" | jq -r '.rate_limit.five_hour_percentage // empty' 2>/dev/null)
+    [[ -z "${pct}" ]] && return 1
+
+    local reset
+    reset=$(echo "${input}" | jq -r '.rate_limit.five_hour_reset_seconds // empty' 2>/dev/null)
+
+    DATA_SESSION_PCT="${pct%%.*}"
+    DATA_SESSION_PCT="${DATA_SESSION_PCT:-0}"
+
+    if [[ -n "${reset}" && "${reset}" != "0" ]]; then
+        local hours=$((reset / 3600))
+        local mins=$(((reset % 3600) / 60))
+        DATA_TIME_LEFT="${hours}h${mins}m"
+    fi
+    return 0
+}
+
+# Priority 2: Read hook cache (PreToolUse Haiku ping headers)
+get_hook_usage_data() {
+    local cache_file="${HOOK_USAGE_CACHE:-${HOME}/.claude/cache/claude-usage.json}"
+    [[ ! -f "${cache_file}" ]] && return 1
+
+    local pct reset_epoch
+    pct=$(jq -r '.five_hour_pct // empty' "${cache_file}" 2>/dev/null)
+    [[ -z "${pct}" ]] && return 1
+
+    reset_epoch=$(jq -r '.five_hour_reset_epoch // empty' "${cache_file}" 2>/dev/null)
+
+    DATA_SESSION_PCT="${pct}"
+    DATA_TIME_LEFT=$(calculate_time_remaining_epoch "${reset_epoch}")
+    return 0
+}
+
+# Priority 3: OAuth API with stale-while-error (legacy fallback)
+get_oauth_usage_data() {
+    local api_data=""
+    api_data=$(get_cached_api_data) || return 1
+    [[ -z "${api_data}" ]] && return 1
+
+    local utilization resets_at weekly_util weekly_reset
+    utilization=$(printf "%s" "${api_data}" | cut -f1)
+    resets_at=$(printf "%s" "${api_data}" | cut -f2)
+    weekly_util=$(printf "%s" "${api_data}" | cut -f3)
+    weekly_reset=$(printf "%s" "${api_data}" | cut -f4)
+    DATA_SESSION_PCT="${utilization%%.*}"
+    DATA_SESSION_PCT="${DATA_SESSION_PCT:-0}"
+    DATA_TIME_LEFT=$(calculate_time_remaining "${resets_at}")
+
+    if [[ -n "${weekly_util}" ]]; then
+        DATA_WEEKLY_PCT="${weekly_util%%.*}"
+        DATA_WEEKLY_PCT="${DATA_WEEKLY_PCT:-0}"
+        DATA_WEEKLY_TIME_LEFT=$(calculate_time_remaining "${weekly_reset}")
+    fi
+    return 0
+}
+
 collect_data() {
     local input="$1"
 
@@ -63,24 +147,10 @@ collect_data() {
     DATA_EMAIL=$(jq -r '.oauthAccount.emailAddress // empty' ~/.claude.json 2>/dev/null)
     DATA_EMAIL="${DATA_EMAIL:-N/A}"
 
-    # Session data: API first, ccusage fallback
-    local api_data=""
-    api_data=$(get_cached_api_data) || api_data=""
-
-    if [[ -n "${api_data}" ]]; then
-        local utilization resets_at weekly_util weekly_reset
-        utilization=$(printf "%s" "${api_data}" | cut -f1)
-        resets_at=$(printf "%s" "${api_data}" | cut -f2)
-        weekly_util=$(printf "%s" "${api_data}" | cut -f3)
-        weekly_reset=$(printf "%s" "${api_data}" | cut -f4)
-        DATA_SESSION_PCT="${utilization%%.*}"
-        DATA_SESSION_PCT="${DATA_SESSION_PCT:-0}"
-        DATA_TIME_LEFT=$(calculate_time_remaining "${resets_at}")
-
-        if [[ -n "${weekly_util}" ]]; then
-            DATA_WEEKLY_PCT="${weekly_util%%.*}"
-            DATA_WEEKLY_PCT="${DATA_WEEKLY_PCT:-0}"
-            DATA_WEEKLY_TIME_LEFT=$(calculate_time_remaining "${weekly_reset}")
+    # Usage data: priority chain (1→2→3)
+    if ! get_native_usage_data "${input}"; then
+        if ! get_hook_usage_data; then
+            get_oauth_usage_data || true
         fi
     fi
 
