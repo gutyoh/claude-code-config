@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./.claude/hooks/refresh-usage-cache.sh"
+            "command": "~/.claude/hooks/refresh-usage-cache.sh"
           }
         ]
       },
@@ -49,7 +49,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./.claude/hooks/refresh-usage-cache.sh"
+            "command": "~/.claude/hooks/refresh-usage-cache.sh"
           }
         ]
       }
