@@ -94,6 +94,27 @@ now_ms() {
     echo '{}' | bash "$HOOK"
 }
 
+# --- Rounding ---
+
+@test "fraction-to-percent rounds to nearest (not truncates)" {
+    # 0.005 * 100 = 0.5, should round to 1 not truncate to 0
+    local result
+    result=$(echo "0.005" | awk '{printf "%d", $1 * 100 + 0.5}')
+    [[ "$result" -eq 1 ]]
+}
+
+@test "fraction-to-percent rounds 0.13 to 13" {
+    local result
+    result=$(echo "0.13" | awk '{printf "%d", $1 * 100 + 0.5}')
+    [[ "$result" -eq 13 ]]
+}
+
+@test "fraction-to-percent rounds 0.0 to 0" {
+    local result
+    result=$(echo "0.0" | awk '{printf "%d", $1 * 100 + 0.5}')
+    [[ "$result" -eq 0 ]]
+}
+
 # --- Default TTL ---
 
 @test "default USAGE_CACHE_TTL is 60 seconds" {

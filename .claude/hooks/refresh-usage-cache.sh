@@ -101,13 +101,13 @@ _fetch_and_cache() {
 
     [[ -z "${util_5h}" ]] && return 1
 
-    # Convert 0.13 fraction to 13 percentage (integer)
+    # Convert 0.13 fraction to 13 percentage (integer, rounded to nearest)
     local pct
-    pct=$(echo "${util_5h}" | awk '{printf "%d", $1 * 100}')
+    pct=$(echo "${util_5h}" | awk '{printf "%d", $1 * 100 + 0.5}')
 
     local overage_pct="0"
     if [[ -n "${overage_util}" ]]; then
-        overage_pct=$(echo "${overage_util}" | awk '{printf "%d", $1 * 100}')
+        overage_pct=$(echo "${overage_util}" | awk '{printf "%d", $1 * 100 + 0.5}')
     fi
 
     local now
