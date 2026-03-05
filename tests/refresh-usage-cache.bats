@@ -94,6 +94,43 @@ now_ms() {
     echo '{}' | bash "$HOOK"
 }
 
+# --- Default TTL ---
+
+@test "default USAGE_CACHE_TTL is 60 seconds" {
+    unset USAGE_CACHE_TTL
+    local ttl_line
+    ttl_line=$(grep 'USAGE_CACHE_TTL=.*:-' "$HOOK")
+    [[ "$ttl_line" == *':-60}'* ]]
+}
+
+@test "hook refreshes after 60s default TTL" {
+    unset USAGE_CACHE_TTL
+    echo '{"five_hour_pct":10}' > "$CACHE_FILE"
+    # Age the cache to 65 seconds old (past default 60s TTL)
+    local target_ts=$(( $(date +%s) - 65 ))
+    touch -t "$(date -r "$target_ts" "+%Y%m%d%H%M.%S" 2>/dev/null)" "$CACHE_FILE" 2>/dev/null
+    # Hook exits 0 (background fetch attempted)
+    echo '{}' | bash "$HOOK"
+}
+
+# --- Stop hook configuration ---
+
+@test "settings.json has Stop hook for refresh-usage-cache" {
+    local settings="$BATS_TEST_DIRNAME/../.claude/settings.json"
+    # Verify Stop hook section exists and references the script
+    jq -e '.hooks.Stop' "$settings" >/dev/null
+    jq -e '.hooks.Stop[] | select(.hooks[].command | contains("refresh-usage-cache"))' "$settings" >/dev/null
+}
+
+@test "settings.json has both PreToolUse and Stop hooks for refresh-usage-cache" {
+    local settings="$BATS_TEST_DIRNAME/../.claude/settings.json"
+    local pre_count stop_count
+    pre_count=$(jq '[.hooks.PreToolUse[] | select(.hooks[].command | contains("refresh-usage-cache"))] | length' "$settings")
+    stop_count=$(jq '[.hooks.Stop[] | select(.hooks[].command | contains("refresh-usage-cache"))] | length' "$settings")
+    [[ "$pre_count" -ge 1 ]]
+    [[ "$stop_count" -ge 1 ]]
+}
+
 # --- Cache file format (integration, requires valid OAuth token) ---
 # These tests verify the cache file format after a real API call.
 # They are skipped if no valid token is available.

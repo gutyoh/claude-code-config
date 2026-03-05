@@ -3,7 +3,7 @@
 # Path: .claude/hooks/refresh-usage-cache.sh
 #
 # Fires on every tool call. Checks cache age — if fresh, exits in <1ms.
-# If stale (>15 min), fires a BACKGROUND Haiku API call (~$0.00001) and
+# If stale (>60s), fires a BACKGROUND Haiku API call (~$0.00001) and
 # extracts rate limit utilization from response headers:
 #   anthropic-ratelimit-unified-5h-utilization: 0.13  (= 13%)
 #   anthropic-ratelimit-unified-5h-reset: 1772740800  (epoch)
@@ -18,7 +18,7 @@
 #
 # Cache: ~/.claude/cache/claude-usage.json
 # Cost:  ~$0.00001/call (8 input + 1 output Haiku tokens)
-# Frequency: at most once per USAGE_CACHE_TTL (default 900s = 15 min)
+# Frequency: at most once per USAGE_CACHE_TTL (default 60s)
 
 set -uo pipefail
 
@@ -27,7 +27,7 @@ cat >/dev/null
 
 CACHE_DIR="${HOME}/.claude/cache"
 CACHE_FILE="${CACHE_DIR}/claude-usage.json"
-USAGE_CACHE_TTL="${USAGE_CACHE_TTL:-900}"
+USAGE_CACHE_TTL="${USAGE_CACHE_TTL:-60}"
 KEYCHAIN_SERVICE="Claude Code-credentials"
 HAIKU_MODEL="claude-haiku-4-5-20251001"
 

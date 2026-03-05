@@ -9,8 +9,8 @@
 #   2. Hook cache ~/.claude/cache/claude-usage.json (PreToolUse Haiku ping headers)
 #   3. OAuth API /api/oauth/usage with stale-while-error (legacy fallback)
 #
-# The PreToolUse hook (refresh-usage-cache.sh) fires a tiny Haiku API call
-# (~$0.00001) every 15 min and caches rate limit headers. The statusline
+# The PreToolUse/Stop hooks (refresh-usage-cache.sh) fire a tiny Haiku API
+# call (~$0.00001) every 60s and cache rate limit headers. The statusline
 # reads the cache file — zero API calls in the render path.
 #
 # Uses ccusage for token breakdown, cost, and burn rate.

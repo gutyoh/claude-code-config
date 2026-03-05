@@ -42,6 +42,17 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/refresh-usage-cache.sh"
+          }
+        ]
+      }
     ]
   }
 }
