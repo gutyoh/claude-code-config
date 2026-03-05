@@ -4,9 +4,10 @@
 #
 # Displays real-time session metrics in Claude Code's status bar.
 # Uses Anthropic OAuth API for accurate utilization % and reset timer (ground truth).
-# Caches API responses with stale-while-revalidate (SWR) pattern (30s TTL).
+# Caches API with global lock + exponential backoff + stale-while-error.
+# Only one process across N sessions queries the API (prevents thundering herd).
+# On 429/failure: serves last known good cache (any age) — never falls back to estimation.
 # Uses ccusage for token breakdown, cost, and burn rate.
-# Falls back to ccusage estimation if API is unavailable.
 #
 # Components (configurable order):
 #   model, usage, weekly, reset, tokens_in, tokens_out, tokens_cache,
@@ -37,10 +38,13 @@ readonly API_BETA_HEADER="oauth-2025-04-20"
 readonly CURL_TIMEOUT=10
 readonly DEFAULT_TERM_WIDTH=120
 readonly WIDE_THRESHOLD=110
-readonly FALLBACK_SESSION_LIMIT=17213778
 readonly CACHE_FILE="/tmp/claude-statusline-api-cache"
 readonly CACHE_TTL=30
-readonly CACHE_MAX_AGE=300 # Serve stale data up to 5 min; beyond that, refetch synchronously
+readonly LOCK_DIR="/tmp/claude-statusline-api-lock"
+readonly LOCK_MAX_AGE_S=30              # Force-remove stale locks from killed processes
+readonly BACKOFF_FILE="/tmp/claude-statusline-api-backoff"
+readonly BACKOFF_INITIAL_S=30           # First backoff after 429/failure
+readonly BACKOFF_MAX_S=300              # Cap at 5 minutes
 readonly CONF_FILE="${HOME}/.claude/statusline.conf"
 
 # --- Config Globals (overridden by load_config) ---

@@ -94,17 +94,5 @@ collect_data() {
         DATA_CACHE_READ=$(echo "${active_block}" | jq -r '.tokenCounts.cacheReadInputTokens // 0')
         DATA_COST_USD=$(echo "${active_block}" | jq -r '.costUSD // 0')
         DATA_BURN_RATE=$(echo "${active_block}" | jq -r '.burnRate.costPerHour // 0')
-
-        # If API failed, fall back to ccusage estimation
-        if [[ "${DATA_SESSION_PCT}" == "--" ]]; then
-            local total_tokens remaining_min
-            total_tokens=$(echo "${active_block}" | jq -r '.totalTokens // 0')
-            DATA_SESSION_PCT=$((total_tokens * 100 / FALLBACK_SESSION_LIMIT))
-
-            remaining_min=$(echo "${active_block}" | jq -r '.projection.remainingMinutes // 0')
-            local fb_hours=$((remaining_min / 60))
-            local fb_mins=$((remaining_min % 60))
-            DATA_TIME_LEFT="${fb_hours}h${fb_mins}m"
-        fi
     fi
 }

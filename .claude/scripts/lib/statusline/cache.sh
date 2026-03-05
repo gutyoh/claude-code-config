@@ -1,6 +1,21 @@
-# cache.sh -- API cache with stale-while-revalidate pattern
+# cache.sh -- API cache with global lock, exponential backoff+jitter, stale-while-error
 # Path: .claude/scripts/lib/statusline/cache.sh
 # Sourced by statusline.sh — do not execute directly.
+#
+# Design (SOTA 2026):
+#   1. Global cross-session lock (mkdir atomic): only ONE process fetches the API.
+#      Other processes serve from cache. Prevents thundering herd across N sessions.
+#      Stale locks (from killed processes) auto-recovered after LOCK_MAX_AGE_S.
+#   2. Capped exponential backoff with jitter on 429/failure: 30s → 60s → 120s → 300s.
+#      Uses AWS "decorrelated jitter" pattern to spread retries across sessions.
+#      Stored in a shared backoff file so all sessions respect it.
+#   3. Stale-while-error: if the API fails, ALWAYS serve the last known good value
+#      regardless of cache age. Real stale data >> token-based estimation.
+#
+# References:
+#   - AWS Builders' Library: "Timeouts, retries, and backoff with jitter"
+#   - AWS Architecture Blog: "Exponential Backoff And Jitter" (Marc Brooker)
+#   - Greg's Wiki BashFAQ/045 (mkdir atomic locking)
 
 get_file_age() {
     local file="$1"
@@ -17,11 +32,95 @@ get_file_age() {
     echo $((now - mtime))
 }
 
+# --- Global Lock (mkdir atomic, POSIX-portable) ---
+
+try_acquire_lock() {
+    # Recover stale locks from killed/crashed processes
+    if [[ -d "${LOCK_DIR}" ]]; then
+        local lock_age
+        lock_age=$(get_file_age "${LOCK_DIR}") || lock_age=0
+        if [[ ${lock_age} -gt ${LOCK_MAX_AGE_S} ]]; then
+            rm -rf "${LOCK_DIR}" 2>/dev/null
+        fi
+    fi
+
+    mkdir "${LOCK_DIR}" 2>/dev/null
+}
+
+release_lock() {
+    rm -rf "${LOCK_DIR}" 2>/dev/null
+}
+
+# --- Capped Exponential Backoff with Decorrelated Jitter ---
+# Shared state in BACKOFF_FILE: next_retry_epoch<TAB>current_delay_s
+#
+# Decorrelated jitter (AWS recommended for shared state):
+#   next_delay = random_between(base, min(cap, prev_delay * 3))
+# This spreads retry times across sessions sharing the same backoff file.
+
+read_backoff() {
+    [[ ! -f "${BACKOFF_FILE}" ]] && return 1
+    cat "${BACKOFF_FILE}"
+}
+
+should_backoff() {
+    local backoff_data
+    backoff_data=$(read_backoff) || return 1
+
+    local next_retry
+    next_retry=$(printf "%s" "${backoff_data}" | cut -f1)
+    local now
+    now=$(date +%s)
+
+    [[ ${now} -lt ${next_retry} ]]
+}
+
+increase_backoff() {
+    local now current_delay next_delay next_retry jitter_max
+    now=$(date +%s)
+
+    local backoff_data
+    backoff_data=$(read_backoff 2>/dev/null) || backoff_data=""
+
+    if [[ -n "${backoff_data}" ]]; then
+        current_delay=$(printf "%s" "${backoff_data}" | cut -f2)
+    else
+        current_delay=0
+    fi
+
+    # Decorrelated jitter: random_between(base, min(cap, prev * 3))
+    if [[ ${current_delay} -eq 0 ]]; then
+        next_delay=${BACKOFF_INITIAL_S}
+    else
+        jitter_max=$((current_delay * 3))
+        [[ ${jitter_max} -gt ${BACKOFF_MAX_S} ]] && jitter_max=${BACKOFF_MAX_S}
+        # RANDOM is 0-32767; scale to [base, jitter_max]
+        local range=$((jitter_max - BACKOFF_INITIAL_S))
+        if [[ ${range} -le 0 ]]; then
+            next_delay=${BACKOFF_INITIAL_S}
+        else
+            next_delay=$(( BACKOFF_INITIAL_S + (RANDOM % (range + 1)) ))
+        fi
+    fi
+    [[ ${next_delay} -gt ${BACKOFF_MAX_S} ]] && next_delay=${BACKOFF_MAX_S}
+
+    next_retry=$((now + next_delay))
+    printf "%s\t%s" "${next_retry}" "${next_delay}" >"${BACKOFF_FILE}"
+}
+
+reset_backoff() {
+    rm -f "${BACKOFF_FILE}" 2>/dev/null
+}
+
+# --- Cache Refresh ---
+
 refresh_api_cache() {
     local data
     data=$(get_api_session_data) || return 1
     [[ -n "${data}" ]] && printf "%s" "${data}" >"${CACHE_FILE}"
 }
+
+# --- Main Entry Point ---
 
 get_cached_api_data() {
     local cache_age=999999
@@ -30,20 +129,35 @@ get_cached_api_data() {
         cache_age=$(get_file_age "${CACHE_FILE}") || cache_age=999999
     fi
 
+    # 1. Fresh cache (< TTL): serve immediately, no API call
     if [[ ${cache_age} -lt ${CACHE_TTL} ]]; then
         cat "${CACHE_FILE}"
         return 0
     fi
 
-    if [[ -f "${CACHE_FILE}" && ${cache_age} -lt ${CACHE_MAX_AGE} ]]; then
+    # 2. Stale cache: try to refresh (with lock + backoff)
+    if try_acquire_lock; then
+        if ! should_backoff; then
+            local data
+            if data=$(get_api_session_data) && [[ -n "${data}" ]]; then
+                printf "%s" "${data}" >"${CACHE_FILE}"
+                reset_backoff
+                release_lock
+                cat "${CACHE_FILE}"
+                return 0
+            else
+                increase_backoff
+            fi
+        fi
+        release_lock
+    fi
+
+    # 3. Stale-while-error: serve last known good value regardless of age
+    if [[ -f "${CACHE_FILE}" ]]; then
         cat "${CACHE_FILE}"
-        (refresh_api_cache) >/dev/null 2>&1 &
-        disown 2>/dev/null
         return 0
     fi
 
-    local data
-    data=$(get_api_session_data) || return 1
-    [[ -n "${data}" ]] && printf "%s" "${data}" >"${CACHE_FILE}"
-    printf "%s" "${data}"
+    # 4. No cache ever existed — true cold start
+    return 1
 }
