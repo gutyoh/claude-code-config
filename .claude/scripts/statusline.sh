@@ -3,10 +3,17 @@
 # Path: .claude/scripts/statusline.sh
 #
 # Displays real-time session metrics in Claude Code's status bar.
-# Uses Anthropic OAuth API for accurate utilization % and reset timer (ground truth).
-# Caches API responses with stale-while-revalidate (SWR) pattern (30s TTL).
+#
+# Usage data priority chain (future-proof):
+#   1. Stdin JSON rate_limit.* fields (future Anthropic native — not yet available)
+#   2. Hook cache ~/.claude/cache/claude-usage.json (PreToolUse Haiku ping headers)
+#   3. OAuth API /api/oauth/usage with stale-while-error (legacy fallback)
+#
+# The PreToolUse hook (refresh-usage-cache.sh) fires a tiny Haiku API call
+# (~$0.00001) every 15 min and caches rate limit headers. The statusline
+# reads the cache file — zero API calls in the render path.
+#
 # Uses ccusage for token breakdown, cost, and burn rate.
-# Falls back to ccusage estimation if API is unavailable.
 #
 # Components (configurable order):
 #   model, usage, weekly, reset, tokens_in, tokens_out, tokens_cache,
@@ -37,10 +44,13 @@ readonly API_BETA_HEADER="oauth-2025-04-20"
 readonly CURL_TIMEOUT=10
 readonly DEFAULT_TERM_WIDTH=120
 readonly WIDE_THRESHOLD=110
-readonly FALLBACK_SESSION_LIMIT=17213778
 readonly CACHE_FILE="/tmp/claude-statusline-api-cache"
 readonly CACHE_TTL=30
-readonly CACHE_MAX_AGE=300 # Serve stale data up to 5 min; beyond that, refetch synchronously
+readonly LOCK_DIR="/tmp/claude-statusline-api-lock"
+readonly LOCK_MAX_AGE_S=30              # Force-remove stale locks from killed processes
+readonly BACKOFF_FILE="/tmp/claude-statusline-api-backoff"
+readonly BACKOFF_INITIAL_S=30           # First backoff after 429/failure
+readonly BACKOFF_MAX_S=300              # Cap at 5 minutes
 readonly CONF_FILE="${HOME}/.claude/statusline.conf"
 
 # --- Config Globals (overridden by load_config) ---
