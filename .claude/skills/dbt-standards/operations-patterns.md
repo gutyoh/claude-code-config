@@ -16,7 +16,7 @@ snapshots:
       unique_key: order_id
       strategy: timestamp
       updated_at: updated_at
-      invalidate_hard_deletes: true
+      hard_deletes: invalidate  # v1.9+ (replaces legacy invalidate_hard_deletes)
 ```
 
 ### Strategies
@@ -319,8 +319,11 @@ dbt run --select "state:modified" --defer --state path/to/prod/artifacts
 ### CI Job Pattern
 
 ```bash
-# 1. Fetch production manifest
-dbt run --artifact-path prod_artifacts/
+# 1. Fetch production artifacts (manifest.json, run_results.json)
+# Download from your CI artifact storage (S3, GCS, GitHub Actions artifacts, etc.)
+mkdir -p prod_artifacts
+cp /path/to/prod/target/manifest.json ./prod_artifacts/
+cp /path/to/prod/target/run_results.json ./prod_artifacts/
 
 # 2. Run slim CI
 dbt build \

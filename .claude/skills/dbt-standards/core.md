@@ -425,7 +425,7 @@ This produces:
 2. **Source references outside staging**: Only staging models should use `{{ source() }}` — everything else uses `{{ ref() }}`
 3. **Joins in staging**: Staging is 1:1 with source tables — rename, cast, clean only
 4. **Missing tests**: Every model needs at least `unique` + `not_null` on its primary key
-5. **`select *` in final models**: Explicitly list columns in marts to control the contract
+5. **`select *` without explicit columns**: The `select * from final` CTE pattern is correct (columns are listed inside the `final` CTE). The anti-pattern is marts that never explicitly list columns anywhere — always define output columns inside the `final` CTE, especially for contracted models.
 6. **Abbreviations in names**: `cust` instead of `customer`, `amt` instead of `amount`
 7. **Uppercase SQL**: dbt convention is all lowercase
 8. **Leading commas**: dbt convention is trailing commas
