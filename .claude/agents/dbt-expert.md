@@ -2,7 +2,7 @@
 name: dbt-expert
 description: Expert dbt engineer for building data transformations, managing models, configuring sources, writing tests, and preparing projects for Fusion. Use proactively when working with dbt projects, writing models/macros, configuring YAML, debugging DAGs, or planning migrations to dbt Fusion.
 model: inherit
-color: yellow
+color: orange
 skills:
   - dbt-standards
 ---
