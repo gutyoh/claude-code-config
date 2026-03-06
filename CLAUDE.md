@@ -108,8 +108,12 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   │   │   └── SKILL.md
 │   │   ├── mcp-key-rotate/
 │   │   │   └── SKILL.md
-│   │   └── pr/
-│   │       └── SKILL.md
+│   │   ├── pr/
+│   │   │   └── SKILL.md
+│   │   └── pr-review/
+│   │       ├── SKILL.md
+│   │       ├── routing.md
+│   │       └── platforms.md
 │   ├── agents/                  # Subagent definitions
 │   │   ├── code-reviewer-expert.md
 │   │   ├── d2-tala-expert.md
@@ -184,6 +188,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 - **tavily-search**: AI-native search using Tavily MCP (search, extract, crawl, map, research)
 - **mcp-key-rotate**: Rotate MCP API keys, check quota, show pool status
 - **pr**: Create PR/MR with Conventional Commits formatting (GitHub/GitLab/Azure DevOps)
+- **pr-review**: Multi-agent PR review that spawns parallel domain-specific subagents based on changed file types, posts inline review comments (GitHub/GitLab/Azure DevOps)
 
 ### Agents
 - **code-reviewer-expert**: Code review orchestrator that spawns parallel domain-specific subagents (python-expert, rust-expert, dbt-expert, dotnet-expert, kedro-expert, d2-tala-expert, ui-designer) based on changed file types, posts inline review comments on PRs/MRs across GitHub, GitLab, and Azure DevOps
@@ -208,6 +213,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 - `/brave-search <query>`: Search using Brave Search MCP (requires `BRAVE_API_KEY`)
 - `/mcp-key-rotate <service> [action]`: Rotate MCP API keys, check quota (`--quota`), show pool (`--status`)
 - `/pr [base-branch]`: Create PR/MR with Conventional Commits formatting (GitHub/GitLab/Azure DevOps)
+- `/pr-review <PR-number>`: Multi-agent PR review with parallel subagents, posts inline comments (GitHub/GitLab/Azure DevOps)
 
 ### Experimental Features
 - **agent-teams**: Multi-session coordinated teams (lead + teammates with shared task list). Enabled by default in macOS/Linux `setup.sh`. Use `--no-agent-teams` to disable. Sets `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `~/.claude/settings.json` env.
