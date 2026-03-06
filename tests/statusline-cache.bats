@@ -442,3 +442,125 @@ mock_api_failure() {
 
     [[ "$DATA_SESSION_PCT" == "--" ]]
 }
+
+# =========================================================================
+# Fix 1: Atomic writes (temp + mv)
+# =========================================================================
+
+@test "atomic write: cache file written via temp+mv (no partial reads)" {
+    mock_api_success "22.0\t2026-03-06T20:00:00Z\t\t"
+    write_cache_aged "5.0\t2026-03-05T18:00:00Z\t\t" 60
+
+    get_cached_api_data >/dev/null
+
+    # Cache should contain the new data (22.0), not partial/corrupt
+    local result
+    result=$(cat "$CACHE_FILE")
+    [[ "$result" == "22.0"* ]]
+}
+
+@test "atomic write: no leftover .tmp files after successful write" {
+    mock_api_success "22.0\t2026-03-06T20:00:00Z\t\t"
+    write_cache_aged "5.0\t2026-03-05T18:00:00Z\t\t" 60
+
+    get_cached_api_data >/dev/null
+
+    # No .tmp files should remain
+    local tmp_count
+    tmp_count=$(ls "$BATS_TEST_TMPDIR"/cache.tmp.* 2>/dev/null | wc -l)
+    [[ "$tmp_count" -eq 0 ]]
+}
+
+@test "atomic write: backoff file written via temp+mv" {
+    mock_api_failure
+    write_cache_aged "5.0\t2026-03-05T18:00:00Z\t\t" 60
+
+    get_cached_api_data >/dev/null
+
+    # Backoff file should exist and be valid
+    [[ -f "$BACKOFF_FILE" ]]
+    local content
+    content=$(cat "$BACKOFF_FILE")
+    # Should have format: epoch<TAB>delay
+    [[ "$content" =~ ^[0-9]+$'\t'[0-9]+$ ]]
+
+    # No leftover .tmp files
+    local tmp_count
+    tmp_count=$(ls "$BATS_TEST_TMPDIR"/backoff.tmp.* 2>/dev/null | wc -l)
+    [[ "$tmp_count" -eq 0 ]]
+}
+
+# =========================================================================
+# Fix 2: Staleness indicator (~prefix when hook cache > 5 min old)
+# =========================================================================
+
+@test "staleness: fresh hook cache shows plain percentage" {
+    source "$MODULES_DIR/utils.sh"
+    source "$MODULES_DIR/data.sh"
+
+    export HOOK_USAGE_CACHE="$BATS_TEST_TMPDIR/hook-cache.json"
+    echo '{"five_hour_pct":14,"five_hour_reset_epoch":1772740800}' > "$HOOK_USAGE_CACHE"
+
+    DATA_SESSION_PCT="--"
+    local json='{"model":{"display_name":"Opus 4.6"},"version":"1.0","cost":{}}'
+    collect_data "$json"
+
+    # Fresh cache: plain number, no ~ prefix
+    [[ "$DATA_SESSION_PCT" == "14" ]]
+}
+
+@test "staleness: hook cache older than 5 min shows ~ prefix" {
+    source "$MODULES_DIR/utils.sh"
+    source "$MODULES_DIR/data.sh"
+
+    export HOOK_USAGE_CACHE="$BATS_TEST_TMPDIR/hook-cache.json"
+    echo '{"five_hour_pct":14,"five_hour_reset_epoch":1772740800}' > "$HOOK_USAGE_CACHE"
+    # Age the cache to 310 seconds (past 300s threshold)
+    local target_ts=$(( $(date +%s) - 310 ))
+    touch -t "$(date -r "$target_ts" "+%Y%m%d%H%M.%S" 2>/dev/null)" "$HOOK_USAGE_CACHE" 2>/dev/null
+
+    export HOOK_STALE_THRESHOLD=300
+    DATA_SESSION_PCT="--"
+    local json='{"model":{"display_name":"Opus 4.6"},"version":"1.0","cost":{}}'
+    collect_data "$json"
+
+    # Stale cache: ~ prefix
+    [[ "$DATA_SESSION_PCT" == "~14" ]]
+}
+
+@test "staleness: custom HOOK_STALE_THRESHOLD respected" {
+    source "$MODULES_DIR/utils.sh"
+    source "$MODULES_DIR/data.sh"
+
+    export HOOK_USAGE_CACHE="$BATS_TEST_TMPDIR/hook-cache.json"
+    echo '{"five_hour_pct":7,"five_hour_reset_epoch":1772740800}' > "$HOOK_USAGE_CACHE"
+    # Age the cache to 15 seconds
+    local target_ts=$(( $(date +%s) - 15 ))
+    touch -t "$(date -r "$target_ts" "+%Y%m%d%H%M.%S" 2>/dev/null)" "$HOOK_USAGE_CACHE" 2>/dev/null
+
+    export HOOK_STALE_THRESHOLD=10
+    DATA_SESSION_PCT="--"
+    local json='{"model":{"display_name":"Opus 4.6"},"version":"1.0","cost":{}}'
+    collect_data "$json"
+
+    # 15s > 10s threshold: should be stale
+    [[ "$DATA_SESSION_PCT" == "~7" ]]
+}
+
+# =========================================================================
+# Fix 3: User-specific /tmp paths (prevents symlink attacks)
+# =========================================================================
+
+@test "statusline.sh uses UID-scoped /tmp directory" {
+    local statusline="$BATS_TEST_DIRNAME/../.claude/scripts/statusline.sh"
+    # Verify _TMP_DIR includes $UID
+    grep -q 'claude-statusline-\${UID}' "$statusline"
+}
+
+@test "cache, lock, and backoff paths are under UID-scoped dir" {
+    local statusline="$BATS_TEST_DIRNAME/../.claude/scripts/statusline.sh"
+    # All three should reference _TMP_DIR, not /tmp directly
+    grep -q 'CACHE_FILE="\${_TMP_DIR}/' "$statusline"
+    grep -q 'LOCK_DIR="\${_TMP_DIR}/' "$statusline"
+    grep -q 'BACKOFF_FILE="\${_TMP_DIR}/' "$statusline"
+}

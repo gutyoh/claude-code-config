@@ -156,6 +156,10 @@ now_ms() {
 # These tests verify the cache file format after a real API call.
 # They are skipped if no valid token is available.
 
+@test "hook uses atomic write (temp+mv pattern)" {
+    grep -q 'mv -f.*tmp.*CACHE_FILE' "$HOOK"
+}
+
 _has_valid_token() {
     security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null | \
         jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null | \

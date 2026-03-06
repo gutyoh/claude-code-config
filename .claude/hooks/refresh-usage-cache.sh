@@ -113,10 +113,12 @@ _fetch_and_cache() {
     local now
     now=$(date +%s)
 
-    # Write cache as JSON
-    cat >"${CACHE_FILE}" <<EOF
+    # Write cache atomically (temp + mv prevents partial reads)
+    local tmp_file="${CACHE_FILE}.tmp.$$"
+    cat >"${tmp_file}" <<EOF
 {"five_hour_pct":${pct},"five_hour_reset_epoch":${reset_5h:-0},"overage_pct":${overage_pct},"overage_reset_epoch":${overage_reset:-0},"status":"${status:-unknown}","fetched_at":${now}}
 EOF
+    mv -f "${tmp_file}" "${CACHE_FILE}"
 }
 
 # Run in background so the hook returns instantly

@@ -105,7 +105,9 @@ increase_backoff() {
     [[ ${next_delay} -gt ${BACKOFF_MAX_S} ]] && next_delay=${BACKOFF_MAX_S}
 
     next_retry=$((now + next_delay))
-    printf "%s\t%s" "${next_retry}" "${next_delay}" >"${BACKOFF_FILE}"
+    local tmp_backoff="${BACKOFF_FILE}.tmp.$$"
+    printf "%s\t%s" "${next_retry}" "${next_delay}" >"${tmp_backoff}"
+    mv -f "${tmp_backoff}" "${BACKOFF_FILE}"
 }
 
 reset_backoff() {
@@ -117,7 +119,11 @@ reset_backoff() {
 refresh_api_cache() {
     local data
     data=$(get_api_session_data) || return 1
-    [[ -n "${data}" ]] && printf "%s" "${data}" >"${CACHE_FILE}"
+    if [[ -n "${data}" ]]; then
+        local tmp_cache="${CACHE_FILE}.tmp.$$"
+        printf "%s" "${data}" >"${tmp_cache}"
+        mv -f "${tmp_cache}" "${CACHE_FILE}"
+    fi
 }
 
 # --- Main Entry Point ---
@@ -140,7 +146,9 @@ get_cached_api_data() {
         if ! should_backoff; then
             local data
             if data=$(get_api_session_data) && [[ -n "${data}" ]]; then
-                printf "%s" "${data}" >"${CACHE_FILE}"
+                local tmp_cache="${CACHE_FILE}.tmp.$$"
+                printf "%s" "${data}" >"${tmp_cache}"
+                mv -f "${tmp_cache}" "${CACHE_FILE}"
                 reset_backoff
                 release_lock
                 cat "${CACHE_FILE}"
