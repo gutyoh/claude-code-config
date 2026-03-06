@@ -111,6 +111,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   │   └── pr/
 │   │       └── SKILL.md
 │   ├── agents/                  # Subagent definitions
+│   │   ├── code-reviewer-expert.md
 │   │   ├── d2-tala-expert.md
 │   │   ├── data-scientist.md
 │   │   ├── databricks-expert.md
@@ -185,6 +186,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 - **pr**: Create PR/MR with Conventional Commits formatting (GitHub/GitLab/Azure DevOps)
 
 ### Agents
+- **code-reviewer-expert**: Expert code review orchestrator that spawns parallel domain-specific subagents (python-expert, rust-expert, dbt-expert, dotnet-expert, etc.) based on changed file types, collects findings, and posts inline review comments on PRs/MRs across GitHub, GitLab, and Azure DevOps
 - **d2-tala-expert**: Expert D2 diagrammer with TALA layout engine for software architecture diagrams
 - **data-scientist**: Expert data scientist for ML, deep learning, and statistical analysis
 - **databricks-expert**: Expert Databricks engineer for querying data, exploring Unity Catalog, managing permissions, and monitoring jobs/pipelines
