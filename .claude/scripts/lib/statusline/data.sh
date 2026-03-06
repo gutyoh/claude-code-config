@@ -108,10 +108,9 @@ get_hook_usage_data() {
         cache_age=$(( $(date +%s) - mtime ))
     fi
 
+    DATA_SESSION_PCT="${pct}"
     if [[ ${cache_age} -gt ${HOOK_STALE_THRESHOLD} ]]; then
-        DATA_SESSION_PCT="~${pct}"
-    else
-        DATA_SESSION_PCT="${pct}"
+        DATA_SESSION_PCT_STALE=1
     fi
     DATA_TIME_LEFT=$(calculate_time_remaining_epoch "${reset_epoch}")
     return 0

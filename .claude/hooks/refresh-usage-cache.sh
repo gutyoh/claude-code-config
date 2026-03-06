@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# refresh-usage-cache.sh — PreToolUse hook for rate limit usage caching
+# refresh-usage-cache.sh — PreToolUse/Stop hook for rate limit usage caching
 # Path: .claude/hooks/refresh-usage-cache.sh
 #
-# Fires on every tool call. Checks cache age — if fresh, exits in <1ms.
+# Fires on every tool call and stop event. Checks cache age — if fresh, exits in <1ms.
 # If stale (>60s), fires a BACKGROUND Haiku API call (~$0.00001) and
 # extracts rate limit utilization from response headers:
 #   anthropic-ratelimit-unified-5h-utilization: 0.13  (= 13%)

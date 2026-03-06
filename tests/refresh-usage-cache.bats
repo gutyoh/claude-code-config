@@ -25,6 +25,12 @@ now_ms() {
     python3 -c "import time; print(int(time.time() * 1000))"
 }
 
+# Portable helper: set file mtime to a target epoch (works on macOS + Linux)
+set_file_mtime() {
+    local file="$1" target_epoch="$2"
+    python3 -c "import os,sys; os.utime(sys.argv[1], (int(sys.argv[2]), int(sys.argv[2])))" "$file" "$target_epoch"
+}
+
 # --- Basic functionality ---
 
 @test "hook script exists and is executable" {
@@ -78,9 +84,9 @@ now_ms() {
 
 @test "hook attempts fetch when cache age > USAGE_CACHE_TTL" {
     echo '{"five_hour_pct":10}' > "$CACHE_FILE"
-    # Age the cache to be older than TTL
+    # Age the cache to be older than TTL (cross-platform)
     local target_ts=$(( $(date +%s) - USAGE_CACHE_TTL - 5 ))
-    touch -t "$(date -r "$target_ts" "+%Y%m%d%H%M.%S" 2>/dev/null)" "$CACHE_FILE" 2>/dev/null
+    set_file_mtime "$CACHE_FILE" "$target_ts"
     # Hook will try to fetch (may fail without valid token, but exit 0)
     echo '{}' | bash "$HOOK"
 }
@@ -127,11 +133,16 @@ now_ms() {
 @test "hook refreshes after 60s default TTL" {
     unset USAGE_CACHE_TTL
     echo '{"five_hour_pct":10}' > "$CACHE_FILE"
-    # Age the cache to 65 seconds old (past default 60s TTL)
+    # Age the cache to 65 seconds old (past default 60s TTL, cross-platform)
     local target_ts=$(( $(date +%s) - 65 ))
-    touch -t "$(date -r "$target_ts" "+%Y%m%d%H%M.%S" 2>/dev/null)" "$CACHE_FILE" 2>/dev/null
-    # Hook exits 0 (background fetch attempted)
-    echo '{}' | bash "$HOOK"
+    set_file_mtime "$CACHE_FILE" "$target_ts"
+    # Verify the file is actually old enough
+    local file_age
+    file_age=$(python3 -c "import os,sys,time; print(int(time.time() - os.stat(sys.argv[1]).st_mtime))" "$CACHE_FILE")
+    [[ "$file_age" -ge 60 ]]
+    # Hook should exit 0 (stale cache triggers background fetch)
+    run bash "$HOOK" <<< '{}'
+    [ "$status" -eq 0 ]
 }
 
 # --- Stop hook configuration ---
