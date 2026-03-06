@@ -31,6 +31,15 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   │   │   ├── sql-patterns.md
 │   │   │   ├── operations-patterns.md
 │   │   │   └── permissions-patterns.md
+│   │   ├── dbt-standards/
+│   │   │   ├── SKILL.md
+│   │   │   ├── core.md
+│   │   │   ├── testing-patterns.md
+│   │   │   ├── incremental-patterns.md
+│   │   │   ├── governance-patterns.md
+│   │   │   ├── fusion-patterns.md
+│   │   │   ├── macros-patterns.md
+│   │   │   └── operations-patterns.md
 │   │   ├── internet-research/
 │   │   │   └── SKILL.md
 │   │   ├── kedro-standards/
@@ -105,6 +114,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   │   ├── d2-tala-expert.md
 │   │   ├── data-scientist.md
 │   │   ├── databricks-expert.md
+│   │   ├── dbt-expert.md
 │   │   ├── rust-expert.md
 │   │   ├── dotnet-expert.md
 │   │   ├── internet-researcher.md
@@ -159,6 +169,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 ### Skills
 - **d2-tala-standards**: D2 diagramming standards with TALA layout engine for clean, professional architecture diagrams
 - **databricks-standards**: Databricks engineering standards for safe, efficient workspace interaction via CLI
+- **dbt-standards**: dbt engineering standards for clean, modular, well-tested data transformations (dbt Core 1.8-1.11, Fusion v2.0, SQL style, testing, governance, medallion architecture)
 - **dotnet-standards**: .NET/C# engineering standards for clean, scalable code (.NET 10+, C# 14, clean architecture, CQRS, EF Core, testing, project configuration)
 - **internet-research**: Expert internet research using Tavily and Brave Search (task-based routing)
 - **kedro-standards**: Kedro engineering standards for building clean, modular, production-ready data pipelines (Kedro 1.0+)
@@ -177,6 +188,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 - **d2-tala-expert**: Expert D2 diagrammer with TALA layout engine for software architecture diagrams
 - **data-scientist**: Expert data scientist for ML, deep learning, and statistical analysis
 - **databricks-expert**: Expert Databricks engineer for querying data, exploring Unity Catalog, managing permissions, and monitoring jobs/pipelines
+- **dbt-expert**: Expert dbt engineer for building data transformations, managing models, writing tests, and preparing projects for Fusion (dbt Core 1.8-1.11, Fusion v2.0, medallion architecture, governance)
 - **dotnet-expert**: Expert .NET/C# engineer for clean, scalable, production-ready code with modern .NET 10+ and clean architecture
 - **internet-researcher**: Deep research subagent for complex queries
 - **kedro-expert**: Expert Kedro engineer for building data pipelines, managing catalogs, configuring environments, and deploying projects
