@@ -7,7 +7,7 @@
 # Maps API indicator to display labels: "on", "degraded", "partial", "outage", "maintenance".
 # Uses a simple stale-while-error cache (no lock needed — public, unauthenticated endpoint).
 
-readonly STATUS_CACHE_FILE="/tmp/claude-statusline-status-cache"
+readonly STATUS_CACHE_FILE="${_TMP_DIR}/status-cache"
 readonly STATUS_CACHE_TTL=300          # Fresh for 5 minutes
 readonly STATUS_CACHE_MAX_STALE=900    # Serve stale up to 15 minutes
 readonly STATUS_CURL_TIMEOUT=3         # Tight timeout to avoid blocking render
@@ -50,7 +50,9 @@ _fetch_and_cache_status() {
     label=$(_map_status_label "${raw_status}")
     [[ -z "${label}" ]] && return 1
 
-    echo "${label}" > "${STATUS_CACHE_FILE}"
+    local tmp="${STATUS_CACHE_FILE}.tmp.$$"
+    echo "${label}" > "${tmp}"
+    mv -f "${tmp}" "${STATUS_CACHE_FILE}"
     echo "${label}"
 }
 
