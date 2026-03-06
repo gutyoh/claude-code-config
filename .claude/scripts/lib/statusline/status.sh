@@ -72,7 +72,7 @@ collect_service_status() {
 
     # Stale — try to refresh
     local fresh_label
-    fresh_label=$(_fetch_and_cache_status)
+    fresh_label=$(_fetch_and_cache_status) || true
     if [[ -n "${fresh_label}" ]]; then
         DATA_CC_STATUS="${fresh_label}"
         return
