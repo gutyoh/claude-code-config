@@ -134,25 +134,24 @@ REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 PR_NUMBER=<number>
 COMMIT_SHA=$(gh pr view $PR_NUMBER --json headRefOid -q .headRefOid)
 
-# Create review with inline comments
-# NOTE: The heredoc is single-quoted (<<'EOF'), so <commit_sha> below
-# must be replaced with the actual $COMMIT_SHA value before posting.
-gh api --method POST \
-  "/repos/$REPO/pulls/$PR_NUMBER/reviews" \
-  --input - <<'EOF'
-{
-  "commit_id": "<commit_sha>",
-  "event": "COMMENT",
-  "body": "## Code Review Summary\n\n...",
-  "comments": [
-    {
-      "path": "src/auth.py",
-      "line": 42,
-      "body": "**Warning**: This function lacks input validation.\n\n**Recommendation**: Add type checking before processing."
-    }
-  ]
-}
-EOF
+# Build review JSON with jq (handles escaping and variable expansion)
+jq -n \
+  --arg sha "$COMMIT_SHA" \
+  --arg event "COMMENT" \
+  --arg body "## Code Review Summary\n\n..." \
+  '{
+    commit_id: $sha,
+    event: $event,
+    body: $body,
+    comments: [
+      {
+        path: "src/auth.py",
+        line: 42,
+        side: "RIGHT",
+        body: "**Warning**: This function lacks input validation.\n\n**Recommendation**: Add type checking before processing."
+      }
+    ]
+  }' | gh api --method POST "/repos/$REPO/pulls/$PR_NUMBER/reviews" --input -
 ```
 
 **`event` values:**
@@ -160,67 +159,83 @@ EOF
 - `"REQUEST_CHANGES"` — block merge until issues are resolved
 - `"APPROVE"` — approve the PR
 
+**Comment fields:** `path` (required), `line` (required), `side` (`"RIGHT"` default or `"LEFT"`), `body` (required), `start_line`/`start_side` (multi-line ranges), `subject_type` (`"line"` default or `"file"`).
+
 **Important:** Always use `commit_id` to pin comments to the exact commit being reviewed.
 
-#### GitLab (Per-Comment + Summary)
+**CRITICAL:** Never use a single-quoted heredoc (`<<'EOF'`) with shell variables — they won't expand. Always use `jq` to build JSON, then pipe to `gh api --input -`.
+
+#### GitLab (Per-Comment Discussions API)
 
 ```bash
 # Post summary as MR note
 glab mr note <number> --message "## Code Review Summary ..."
 
-# Inline comments on specific files/lines
+# Get diff_refs SHAs from the MR (required for positioning)
 # NOTE: `glab mr note` does not support --file/--line positioning as of 2026.
 # Issue gitlab-org/cli#1311 tracks this feature request.
-# Use the REST API below for inline file/line comments.
+# Use `glab api` with the Discussions endpoint for inline file/line comments.
+MR_IID=<number>
+PROJECT_ID=$(glab api "projects/:fullpath" --jq '.id')
+DIFF_REFS=$(glab api "projects/$PROJECT_ID/merge_requests/$MR_IID" --jq '.diff_refs')
+BASE_SHA=$(echo "$DIFF_REFS" | jq -r '.base_sha')
+START_SHA=$(echo "$DIFF_REFS" | jq -r '.start_sha')
+HEAD_SHA=$(echo "$DIFF_REFS" | jq -r '.head_sha')
+
+# Post inline comment (one per finding)
+glab api --method POST "projects/$PROJECT_ID/merge_requests/$MR_IID/discussions" \
+  -f "body=**Warning**: This function lacks input validation." \
+  -f "position[position_type]=text" \
+  -f "position[base_sha]=$BASE_SHA" \
+  -f "position[start_sha]=$START_SHA" \
+  -f "position[head_sha]=$HEAD_SHA" \
+  -f "position[new_path]=src/auth.py" \
+  -f "position[old_path]=src/auth.py" \
+  -f "position[new_line]=42"
 ```
 
-Use the GitLab REST API for inline comments with file/line positioning:
+**Position fields:** `new_path` + `old_path` (both required, same value if not renamed), `new_line` (added lines) or `old_line` (deleted lines), `base_sha`/`start_sha`/`head_sha` (from MR `diff_refs`).
+
+**Important:** Prefer `glab api` over raw `curl` — it handles authentication automatically. No batch API — one POST per comment.
+
+#### Azure DevOps (Pull Request Threads via `az devops invoke`)
 
 ```bash
-# Get SHAs for position
-BASE_SHA=$(git merge-base origin/<target> HEAD)
-HEAD_SHA=$(git rev-parse HEAD)
-
-curl --request POST \
-  --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-  "$CI_SERVER_URL/api/v4/projects/$CI_PROJECT_ID/merge_requests/<iid>/discussions" \
-  --data-urlencode "body=**Warning**: ..." \
-  --data "position[position_type]=text" \
-  --data "position[new_path]=src/auth.py" \
-  --data "position[new_line]=42" \
-  --data "position[base_sha]=$BASE_SHA" \
-  --data "position[head_sha]=$HEAD_SHA" \
-  --data "position[start_sha]=$BASE_SHA"
-```
-
-#### Azure DevOps (REST API)
-
-```bash
-# Post comments via thread creation (both general and inline)
-az devops invoke \
-  --area git --resource pullRequestThreads \
-  --route-parameters \
-    project=<project> \
-    repositoryId=<repo-id> \
-    pullRequestId=<pr-id> \
-  --http-method POST \
-  --in-file thread.json
-```
-
-`thread.json` format:
-```json
+# Post inline comment as a thread (one per finding)
+cat > /tmp/thread.json << 'EOF'
 {
   "comments": [
-    {"content": "**Warning**: This function lacks input validation.", "commentType": 1}
+    {
+      "parentCommentId": 0,
+      "content": "**Warning**: This function lacks input validation.",
+      "commentType": 1
+    }
   ],
   "threadContext": {
     "filePath": "/src/auth.py",
     "rightFileStart": {"line": 42, "offset": 1},
-    "rightFileEnd": {"line": 42, "offset": 1}
+    "rightFileEnd": {"line": 42, "offset": 11}
   },
-  "status": "active"
+  "status": 1
 }
+EOF
+
+az devops invoke \
+  --area git --resource pullRequestThreads \
+  --org https://dev.azure.com/<org> \
+  --route-parameters \
+    project="<project>" \
+    repositoryId=<repo-id> \
+    pullRequestId=<pr-id> \
+  --http-method POST \
+  --in-file /tmp/thread.json \
+  --api-version 7.0 \
+  -o json
 ```
+
+**CRITICAL:** `status` must be an **integer** (`1`=active, `2`=fixed, `4`=closed), NOT a string. `parentCommentId: 0` is required for top-level comments. `filePath` must start with `/`. `--api-version 7.0` is required.
+
+No batch API — one POST per thread. For efficiency, write multiple JSON files and post in parallel.
 
 ### Step 7: Post Summary Comment
 
