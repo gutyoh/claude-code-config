@@ -57,9 +57,10 @@ _fetch_and_cache_status() {
 }
 
 # Main entry: collect Claude Code service status into DATA_CC_STATUS
+# Non-blocking: always serves cached/empty immediately, refreshes in background.
 collect_service_status() {
-    # Skip entirely if cc_status is not in the component list
-    [[ "${CONF_COMPONENTS}" != *"cc_status"* ]] && return
+    # Skip entirely if cc_status is not in the component list (exact match)
+    [[ ",${CONF_COMPONENTS}," != *",cc_status,"* ]] && return
 
     local cache_age
     cache_age=$(_status_cache_age)
@@ -70,20 +71,16 @@ collect_service_status() {
         return
     fi
 
-    # Stale — try to refresh
-    local fresh_label
-    fresh_label=$(_fetch_and_cache_status) || true
-    if [[ -n "${fresh_label}" ]]; then
-        DATA_CC_STATUS="${fresh_label}"
-        return
-    fi
-
-    # Fetch failed — serve stale if within max stale window
+    # Stale but within max stale window — serve stale, refresh in background
     if [[ ${cache_age} -lt ${STATUS_CACHE_MAX_STALE} && -f "${STATUS_CACHE_FILE}" ]]; then
         DATA_CC_STATUS=$(cat "${STATUS_CACHE_FILE}")
+        _fetch_and_cache_status &>/dev/null &
+        disown 2>/dev/null
         return
     fi
 
-    # No usable data
+    # Expired or no cache — serve empty, try to refresh in background
     DATA_CC_STATUS=""
+    _fetch_and_cache_status &>/dev/null &
+    disown 2>/dev/null
 }

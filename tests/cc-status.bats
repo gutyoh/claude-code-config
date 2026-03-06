@@ -142,41 +142,92 @@ set_file_mtime() {
     [[ "$DATA_CC_STATUS" == "on" ]]
 }
 
-@test "collect: stale cache + fetch succeeds → uses fresh data" {
-    echo "on" > "${STATUS_CACHE_FILE}"
-    local target_ts=$(( $(date +%s) - 400 ))
-    set_file_mtime "${STATUS_CACHE_FILE}" "$target_ts"
-    # Mock fetch returning new status
-    _fetch_and_cache_status() { echo "outage"; }
-    collect_service_status
-    [[ "$DATA_CC_STATUS" == "outage" ]]
-}
-
-@test "collect: stale cache + fetch fails → serves stale (SWR)" {
+@test "collect: stale cache → serves stale immediately (non-blocking)" {
     echo "partial" > "${STATUS_CACHE_FILE}"
     # Age past TTL (300s) but within MAX_STALE (900s)
     local target_ts=$(( $(date +%s) - 400 ))
     set_file_mtime "${STATUS_CACHE_FILE}" "$target_ts"
-    _fetch_and_cache_status() { return 1; }
+    # Mock fetch with a sleep to prove we don't wait for it
+    _fetch_and_cache_status() { sleep 2; }
+    local start end elapsed
+    start=$(python3 -c "import time; print(int(time.time() * 1000))")
     collect_service_status
+    end=$(python3 -c "import time; print(int(time.time() * 1000))")
+    elapsed=$((end - start))
+    # Should return in <500ms (not 10s), proving async
+    [[ "$elapsed" -lt 500 ]]
     [[ "$DATA_CC_STATUS" == "partial" ]]
 }
 
-@test "collect: expired cache (>900s) + fetch fails → empty" {
+@test "collect: stale cache → background fetch updates cache for next render" {
+    echo "on" > "${STATUS_CACHE_FILE}"
+    local target_ts=$(( $(date +%s) - 400 ))
+    set_file_mtime "${STATUS_CACHE_FILE}" "$target_ts"
+    # Mock fetch that writes new value to cache
+    _fetch_and_cache_status() { echo "outage" > "${STATUS_CACHE_FILE}"; }
+    collect_service_status
+    # This render gets stale "on"
+    [[ "$DATA_CC_STATUS" == "on" ]]
+    # Wait for background fetch to complete
+    sleep 1
+    # Next render should get "outage" from cache
+    DATA_CC_STATUS=""
+    collect_service_status
+    [[ "$DATA_CC_STATUS" == "outage" ]]
+}
+
+@test "collect: expired cache (>900s) → empty, no blocking" {
     echo "outage" > "${STATUS_CACHE_FILE}"
-    # Age past MAX_STALE (900s)
     local target_ts=$(( $(date +%s) - 1000 ))
     set_file_mtime "${STATUS_CACHE_FILE}" "$target_ts"
-    _fetch_and_cache_status() { return 1; }
+    _fetch_and_cache_status() { sleep 2; }
+    local start end elapsed
+    start=$(python3 -c "import time; print(int(time.time() * 1000))")
     collect_service_status
+    end=$(python3 -c "import time; print(int(time.time() * 1000))")
+    elapsed=$((end - start))
+    [[ "$elapsed" -lt 500 ]]
     [[ -z "$DATA_CC_STATUS" ]]
 }
 
-@test "collect: no cache file + fetch fails → empty" {
+@test "collect: no cache file → empty, no blocking" {
     rm -f "${STATUS_CACHE_FILE}"
-    _fetch_and_cache_status() { return 1; }
+    _fetch_and_cache_status() { sleep 2; }
+    local start end elapsed
+    start=$(python3 -c "import time; print(int(time.time() * 1000))")
     collect_service_status
+    end=$(python3 -c "import time; print(int(time.time() * 1000))")
+    elapsed=$((end - start))
+    [[ "$elapsed" -lt 500 ]]
     [[ -z "$DATA_CC_STATUS" ]]
+}
+
+@test "collect: exact match — 'my_cc_status_v2' does NOT trigger fetch" {
+    CONF_COMPONENTS="model,my_cc_status_v2,email"
+    DATA_CC_STATUS="untouched"
+    collect_service_status
+    [[ "$DATA_CC_STATUS" == "untouched" ]]
+}
+
+@test "collect: exact match — 'cc_status' at start of list works" {
+    CONF_COMPONENTS="cc_status,model,email"
+    echo "degraded" > "${STATUS_CACHE_FILE}"
+    collect_service_status
+    [[ "$DATA_CC_STATUS" == "degraded" ]]
+}
+
+@test "collect: exact match — 'cc_status' at end of list works" {
+    CONF_COMPONENTS="model,email,cc_status"
+    echo "on" > "${STATUS_CACHE_FILE}"
+    collect_service_status
+    [[ "$DATA_CC_STATUS" == "on" ]]
+}
+
+@test "collect: exact match — 'cc_status' as only component works" {
+    CONF_COMPONENTS="cc_status"
+    echo "partial" > "${STATUS_CACHE_FILE}"
+    collect_service_status
+    [[ "$DATA_CC_STATUS" == "partial" ]]
 }
 
 @test "collect: reads each status label from cache correctly" {
@@ -311,6 +362,22 @@ set_file_mtime() {
 # ============================================================
 # Code patterns — verify conventions from PR #8
 # ============================================================
+
+@test "status.sh uses exact comma-delimited match for cc_status" {
+    local status_file="$BATS_TEST_DIRNAME/../.claude/scripts/lib/statusline/status.sh"
+    grep -q '",cc_status,"' "$status_file"
+}
+
+@test "statusline.sh uses exact comma-delimited match for cc_status newline" {
+    local main_file="$BATS_TEST_DIRNAME/../.claude/scripts/statusline.sh"
+    grep -q '",cc_status,"' "$main_file"
+}
+
+@test "status.sh uses background fetch (async, non-blocking)" {
+    local status_file="$BATS_TEST_DIRNAME/../.claude/scripts/lib/statusline/status.sh"
+    grep -q '_fetch_and_cache_status.*&' "$status_file"
+    grep -q 'disown' "$status_file"
+}
 
 @test "status.sh uses atomic write (temp+mv pattern)" {
     local status_file="$BATS_TEST_DIRNAME/../.claude/scripts/lib/statusline/status.sh"

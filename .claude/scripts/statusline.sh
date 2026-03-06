@@ -217,7 +217,7 @@ main() {
     fi
 
     # Newline mode: emit cc_status as a second line
-    if [[ "${CONF_COMPONENTS}" == *"cc_status"* \
+    if [[ ",${CONF_COMPONENTS}," == *",cc_status,"* \
         && "${CONF_CC_STATUS_POSITION}" == "newline" \
         && -n "${DATA_CC_STATUS}" ]]; then
 
