@@ -35,6 +35,6 @@ get_cc_status_color() {
         degraded)    printf "%s" "${COLOR_CAUTION}" ;;
         partial)     printf "%s" "${COLOR_WARN}" ;;
         outage)      printf "%s" "${COLOR_CRIT}" ;;
-        maintenance) printf "%s" "${COLOR_CRIT}" ;;
+        maintenance) printf "%s" "${COLOR_CAUTION}" ;;
     esac
 }

@@ -216,10 +216,10 @@ set_file_mtime() {
     [[ "$result" == "$COLOR_CRIT" ]]
 }
 
-@test "color: 'maintenance' → COLOR_CRIT (red)" {
+@test "color: 'maintenance' → COLOR_CAUTION (yellow, planned)" {
     local result
     result=$(get_cc_status_color "maintenance")
-    [[ "$result" == "$COLOR_CRIT" ]]
+    [[ "$result" == "$COLOR_CAUTION" ]]
 }
 
 # ============================================================
