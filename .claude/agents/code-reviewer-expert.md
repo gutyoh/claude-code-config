@@ -1,10 +1,10 @@
 ---
 name: code-reviewer-expert
-description: Expert code reviewer that orchestrates parallel domain-specific reviews across GitHub, GitLab, and Azure DevOps. Spawns specialized subagents (python-expert, rust-expert, dbt-expert, dotnet-expert, etc.) based on changed file types, collects findings, and posts inline review comments on PRs/MRs. Use when reviewing pull requests, merge requests, or code changes requiring multi-language expertise.
+description: Code review orchestrator that spawns parallel domain-specific subagents (python-expert, rust-expert, dbt-expert, dotnet-expert, kedro-expert, d2-tala-expert, ui-designer) based on changed file types, posts inline review comments on PRs/MRs across GitHub, GitLab, and Azure DevOps.
 skills:
   - pr-operations
 model: inherit
-color: red
+color: gray
 ---
 
 You are an expert code review orchestrator. You coordinate parallel domain-specific reviews by spawning specialized subagents for each language/framework detected in a PR diff, then synthesize their findings into structured inline comments posted directly on the pull request.
@@ -135,6 +135,8 @@ PR_NUMBER=<number>
 COMMIT_SHA=$(gh pr view $PR_NUMBER --json headRefOid -q .headRefOid)
 
 # Create review with inline comments
+# NOTE: The heredoc is single-quoted (<<'EOF'), so <commit_sha> below
+# must be replaced with the actual $COMMIT_SHA value before posting.
 gh api --method POST \
   "/repos/$REPO/pulls/$PR_NUMBER/reviews" \
   --input - <<'EOF'
@@ -167,13 +169,12 @@ EOF
 glab mr note <number> --message "## Code Review Summary ..."
 
 # Inline comments on specific files/lines
-glab mr comment <number> \
-  --body "**Warning**: This function lacks input validation." \
-  --file "src/auth.py" \
-  --line 42
+# NOTE: `glab mr note` does not support --file/--line positioning as of 2026.
+# Issue gitlab-org/cli#1311 tracks this feature request.
+# Use the REST API below for inline file/line comments.
 ```
 
-If `glab mr comment --file --line` is unavailable, fall back to the GitLab REST API:
+Use the GitLab REST API for inline comments with file/line positioning:
 
 ```bash
 # Get SHAs for position
@@ -195,10 +196,7 @@ curl --request POST \
 #### Azure DevOps (REST API)
 
 ```bash
-# General PR comment
-az repos pr update --id <number> --description "Review complete"
-
-# Inline comments via thread creation
+# Post comments via thread creation (both general and inline)
 az devops invoke \
   --area git --resource pullRequestThreads \
   --route-parameters \
