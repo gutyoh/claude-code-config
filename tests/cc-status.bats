@@ -373,9 +373,9 @@ set_file_mtime() {
     grep -q '",cc_status,"' "$main_file"
 }
 
-@test "status.sh uses background fetch (async, non-blocking)" {
+@test "status.sh uses background fetch with fd 3 closed (async, non-blocking)" {
     local status_file="$BATS_TEST_DIRNAME/../.claude/scripts/lib/statusline/status.sh"
-    grep -q '_fetch_and_cache_status.*&' "$status_file"
+    grep -q '_fetch_and_cache_status.*3>&-.*&' "$status_file"
     grep -q 'disown' "$status_file"
 }
 

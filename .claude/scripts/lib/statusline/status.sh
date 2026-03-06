@@ -74,7 +74,7 @@ collect_service_status() {
     # Stale but within max stale window — serve stale, refresh in background
     if [[ ${cache_age} -lt ${STATUS_CACHE_MAX_STALE} && -f "${STATUS_CACHE_FILE}" ]]; then
         DATA_CC_STATUS=$(cat "${STATUS_CACHE_FILE}")
-        _fetch_and_cache_status &>/dev/null &
+        _fetch_and_cache_status &>/dev/null 3>&- &
         disown 2>/dev/null
         return
     fi
