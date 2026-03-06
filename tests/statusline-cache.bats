@@ -28,6 +28,11 @@ setup() {
     # Source only the modules under test (no readonly declarations)
     source "$MODULES_DIR/cache.sh"
 
+    # Stub for collect_service_status (defined in status.sh, called by data.sh)
+    # Not needed in cache-focused tests; avoids sourcing status.sh readonly vars
+    collect_service_status() { :; }
+    DATA_CC_STATUS=""
+
     # Clean slate
     rm -f "$CACHE_FILE" "$BACKOFF_FILE"
     rm -rf "$LOCK_DIR"

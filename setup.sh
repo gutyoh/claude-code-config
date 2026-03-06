@@ -53,6 +53,9 @@ STATUSLINE_COLOR_SCOPE="percentage"  # "percentage" = color usage only, "full" =
 STATUSLINE_ICON=""                   # Prefix icon: "✻", "A\", "❋", etc. or "" for none
 STATUSLINE_ICON_STYLE="plain"        # plain|bold|bracketed|rounded|reverse|bold-color|angle|double-bracket
 STATUSLINE_WEEKLY_SHOW_RESET="false" # Show weekly reset countdown inline
+STATUSLINE_CC_STATUS_POSITION="inline"        # inline | newline
+STATUSLINE_CC_STATUS_VISIBILITY="always"      # always | problem_only
+STATUSLINE_CC_STATUS_COLOR="full"             # none | full | status_only
 INSTALL_AGENT_TEAMS="true"
 INSTALL_PROXY_PATH="true"
 ACCEPT_DEFAULTS="false"
@@ -62,7 +65,7 @@ USER_CUSTOMIZED_STATUSLINE="false" # Set to true when user goes through TUI stat
 
 readonly ALL_COMPONENT_KEYS=(
     "model" "usage" "weekly" "reset" "tokens_in" "tokens_out" "tokens_cache"
-    "cost" "burn_rate" "email" "version" "lines" "session_time" "cwd"
+    "cost" "burn_rate" "email" "cc_status" "version" "lines" "session_time" "cwd"
 )
 
 readonly ALL_COMPONENT_DESCS=(
@@ -76,6 +79,7 @@ readonly ALL_COMPONENT_DESCS=(
     "Session cost in USD"
     "Burn rate (USD/hr)"
     "Account email address"
+    "Claude Code service status"
     "Claude Code version"
     "Lines added/removed"
     "Session elapsed time"

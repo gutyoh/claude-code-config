@@ -18,6 +18,7 @@ configure_statusline_conf() {
         local matches="true"
 
         local cur_theme="" cur_components="" cur_bar_style="" cur_pct_inside="" cur_compact="" cur_color_scope="" cur_icon="" cur_icon_style="" cur_weekly_show_reset=""
+        local cur_cc_status_position="" cur_cc_status_visibility="" cur_cc_status_color=""
 
         local first_line
         first_line=$(head -n1 "${conf_file}" 2>/dev/null | tr -d '[:space:]')
@@ -40,6 +41,9 @@ configure_statusline_conf() {
                     icon) cur_icon="${value}" ;;
                     icon_style) cur_icon_style="${value}" ;;
                     weekly_show_reset) cur_weekly_show_reset="${value}" ;;
+                    cc_status_position) cur_cc_status_position="${value}" ;;
+                    cc_status_visibility) cur_cc_status_visibility="${value}" ;;
+                    cc_status_color) cur_cc_status_color="${value}" ;;
                 esac
             done <"${conf_file}"
 
@@ -52,6 +56,9 @@ configure_statusline_conf() {
             [[ "${cur_icon}" != "${STATUSLINE_ICON}" ]] && matches="false"
             [[ "${cur_icon_style}" != "${STATUSLINE_ICON_STYLE}" ]] && matches="false"
             [[ "${cur_weekly_show_reset}" != "${STATUSLINE_WEEKLY_SHOW_RESET}" ]] && matches="false"
+            [[ "${cur_cc_status_position}" != "${STATUSLINE_CC_STATUS_POSITION}" ]] && matches="false"
+            [[ "${cur_cc_status_visibility}" != "${STATUSLINE_CC_STATUS_VISIBILITY}" ]] && matches="false"
+            [[ "${cur_cc_status_color}" != "${STATUSLINE_CC_STATUS_COLOR}" ]] && matches="false"
         fi
 
         if [[ "${matches}" == "true" ]]; then
@@ -70,6 +77,9 @@ color_scope=${STATUSLINE_COLOR_SCOPE}
 icon=${STATUSLINE_ICON}
 icon_style=${STATUSLINE_ICON_STYLE}
 weekly_show_reset=${STATUSLINE_WEEKLY_SHOW_RESET}
+cc_status_position=${STATUSLINE_CC_STATUS_POSITION}
+cc_status_visibility=${STATUSLINE_CC_STATUS_VISIBILITY}
+cc_status_color=${STATUSLINE_CC_STATUS_COLOR}
 EOF
     echo "  ✓ Statusline config written (theme=${STATUSLINE_THEME}, bar=${STATUSLINE_BAR_STYLE})"
 }

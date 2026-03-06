@@ -217,6 +217,15 @@ show_statusline_preview() {
                 parts+=("user@email.com")
                 part_keys+=("email")
                 ;;
+            cc_status)
+                local cc_preview_label="on"
+                # Show a problem label if problem_only to make preview meaningful
+                if [[ "${STATUSLINE_CC_STATUS_VISIBILITY}" == "problem_only" ]]; then
+                    cc_preview_label="degraded"
+                fi
+                parts+=("${cc_preview_label}")
+                part_keys+=("cc_status")
+                ;;
             version)
                 parts+=("v2.0.37")
                 part_keys+=("version")
@@ -330,4 +339,7 @@ show_preview_box() {
         comp_display="${comp_display:0:57}..."
     fi
     echo "    components: ${comp_display}"
+    if [[ "${STATUSLINE_COMPONENTS}" == *"cc_status"* ]]; then
+        echo "    cc status: ${STATUSLINE_CC_STATUS_POSITION}, ${STATUSLINE_CC_STATUS_VISIBILITY}, ${STATUSLINE_CC_STATUS_COLOR}"
+    fi
 }

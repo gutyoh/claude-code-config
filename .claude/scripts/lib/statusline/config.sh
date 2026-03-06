@@ -31,6 +31,9 @@ load_config() {
             icon) CONF_ICON="${value}" ;;
             icon_style) CONF_ICON_STYLE="${value}" ;;
             weekly_show_reset) CONF_WEEKLY_SHOW_RESET="${value}" ;;
+            cc_status_position) CONF_CC_STATUS_POSITION="${value}" ;;
+            cc_status_visibility) CONF_CC_STATUS_VISIBILITY="${value}" ;;
+            cc_status_color) CONF_CC_STATUS_COLOR="${value}" ;;
         esac
     done <"${CONF_FILE}"
 }

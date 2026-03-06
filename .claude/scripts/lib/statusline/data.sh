@@ -165,6 +165,9 @@ collect_data() {
     DATA_EMAIL=$(jq -r '.oauthAccount.emailAddress // empty' ~/.claude.json 2>/dev/null)
     DATA_EMAIL="${DATA_EMAIL:-N/A}"
 
+    # Claude Code service health status (cached, non-blocking)
+    collect_service_status
+
     # Usage data: priority chain (1→2→3)
     if ! get_native_usage_data "${input}"; then
         if ! get_hook_usage_data; then

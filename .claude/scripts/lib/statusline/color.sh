@@ -26,3 +26,15 @@ get_color_for_pct() {
 get_utilization_color() {
     get_color_for_pct "${DATA_SESSION_PCT}"
 }
+
+# Returns the ANSI color code for a Claude Code service status label.
+# Usage: get_cc_status_color <label>
+#   label: on, degraded, partial, outage, maintenance
+get_cc_status_color() {
+    case "$1" in
+        degraded)    printf "%s" "${COLOR_CAUTION}" ;;
+        partial)     printf "%s" "${COLOR_WARN}" ;;
+        outage)      printf "%s" "${COLOR_CRIT}" ;;
+        maintenance) printf "%s" "${COLOR_CAUTION}" ;;
+    esac
+}
