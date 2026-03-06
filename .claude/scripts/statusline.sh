@@ -9,8 +9,8 @@
 #   2. Hook cache ~/.claude/cache/claude-usage.json (PreToolUse Haiku ping headers)
 #   3. OAuth API /api/oauth/usage with stale-while-error (legacy fallback)
 #
-# The PreToolUse hook (refresh-usage-cache.sh) fires a tiny Haiku API call
-# (~$0.00001) every 15 min and caches rate limit headers. The statusline
+# The PreToolUse/Stop hooks (refresh-usage-cache.sh) fire a tiny Haiku API
+# call (~$0.00001) every 60s and cache rate limit headers. The statusline
 # reads the cache file — zero API calls in the render path.
 #
 # Uses ccusage for token breakdown, cost, and burn rate.
@@ -44,11 +44,12 @@ readonly API_BETA_HEADER="oauth-2025-04-20"
 readonly CURL_TIMEOUT=10
 readonly DEFAULT_TERM_WIDTH=120
 readonly WIDE_THRESHOLD=110
-readonly CACHE_FILE="/tmp/claude-statusline-api-cache"
+readonly _TMP_DIR="/tmp/claude-statusline-${UID}"
+readonly CACHE_FILE="${_TMP_DIR}/api-cache"
 readonly CACHE_TTL=30
-readonly LOCK_DIR="/tmp/claude-statusline-api-lock"
+readonly LOCK_DIR="${_TMP_DIR}/api-lock"
 readonly LOCK_MAX_AGE_S=30              # Force-remove stale locks from killed processes
-readonly BACKOFF_FILE="/tmp/claude-statusline-api-backoff"
+readonly BACKOFF_FILE="${_TMP_DIR}/api-backoff"
 readonly BACKOFF_INITIAL_S=30           # First backoff after 429/failure
 readonly BACKOFF_MAX_S=300              # Cap at 5 minutes
 readonly CONF_FILE="${HOME}/.claude/statusline.conf"
@@ -79,6 +80,7 @@ COLOR_RESET=""
 
 DATA_MODEL=""
 DATA_SESSION_PCT="--"
+DATA_SESSION_PCT_STALE=0
 DATA_TIME_LEFT="--"
 DATA_INPUT_TOKENS=0
 DATA_OUTPUT_TOKENS=0
@@ -128,6 +130,9 @@ source "${_STATUSLINE_DIR}/lib/statusline/assembly.sh"
 # --- Main ---
 
 main() {
+    # Ensure user-specific tmp dir exists (prevents /tmp symlink attacks)
+    [[ ! -d "${_TMP_DIR}" ]] && mkdir -p "${_TMP_DIR}" 2>/dev/null
+
     load_config
     load_theme
 

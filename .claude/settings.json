@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./.claude/hooks/refresh-usage-cache.sh"
+            "command": "~/.claude/hooks/refresh-usage-cache.sh"
           }
         ]
       },
@@ -39,6 +39,17 @@
           {
             "type": "command",
             "command": "./.claude/hooks/rate-limit-brave-search.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/refresh-usage-cache.sh"
           }
         ]
       }

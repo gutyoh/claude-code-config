@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# refresh-usage-cache.sh — PreToolUse hook for rate limit usage caching
+# refresh-usage-cache.sh — PreToolUse/Stop hook for rate limit usage caching
 # Path: .claude/hooks/refresh-usage-cache.sh
 #
-# Fires on every tool call. Checks cache age — if fresh, exits in <1ms.
-# If stale (>15 min), fires a BACKGROUND Haiku API call (~$0.00001) and
+# Fires on every tool call and stop event. Checks cache age — if fresh, exits in <1ms.
+# If stale (>60s), fires a BACKGROUND Haiku API call (~$0.00001) and
 # extracts rate limit utilization from response headers:
 #   anthropic-ratelimit-unified-5h-utilization: 0.13  (= 13%)
 #   anthropic-ratelimit-unified-5h-reset: 1772740800  (epoch)
@@ -18,7 +18,7 @@
 #
 # Cache: ~/.claude/cache/claude-usage.json
 # Cost:  ~$0.00001/call (8 input + 1 output Haiku tokens)
-# Frequency: at most once per USAGE_CACHE_TTL (default 900s = 15 min)
+# Frequency: at most once per USAGE_CACHE_TTL (default 60s)
 
 set -uo pipefail
 
@@ -27,7 +27,7 @@ cat >/dev/null
 
 CACHE_DIR="${HOME}/.claude/cache"
 CACHE_FILE="${CACHE_DIR}/claude-usage.json"
-USAGE_CACHE_TTL="${USAGE_CACHE_TTL:-900}"
+USAGE_CACHE_TTL="${USAGE_CACHE_TTL:-60}"
 KEYCHAIN_SERVICE="Claude Code-credentials"
 HAIKU_MODEL="claude-haiku-4-5-20251001"
 
@@ -101,22 +101,24 @@ _fetch_and_cache() {
 
     [[ -z "${util_5h}" ]] && return 1
 
-    # Convert 0.13 fraction to 13 percentage (integer)
+    # Convert 0.13 fraction to 13 percentage (integer, rounded to nearest)
     local pct
-    pct=$(echo "${util_5h}" | awk '{printf "%d", $1 * 100}')
+    pct=$(echo "${util_5h}" | awk '{printf "%d", $1 * 100 + 0.5}')
 
     local overage_pct="0"
     if [[ -n "${overage_util}" ]]; then
-        overage_pct=$(echo "${overage_util}" | awk '{printf "%d", $1 * 100}')
+        overage_pct=$(echo "${overage_util}" | awk '{printf "%d", $1 * 100 + 0.5}')
     fi
 
     local now
     now=$(date +%s)
 
-    # Write cache as JSON
-    cat >"${CACHE_FILE}" <<EOF
+    # Write cache atomically (temp + mv prevents partial reads)
+    local tmp_file="${CACHE_FILE}.tmp.$$"
+    cat >"${tmp_file}" <<EOF
 {"five_hour_pct":${pct},"five_hour_reset_epoch":${reset_5h:-0},"overage_pct":${overage_pct},"overage_reset_epoch":${overage_reset:-0},"status":"${status:-unknown}","fetched_at":${now}}
 EOF
+    mv -f "${tmp_file}" "${CACHE_FILE}"
 }
 
 # Run in background so the hook returns instantly

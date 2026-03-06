@@ -83,6 +83,10 @@ get_native_usage_data() {
 }
 
 # Priority 2: Read hook cache (PreToolUse Haiku ping headers)
+# Staleness: if cache is older than HOOK_STALE_THRESHOLD (default 300s = 5 min),
+# prefix percentage with ~ to indicate approximate/stale data.
+HOOK_STALE_THRESHOLD="${HOOK_STALE_THRESHOLD:-300}"
+
 get_hook_usage_data() {
     local cache_file="${HOOK_USAGE_CACHE:-${HOME}/.claude/cache/claude-usage.json}"
     [[ ! -f "${cache_file}" ]] && return 1
@@ -93,7 +97,21 @@ get_hook_usage_data() {
 
     reset_epoch=$(jq -r '.five_hour_reset_epoch // empty' "${cache_file}" 2>/dev/null)
 
+    # Check staleness: if cache is older than threshold, mark approximate
+    local cache_age=0
+    local mtime
+    case "$(uname -s)" in
+        Darwin) mtime=$(stat -f "%m" "${cache_file}" 2>/dev/null) ;;
+        Linux)  mtime=$(stat -c "%Y" "${cache_file}" 2>/dev/null) ;;
+    esac
+    if [[ -n "${mtime}" ]]; then
+        cache_age=$(( $(date +%s) - mtime ))
+    fi
+
     DATA_SESSION_PCT="${pct}"
+    if [[ ${cache_age} -gt ${HOOK_STALE_THRESHOLD} ]]; then
+        DATA_SESSION_PCT_STALE=1
+    fi
     DATA_TIME_LEFT=$(calculate_time_remaining_epoch "${reset_epoch}")
     return 0
 }

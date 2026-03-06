@@ -8,15 +8,21 @@ render_component_model() {
 
 render_component_usage() {
     local raw=""
+    local display_pct="${DATA_SESSION_PCT}"
+    # Prefix with ~ when data is stale (cache older than HOOK_STALE_THRESHOLD)
+    if [[ "${DATA_SESSION_PCT_STALE}" == "1" && "${DATA_SESSION_PCT}" != "--" ]]; then
+        display_pct="~${DATA_SESSION_PCT}"
+    fi
 
     if [[ "${IS_WIDE}" == "true" ]]; then
         if [[ "${CONF_COMPACT}" == "true" && "${CONF_BAR_STYLE}" == "text" ]]; then
-            raw=$(printf "%s%%" "${DATA_SESSION_PCT}")
+            raw=$(printf "%s%%" "${display_pct}")
         else
+            # Pass numeric DATA_SESSION_PCT to bar renderer (not display_pct)
             raw=$(render_progress_bar "${DATA_SESSION_PCT}" "${CONF_BAR_STYLE}" 20 "${CONF_BAR_PCT_INSIDE}")
         fi
     else
-        raw=$(printf "%s%%" "${DATA_SESSION_PCT}")
+        raw=$(printf "%s%%" "${display_pct}")
     fi
 
     # Wrap in color when color_scope=percentage
