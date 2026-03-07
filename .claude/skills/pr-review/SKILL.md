@@ -17,7 +17,7 @@ You are orchestrating a multi-agent code review. You MUST spawn parallel domain-
 
 If any pre-fetch shows `FETCH_FAILED`, detect the platform from the remote URL and fetch manually:
 - **GitHub**: `gh pr view <number> --json number,title,baseRefName,headRefName,headRefOid,url`
-- **GitLab**: `glab mr view <number> -F json`
+- **GitLab**: `glab mr view <number> --output json`
 - **Azure DevOps**: `az repos pr show --id <number>`
 
 ## Process

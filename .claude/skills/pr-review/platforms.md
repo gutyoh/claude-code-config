@@ -38,7 +38,7 @@ jq -n \
 
 **Comment fields:**
 - `path` (required) — relative file path
-- `line` (required) — line number in the diff
+- `line` (required) — line number in the file (new file when `side` is `"RIGHT"`, old file when `"LEFT"`)
 - `side` — `"RIGHT"` (new file, default) or `"LEFT"` (old/deleted file)
 - `body` (required) — comment text (Markdown supported)
 - `start_line` + `start_side` — for multi-line comment ranges
@@ -71,15 +71,28 @@ START_SHA=$(echo "$DIFF_REFS" | jq -r '.start_sha')
 HEAD_SHA=$(echo "$DIFF_REFS" | jq -r '.head_sha')
 
 # Post inline comment via Discussions API (one per comment)
-glab api --method POST "projects/$PROJECT_ID/merge_requests/$MR_IID/discussions" \
-  -f "body=**Warning**: Description. **Recommendation**: Fix." \
-  -f "position[position_type]=text" \
-  -f "position[base_sha]=$BASE_SHA" \
-  -f "position[start_sha]=$START_SHA" \
-  -f "position[head_sha]=$HEAD_SHA" \
-  -f "position[new_path]=src/example.py" \
-  -f "position[old_path]=src/example.py" \
-  -f "position[new_line]=42"
+# Use jq to build JSON safely — prevents shell injection from untrusted diff content
+COMMENT_BODY="**Warning**: Description. **Recommendation**: Fix."
+jq -n \
+  --arg body "$COMMENT_BODY" \
+  --arg base_sha "$BASE_SHA" \
+  --arg start_sha "$START_SHA" \
+  --arg head_sha "$HEAD_SHA" \
+  --arg new_path "src/example.py" \
+  --arg old_path "src/example.py" \
+  --argjson new_line 42 \
+  '{
+    body: $body,
+    position: {
+      position_type: "text",
+      base_sha: $base_sha,
+      start_sha: $start_sha,
+      head_sha: $head_sha,
+      new_path: $new_path,
+      old_path: $old_path,
+      new_line: $new_line
+    }
+  }' | glab api --method POST "projects/$PROJECT_ID/merge_requests/$MR_IID/discussions" --input -
 ```
 
 **Position fields:**

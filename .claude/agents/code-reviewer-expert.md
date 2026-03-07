@@ -58,18 +58,7 @@ git diff origin/<target>...HEAD
 
 ### Step 3: Route Files to Expert Subagents
 
-Map changed files to the appropriate expert subagent. Check file extensions and project indicators:
-
-| File Pattern | Expert Agent | Detection |
-|-------------|-------------|-----------|
-| `*.py` | `python-expert` | Any `.py` file |
-| `*.rs`, `Cargo.toml` | `rust-expert` | Any `.rs` file or Cargo changes |
-| `*.cs`, `*.csproj`, `*.sln` | `dotnet-expert` | Any C#/.NET file |
-| `*.sql` + `dbt_project.yml` exists | `dbt-expert` | SQL files in a dbt project |
-| `*.d2` | `d2-tala-expert` | D2 diagram files |
-| `pipeline_registry.py`, `catalog*.yml` | `kedro-expert` | Kedro project patterns |
-| `*.css`, `*.scss`, `*.tsx`, `*.jsx` (UI components) | `ui-designer` | Frontend/UI files |
-| All other files | **Self-review** | Orchestrator reviews directly |
+Map changed files to the appropriate expert subagent using the routing table defined in `.claude/skills/pr-review/routing.md` (single source of truth).
 
 **Rules:**
 - If files match multiple experts, spawn all relevant ones
@@ -183,15 +172,28 @@ START_SHA=$(echo "$DIFF_REFS" | jq -r '.start_sha')
 HEAD_SHA=$(echo "$DIFF_REFS" | jq -r '.head_sha')
 
 # Post inline comment (one per finding)
-glab api --method POST "projects/$PROJECT_ID/merge_requests/$MR_IID/discussions" \
-  -f "body=**Warning**: This function lacks input validation." \
-  -f "position[position_type]=text" \
-  -f "position[base_sha]=$BASE_SHA" \
-  -f "position[start_sha]=$START_SHA" \
-  -f "position[head_sha]=$HEAD_SHA" \
-  -f "position[new_path]=src/auth.py" \
-  -f "position[old_path]=src/auth.py" \
-  -f "position[new_line]=42"
+# Use jq to build JSON safely — prevents shell injection from untrusted diff content
+COMMENT_BODY="**Warning**: This function lacks input validation."
+jq -n \
+  --arg body "$COMMENT_BODY" \
+  --arg base_sha "$BASE_SHA" \
+  --arg start_sha "$START_SHA" \
+  --arg head_sha "$HEAD_SHA" \
+  --arg new_path "src/auth.py" \
+  --arg old_path "src/auth.py" \
+  --argjson new_line 42 \
+  '{
+    body: $body,
+    position: {
+      position_type: "text",
+      base_sha: $base_sha,
+      start_sha: $start_sha,
+      head_sha: $head_sha,
+      new_path: $new_path,
+      old_path: $old_path,
+      new_line: $new_line
+    }
+  }' | glab api --method POST "projects/$PROJECT_ID/merge_requests/$MR_IID/discussions" --input -
 ```
 
 **Position fields:** `new_path` + `old_path` (both required, same value if not renamed), `new_line` (added lines) or `old_line` (deleted lines), `base_sha`/`start_sha`/`head_sha` (from MR `diff_refs`).
