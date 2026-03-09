@@ -610,14 +610,14 @@ opus-4.5 | 43% | 3h10m | 1.6k/587/6.9M | $5.75
 npm install -g ccusage
 
 # Also needed (usually pre-installed)
-brew install jq bc  # macOS
-sudo apt-get install jq bc  # Ubuntu/Debian
+brew install jq  # macOS
+sudo apt-get install jq  # Ubuntu/Debian
 ```
 
 **Auto-configuration:**
 
 The `setup.sh` script automatically:
-- Checks if `ccusage`, `jq`, and `bc` are installed
+- Checks if `ccusage` and `jq` are installed
 - Adds `statusLine` configuration to `~/.claude/settings.json`
 - Uses the two-tier script from `~/.claude/scripts/statusline.sh`
 

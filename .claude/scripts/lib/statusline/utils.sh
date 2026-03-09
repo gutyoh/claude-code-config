@@ -6,9 +6,10 @@ format_num() {
     local num="${1:-0}"
 
     if [[ "${num}" -ge 1000000 ]]; then
-        printf "%.1fM" "$(echo "scale=1; ${num} / 1000000" | bc)"
+        # Use awk for floating-point division (cross-platform: Linux, macOS, Windows Git Bash)
+        awk "BEGIN { printf \"%.1fM\", ${num} / 1000000 }"
     elif [[ "${num}" -ge 1000 ]]; then
-        printf "%.1fk" "$(echo "scale=1; ${num} / 1000" | bc)"
+        awk "BEGIN { printf \"%.1fk\", ${num} / 1000 }"
     else
         printf "%d" "${num}"
     fi

@@ -30,11 +30,29 @@
 # Config: ~/.claude/statusline.conf (key=value). Respects NO_COLOR env var.
 # Legacy: single-line theme name still supported (auto-detected).
 #
-# Prerequisites: jq, curl, bc, ccusage (optional for token/cost data)
+# Prerequisites: jq, curl, awk, ccusage (optional for token/cost data)
 # Platforms:     macOS (Keychain), Linux (Secret Service / libsecret),
 #                Windows Git Bash (Credential Manager via PowerShell)
 
 set -uo pipefail
+
+# --- Debug Mode ---
+# Enable with: STATUSLINE_DEBUG=1 ~/.claude/scripts/statusline.sh
+# Output goes to stderr so it doesn't interfere with statusline output
+
+DEBUG="${STATUSLINE_DEBUG:-0}"
+
+debug() {
+    [[ "${DEBUG}" != "1" ]] && return
+    printf "[DEBUG] %s\n" "$*" >&2
+}
+
+debug_var() {
+    [[ "${DEBUG}" != "1" ]] && return
+    local name="$1"
+    local value="$2"
+    printf "[DEBUG]   %s = %s\n" "${name}" "${value}" >&2
+}
 
 # --- Constants ---
 
@@ -44,7 +62,8 @@ readonly API_BETA_HEADER="oauth-2025-04-20"
 readonly CURL_TIMEOUT=10
 readonly DEFAULT_TERM_WIDTH=120
 readonly WIDE_THRESHOLD=110
-readonly _TMP_DIR="/tmp/claude-statusline-${UID}"
+# Use TMPDIR if set (cross-platform), otherwise /tmp (Unix) or $TEMP (Windows)
+readonly _TMP_DIR="${TMPDIR:-${TEMP:-/tmp}}/claude-statusline-${UID:-$(id -u 2>/dev/null || echo $$)}"
 readonly CACHE_FILE="${_TMP_DIR}/api-cache"
 readonly CACHE_TTL=30
 readonly LOCK_DIR="${_TMP_DIR}/api-lock"
@@ -107,10 +126,12 @@ IS_WIDE="false"
 # --- Platform Detection ---
 
 detect_platform() {
-    case "$(uname -s)" in
+    local uname_out
+    uname_out="$(uname -s)"
+    case "${uname_out}" in
         Darwin) echo "macos" ;;
         Linux) echo "linux" ;;
-        MSYS* | MINGW* | CYGWIN*) echo "windows" ;;
+        MSYS* | MINGW* | CYGWIN* | *_NT*) echo "windows" ;;
         *) echo "unknown" ;;
     esac
 }
