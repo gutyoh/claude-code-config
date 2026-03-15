@@ -170,6 +170,7 @@ Keep SKILL.md under 500 lines. Move detailed material to separate files.
 ## See also
 
 - [How to Add an Agent](how-to-add-agent.md): create the agent that loads your skill
+- [How to Run Evals](how-to-run-evals.md): evaluate your skill's output quality with structured test cases
 - [Architecture](architecture.md): why conditional loading preserves context efficiency
 - [Project Structure](project-structure.md): complete list of all skills and their file counts
 - [Configuration](configuration.md): full reference for skill frontmatter fields

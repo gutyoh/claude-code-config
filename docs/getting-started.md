@@ -320,5 +320,6 @@ No reinstallation required.
 - [How to Add a Skill](how-to-add-skill.md): create reusable standards for your team
 - [How to Configure the Statusline](how-to-configure-statusline.md): customize billing and usage tracking
 - [How to Add an MCP Server](how-to-add-mcp-server.md): integrate new external tools
+- [How to Run Evals](how-to-run-evals.md): evaluate skill quality with the skill-creator plugin
 - [Architecture](architecture.md): understand how the symlink system and agent+skill pattern work
 - [Design Decisions](design-decisions.md): why things are designed this way
