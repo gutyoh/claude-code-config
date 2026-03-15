@@ -1,5 +1,6 @@
 {
   "skill_name": "diataxis-standards",
+  "_docs": "See docs/how-to-run-evals.md for instructions on running these evals",
   "description": "Evaluates whether the diataxis-standards skill produces documentation that follows the Diataxis framework — one quadrant per page, correct quadrant-specific patterns, cross-references between quadrants, and no mixing.",
   "evals": [
     {

@@ -122,7 +122,9 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   │   │   ├── reference-patterns.md
 │   │   │   ├── explanation-patterns.md
 │   │   │   ├── writing-style.md
-│   │   │   └── documentation-guide-patterns.md
+│   │   │   ├── documentation-guide-patterns.md
+│   │   │   └── evals/
+│   │   │       └── evals.json
 │   │   └── design-doc-standards/
 │   │       ├── SKILL.md
 │   │       ├── core.md
