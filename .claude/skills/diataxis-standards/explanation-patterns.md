@@ -132,14 +132,14 @@ Explanation docs are the primary place for architectural diagrams. Use Mermaid f
 - **State diagrams**: `stateDiagram-v2` for lifecycle and status transitions
 - **Class diagrams**: `classDiagram` for service hierarchies
 
-Always use the `:::` fenced syntax for platform compatibility:
+Use the Mermaid fence syntax that matches your rendering target — ` ```mermaid ` for GitHub/GitLab, `::: mermaid` for Azure DevOps:
 
-```markdown
-::: mermaid
+````markdown
+```mermaid
 flowchart TD
     A[Component] --> B[Component]
-:::
 ```
+````
 
 ## Connecting to Other Quadrants
 

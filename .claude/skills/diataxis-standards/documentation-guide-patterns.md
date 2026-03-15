@@ -116,10 +116,10 @@ For each documentation file, specify:
 
 ### 4. Include the Quadrant Chart
 
-Always include the Mermaid quadrant chart showing the two axes:
+Always include the Mermaid quadrant chart showing the two axes. Use the fence syntax that matches the rendering target (` ```mermaid ` for GitHub/GitLab, `::: mermaid` for Azure DevOps):
 
-```markdown
-::: mermaid
+````markdown
+```mermaid
 quadrantChart
     title Diataxis Documentation Framework
     x-axis "Practical (action)" --> "Theoretical (cognition)"
@@ -128,8 +128,8 @@ quadrantChart
     quadrant-2 How-To Guides
     quadrant-3 Tutorials
     quadrant-4 Explanation
-:::
 ```
+````
 
 ### 5. Customize Anti-Patterns for the Project
 
@@ -146,11 +146,12 @@ Generic anti-patterns from core.md apply, but add project-specific ones:
 
 Different platforms have different Markdown rendering capabilities:
 
-| Platform | Mermaid | Admonitions | HTML | Tabs |
-|----------|---------|-------------|------|------|
-| GitHub | Native | No (use bold) | Limited | No |
-| Azure DevOps Wiki | `:::` syntax | `:::` syntax | Yes | No |
-| GitLab | Native | No (use bold) | Limited | No |
+| Platform | Mermaid Syntax | Admonitions | HTML | Tabs |
+|----------|---------------|-------------|------|------|
+| GitHub | ` ```mermaid ` | No (use bold) | Limited | No |
+| GitLab | ` ```mermaid ` | No (use bold) | Limited | No |
+| Azure DevOps Wiki | `::: mermaid` | `:::` syntax | Yes | No |
+| Azure DevOps Repos | `::: mermaid` | No | Limited | No |
 
 Include platform-specific notes in the guide.
 

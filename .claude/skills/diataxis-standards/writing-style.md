@@ -132,8 +132,17 @@ Use bold text for inline callouts when the rendering target does not support adm
 
 ### Syntax Convention
 
-Use the `:::` fenced syntax for maximum platform compatibility (GitHub, Azure DevOps, GitLab):
+Use the Mermaid fence syntax that matches your rendering target:
 
+**GitHub / GitLab** (triple-backtick):
+````markdown
+```mermaid
+flowchart TD
+    A[Component] --> B[Component]
+```
+````
+
+**Azure DevOps Wiki / Repos** (`:::` fenced):
 ```markdown
 ::: mermaid
 flowchart TD
@@ -166,13 +175,13 @@ flowchart TD
 
 ### Platform Compatibility
 
-| Platform | Mermaid Support | Notes |
-|----------|----------------|-------|
-| GitHub | Native | Renders in `.md` files and PRs |
-| Azure DevOps Wiki | Native | Use `:::` fenced syntax |
-| Azure DevOps Repos | Native | Use `:::` fenced syntax |
-| GitLab | Native | Renders in `.md` files |
-| VS Code | Via extension | Install Mermaid preview extension |
+| Platform | Mermaid Support | Syntax |
+|----------|----------------|--------|
+| GitHub | Native | ` ```mermaid ` triple-backtick blocks |
+| GitLab | Native | ` ```mermaid ` triple-backtick blocks |
+| Azure DevOps Wiki | Native | `::: mermaid` fenced blocks |
+| Azure DevOps Repos | Native | `::: mermaid` fenced blocks |
+| VS Code | Via extension | Both syntaxes (install Mermaid preview extension) |
 
 ---
 
