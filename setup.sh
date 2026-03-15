@@ -120,7 +120,6 @@ main() {
     check_prerequisite "fd" "fd" "false" "optional: for faster file suggestions"
     check_prerequisite "fzf" "fzf" "false" "optional: for faster file suggestions"
     check_prerequisite "ccusage" "ccusage" "false" "optional: for statusline billing tracking"
-    check_prerequisite "bc" "bc" "false" "optional: for statusline number formatting"
 
     echo ""
 

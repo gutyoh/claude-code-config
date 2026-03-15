@@ -103,6 +103,7 @@ get_hook_usage_data() {
     case "$(uname -s)" in
         Darwin) mtime=$(stat -f "%m" "${cache_file}" 2>/dev/null) ;;
         Linux)  mtime=$(stat -c "%Y" "${cache_file}" 2>/dev/null) ;;
+        MSYS* | MINGW* | CYGWIN*) mtime=$(stat -c "%Y" "${cache_file}" 2>/dev/null) ;;
     esac
     if [[ -n "${mtime}" ]]; then
         cache_age=$(( $(date +%s) - mtime ))
@@ -142,11 +143,16 @@ get_oauth_usage_data() {
 collect_data() {
     local input="$1"
 
+    debug "=== Data Collection Start ==="
+    debug "Platform: ${PLATFORM}"
+    debug "Tmp dir: ${_TMP_DIR}"
+
     # Model name from stdin JSON
     DATA_MODEL=$(echo "${input}" | jq -r '.model.display_name // "claude"' \
         | sed 's/Claude //' \
         | tr '[:upper:]' '[:lower:]' \
         | tr ' ' '-')
+    debug_var "DATA_MODEL" "${DATA_MODEL}"
 
     # Version from stdin JSON
     DATA_VERSION=$(echo "${input}" | jq -r '.version // empty')
@@ -164,26 +170,49 @@ collect_data() {
     # Account email
     DATA_EMAIL=$(jq -r '.oauthAccount.emailAddress // empty' ~/.claude.json 2>/dev/null)
     DATA_EMAIL="${DATA_EMAIL:-N/A}"
+    debug_var "DATA_EMAIL" "${DATA_EMAIL}"
 
     # Claude Code service health status (cached, non-blocking)
     collect_service_status
 
     # Usage data: priority chain (1→2→3)
-    if ! get_native_usage_data "${input}"; then
-        if ! get_hook_usage_data; then
-            get_oauth_usage_data || true
+    debug "--- Usage Data Priority Chain ---"
+    debug "Trying source 1: native stdin JSON..."
+    if get_native_usage_data "${input}"; then
+        debug "Source: native stdin JSON (rate_limit fields)"
+    else
+        debug "Trying source 2: hook cache..."
+        if get_hook_usage_data; then
+            debug "Source: hook cache (~/.claude/cache/claude-usage.json)"
+        else
+            debug "Trying source 3: OAuth API..."
+            if get_oauth_usage_data; then
+                debug "Source: OAuth API (/api/oauth/usage)"
+            else
+                debug "Source: NONE - all data sources failed"
+            fi
         fi
     fi
+    debug_var "DATA_SESSION_PCT" "${DATA_SESSION_PCT}"
+    debug_var "DATA_WEEKLY_PCT" "${DATA_WEEKLY_PCT}"
+    debug_var "DATA_TIME_LEFT" "${DATA_TIME_LEFT}"
 
     # Token + cost data from ccusage
+    debug "--- ccusage Data ---"
     local active_block=""
-    active_block=$(get_ccusage_block) || active_block=""
-
-    if [[ -n "${active_block}" ]]; then
+    if active_block=$(get_ccusage_block 2>&1); then
+        debug "ccusage: found active block"
         DATA_INPUT_TOKENS=$(echo "${active_block}" | jq -r '.tokenCounts.inputTokens // 0')
         DATA_OUTPUT_TOKENS=$(echo "${active_block}" | jq -r '.tokenCounts.outputTokens // 0')
         DATA_CACHE_READ=$(echo "${active_block}" | jq -r '.tokenCounts.cacheReadInputTokens // 0')
         DATA_COST_USD=$(echo "${active_block}" | jq -r '.costUSD // 0')
         DATA_BURN_RATE=$(echo "${active_block}" | jq -r '.burnRate.costPerHour // 0')
+    else
+        debug "ccusage: no active block (is ccusage installed? run: npm install -g ccusage)"
     fi
+    debug_var "DATA_INPUT_TOKENS" "${DATA_INPUT_TOKENS}"
+    debug_var "DATA_OUTPUT_TOKENS" "${DATA_OUTPUT_TOKENS}"
+    debug_var "DATA_COST_USD" "${DATA_COST_USD}"
+
+    debug "=== Data Collection End ==="
 }
