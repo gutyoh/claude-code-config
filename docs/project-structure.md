@@ -9,14 +9,14 @@ claude-code-config/
 ├── .mcp.json                              # MCP server configurations (brave-search, tavily)
 ├── .env.example                           # Environment variable template
 ├── .envrc.example                         # direnv config template
-├── .gitignore                             # Comprehensive gitignore (231 lines)
+├── .gitignore                             # Comprehensive gitignore
 ├── .gitattributes                         # Line endings, language stats, diff settings
 ├── .shellcheckrc                          # ShellCheck config (bash dialect, disabled rules)
 ├── CLAUDE.md                              # Project context (shared, checked into repo)
-├── README.md                              # User documentation (1081 lines)
+├── README.md                              # User documentation
 ├── Makefile                               # Quality targets: lint, format, test, check, ci
-├── setup.sh                               # Interactive setup for macOS/Linux (354 lines)
-├── setup.ps1                              # Setup for Windows PowerShell (521 lines)
+├── setup.sh                               # Interactive setup for macOS/Linux
+├── setup.ps1                              # Setup for Windows PowerShell
 ├── bin/                                   # Utility scripts (installed to PATH)
 ├── lib/                                   # Library modules (sourced by setup/proxy)
 ├── .claude/                               # Claude Code configuration
@@ -103,7 +103,7 @@ Sourced by `setup.sh`. Each module exports functions used during interactive set
 | `databricks-standards` | 6 | Databricks engineering standards |
 | `dbt-standards` | 8 | dbt engineering standards |
 | `design-doc-standards` | 7 | Design doc + DRI working doc + ADR standards |
-| `diataxis-standards` | 8 | Diataxis documentation framework |
+| `diataxis-standards` | 9 | Diataxis documentation framework |
 | `dotnet-standards` | 10 | .NET/C# engineering standards |
 | `internet-research` | 1 | Multi-source internet research |
 | `kedro-standards` | 7 | Kedro pipeline standards |

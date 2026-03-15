@@ -6,7 +6,7 @@ Customize the Claude Code statusline to show model info, usage percentage, token
 
 - This repo's global config installed via `setup.sh`
 - Required: `jq`, `bc`
-- Required for usage data: `ccusage` (`npm install -g ccusage`)
+- Optional: `ccusage` (`npm install -g ccusage`) — needed for token/cost/burn-rate components
 
 ## Option A: Interactive TUI (recommended)
 
@@ -19,7 +19,7 @@ cd ~/repos/claude-code-config
 
 Select **Customize installation** → the statusline section walks you through:
 
-1. **Theme**: dark (yellow/red), light (blue/red), colorblind (bold yellow/magenta), none
+1. **Theme**: dark (blue/yellow/orange/red), light (same), colorblind (blue/yellow/cyan/magenta), none
 2. **Compact mode**: no labels, merged tokens (matches the original format)
 3. **Color scope**: percentage (usage only) or full (entire line)
 4. **Components**: multi-select from 15 available components

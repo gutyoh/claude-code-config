@@ -90,7 +90,7 @@ Each iteration gets its own directory. When improving a skill, compare `iteratio
 | Scope | Subagent spawns | Estimated tokens | Estimated time |
 |-------|----------------|-----------------|----------------|
 | Single eval | 2 (with + without) | ~30-50k | 2-3 minutes |
-| Full suite (7 evals) | 14 | ~200k | 10-15 minutes |
+| Full suite (N evals) | 2 x N | ~30-50k x N | ~2-3 min x N |
 | With grading + benchmark | +1 grader agent | ~70k additional | +3-5 minutes |
 
 ## Adding evals to a skill

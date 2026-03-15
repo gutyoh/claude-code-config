@@ -153,7 +153,7 @@ Keep SKILL.md under 500 lines. Move detailed material to separate files.
 | Skill | Files | Key Pattern |
 |-------|-------|-------------|
 | `python-standards` | 7 + refs + versions | Version detection, conditional loading |
-| `databricks-standards` | 5 | CLI-first, safety guardrails |
+| `databricks-standards` | 6 | CLI-first, safety guardrails |
 | `dbt-standards` | 8 | Three-layer architecture, platform-aware |
 | `diataxis-standards` | 8 | Four quadrants, writing style |
 | `design-doc-standards` | 7 | Three-layer planning, OODA |
