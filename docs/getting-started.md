@@ -19,13 +19,20 @@ claude --version
 You should see output like:
 
 ```
-1.0.x (Claude Code)
+2.x.x (Claude Code)
 ```
 
 If Claude Code is not installed, install it now:
 
 ```bash
+# macOS / Linux
 curl -fsSL https://claude.ai/install.sh | bash
+
+# Windows (PowerShell)
+irm https://claude.ai/install.ps1 | iex
+
+# Or via Homebrew
+brew install --cask claude-code
 ```
 
 **2. jq**
@@ -37,7 +44,7 @@ jq --version
 You should see output like:
 
 ```
-jq-1.7.1
+jq-1.7.1 (or later)
 ```
 
 If jq is not installed, install it now:
@@ -59,7 +66,7 @@ git --version
 You should see output like:
 
 ```
-git version 2.47.0
+git version 2.53.0 (or later)
 ```
 
 ## Step 1: Clone the Repository
@@ -285,7 +292,7 @@ In the same Claude Code session, run a Brave Search query:
 
 You should see search results returned from the Brave Search API. This confirms the MCP server is running, authenticated, and returning data.
 
-Exit the Claude Code session by typing `/exit` or pressing Ctrl+C.
+Exit the Claude Code session by pressing Ctrl+C or typing `/quit`.
 
 ## What You Have Now
 
