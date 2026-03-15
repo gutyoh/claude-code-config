@@ -244,6 +244,8 @@ You should see:
 You should see:
 - `data-scientist` - ML, deep learning, statistical analysis
 - `databricks-expert` - Query data, explore Unity Catalog, audit permissions, monitor jobs
+- `design-doc-expert` - Engineering planning: design docs, DRI working docs, ADRs, weekly updates
+- `diataxis-expert` - Documentation framework: tutorials, how-to guides, reference, explanation
 - `internet-researcher` - Deep research using Brave Search
 - `kedro-expert` - Build data pipelines, manage catalogs, configure environments
 - `pr-manager` - Full PR/MR lifecycle (list, view, create, review, edit) with workflow detection
@@ -321,47 +323,41 @@ claude-code-config/
 │   │   ├── open-file-in-ide.sh
 │   │   └── validate-readonly-sql.sh  # Blocks destructive SQL in databricks commands
 │   ├── skills/                    # Skills (reusable capabilities)
-│   │   ├── databricks-standards/  # Databricks engineering standards (modular)
-│   │   │   ├── SKILL.md
-│   │   │   ├── core.md
-│   │   │   ├── catalog-patterns.md
-│   │   │   ├── sql-patterns.md
-│   │   │   ├── operations-patterns.md
-│   │   │   └── permissions-patterns.md
-│   │   ├── internet-research/
-│   │   │   └── SKILL.md
-│   │   ├── kedro-standards/       # Kedro engineering standards (modular)
-│   │   │   ├── SKILL.md
-│   │   │   ├── core.md
-│   │   │   ├── catalog-patterns.md
-│   │   │   ├── pipeline-patterns.md
-│   │   │   ├── config-patterns.md
-│   │   │   ├── testing-patterns.md
-│   │   │   └── deployment-patterns.md
-│   │   ├── pr-writing/
-│   │   │   └── SKILL.md
-│   │   └── python-standards/      # Python engineering standards (modular)
-│   │       ├── SKILL.md           # Entry point with version detection
-│   │       ├── core.md            # LBYL, exceptions, paths, imports
-│   │       ├── async-patterns.md
-│   │       ├── pydantic-patterns.md
-│   │       ├── cli-patterns.md
-│   │       ├── subprocess-patterns.md
-│   │       ├── logging-patterns.md
-│   │       ├── references/
-│   │       │   ├── api-design.md
-│   │       │   ├── interfaces.md
-│   │       │   └── checklists.md
-│   │       └── versions/
-│   │           ├── python-3.12.md
-│   │           └── python-3.13.md
-│   ├── agents/                    # Subagents for Task tool
+│   │   ├── brave-search/          # Brave Search MCP skill
+│   │   ├── d2-tala-standards/     # D2 + TALA diagramming standards
+│   │   ├── databricks-standards/  # Databricks engineering standards
+│   │   ├── dbt-standards/         # dbt engineering standards
+│   │   ├── design-doc-standards/  # Design doc + DRI working doc + ADR standards
+│   │   ├── diataxis-standards/    # Diataxis documentation framework standards
+│   │   ├── dotnet-standards/      # .NET/C# engineering standards
+│   │   ├── internet-research/     # Multi-source internet research
+│   │   ├── kedro-standards/       # Kedro pipeline standards
+│   │   ├── langfuse/              # Langfuse observability standards
+│   │   ├── mcp-key-rotate/        # MCP API key rotation
+│   │   ├── pr/                    # PR creation (Conventional Commits)
+│   │   ├── pr-operations/         # Cross-platform PR/MR operations
+│   │   ├── pr-review/             # Multi-agent PR review
+│   │   ├── pr-writing/            # PR and commit message writing
+│   │   ├── python-standards/      # Python engineering standards
+│   │   ├── rust-standards/        # Rust engineering standards
+│   │   ├── tavily-search/         # Tavily AI-native search
+│   │   └── web-search/            # Built-in web search
+│   ├── agents/                    # Subagent definitions
+│   │   ├── code-reviewer-expert.md
+│   │   ├── d2-tala-expert.md
 │   │   ├── data-scientist.md
-│   │   ├── databricks-expert.md   # Preloads databricks-standards skill + SQL safety hook
+│   │   ├── databricks-expert.md
+│   │   ├── dbt-expert.md
+│   │   ├── design-doc-expert.md
+│   │   ├── diataxis-expert.md
+│   │   ├── dotnet-expert.md
 │   │   ├── internet-researcher.md
-│   │   ├── kedro-expert.md        # Preloads kedro-standards skill
+│   │   ├── kedro-expert.md
+│   │   ├── langfuse-expert.md
+│   │   ├── linus-torvalds.md
 │   │   ├── pr-manager.md
-│   │   ├── python-expert.md       # Preloads python-standards skill
+│   │   ├── python-expert.md
+│   │   ├── rust-expert.md
 │   │   ├── sonarqube-fixer.md
 │   │   └── ui-designer.md
 │   ├── scripts/                   # Utility scripts

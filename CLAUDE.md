@@ -110,16 +110,35 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   │   │   └── SKILL.md
 │   │   ├── pr/
 │   │   │   └── SKILL.md
-│   │   └── pr-review/
+│   │   ├── pr-review/
+│   │   │   ├── SKILL.md
+│   │   │   ├── routing.md
+│   │   │   └── platforms.md
+│   │   ├── diataxis-standards/
+│   │   │   ├── SKILL.md
+│   │   │   ├── core.md
+│   │   │   ├── tutorial-patterns.md
+│   │   │   ├── howto-patterns.md
+│   │   │   ├── reference-patterns.md
+│   │   │   ├── explanation-patterns.md
+│   │   │   ├── writing-style.md
+│   │   │   └── documentation-guide-patterns.md
+│   │   └── design-doc-standards/
 │   │       ├── SKILL.md
-│   │       ├── routing.md
-│   │       └── platforms.md
+│   │       ├── core.md
+│   │       ├── design-doc-patterns.md
+│   │       ├── working-doc-patterns.md
+│   │       ├── adr-patterns.md
+│   │       ├── context-engineering-patterns.md
+│   │       └── review-patterns.md
 │   ├── agents/                  # Subagent definitions
 │   │   ├── code-reviewer-expert.md
 │   │   ├── d2-tala-expert.md
 │   │   ├── data-scientist.md
 │   │   ├── databricks-expert.md
 │   │   ├── dbt-expert.md
+│   │   ├── design-doc-expert.md
+│   │   ├── diataxis-expert.md
 │   │   ├── rust-expert.md
 │   │   ├── dotnet-expert.md
 │   │   ├── internet-researcher.md
@@ -175,6 +194,8 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 - **d2-tala-standards**: D2 diagramming standards with TALA layout engine for clean, professional architecture diagrams
 - **databricks-standards**: Databricks engineering standards for safe, efficient workspace interaction via CLI
 - **dbt-standards**: dbt engineering standards for clean, modular, well-tested data transformations (dbt Core 1.8-1.11, Fusion v2.0, SQL style, testing, governance, medallion architecture)
+- **design-doc-standards**: Engineering planning standards for design docs, DRI working docs, ADRs, and weekly updates (structure, operational tracking, context engineering, startup-to-enterprise scaling)
+- **diataxis-standards**: Diataxis documentation framework for user-facing docs (tutorials, how-to guides, reference, explanation, writing style, Mermaid diagrams, DOCUMENTATION_GUIDE.md generation)
 - **dotnet-standards**: .NET/C# engineering standards for clean, scalable code (.NET 10+, C# 14, clean architecture, CQRS, EF Core, testing, project configuration)
 - **internet-research**: Expert internet research using Tavily and Brave Search (task-based routing)
 - **kedro-standards**: Kedro engineering standards for building clean, modular, production-ready data pipelines (Kedro 1.0+)
@@ -196,6 +217,8 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 - **data-scientist**: Expert data scientist for ML, deep learning, and statistical analysis
 - **databricks-expert**: Expert Databricks engineer for querying data, exploring Unity Catalog, managing permissions, and monitoring jobs/pipelines
 - **dbt-expert**: Expert dbt engineer for building data transformations, managing models, writing tests, and preparing projects for Fusion (dbt Core 1.8-1.11, Fusion v2.0, medallion architecture, governance)
+- **design-doc-expert**: Expert engineering planning specialist for design docs, DRI working docs, ADRs, and weekly updates (structure, operational tracking, context engineering, OODA loops)
+- **diataxis-expert**: Expert documentation engineer for Diataxis framework — tutorials, how-to guides, reference, explanation, DOCUMENTATION_GUIDE.md generation
 - **dotnet-expert**: Expert .NET/C# engineer for clean, scalable, production-ready code with modern .NET 10+ and clean architecture
 - **internet-researcher**: Deep research subagent for complex queries
 - **kedro-expert**: Expert Kedro engineer for building data pipelines, managing catalogs, configuring environments, and deploying projects
