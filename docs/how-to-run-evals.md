@@ -93,14 +93,6 @@ Each iteration gets its own directory. When improving a skill, compare `iteratio
 | Full suite (7 evals) | 14 | ~200k | 10-15 minutes |
 | With grading + benchmark | +1 grader agent | ~70k additional | +3-5 minutes |
 
-## Which skills have evals
-
-| Skill | Evals | Assertions | Negative controls |
-|-------|-------|------------|-------------------|
-| `diataxis-standards` | 10 | 45 | 3 |
-
-To add evals to another skill, see [Adding evals to a skill](#adding-evals-to-a-skill) below.
-
 ## Adding evals to a skill
 
 1. Create the evals directory:
