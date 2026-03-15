@@ -22,6 +22,9 @@ CLAUDE.local.md
 **/.claude/settings.local.json
 **/.claude/*.local.*
 
+# Skill eval workspaces (ephemeral test artifacts, not source code)
+*-workspace/
+
 # Claude Code runtime/cache directories
 .claude/cache/
 .claude/history/
