@@ -118,7 +118,7 @@ flowchart TD
     P3["Priority 3: OAuth API<br/><i>api.anthropic.com/api/oauth/usage</i><br/>(with SWR caching + backoff)"]
     CCUSAGE["ccusage blocks --json<br/><i>Token counts + cost</i>"]
     STATUS["status.claude.com API<br/><i>Service health</i>"]
-    RENDER["Render components<br/><i>14 renderers, adaptive width</i>"]
+    RENDER["Render components<br/><i>15 renderers, adaptive width</i>"]
 
     INPUT --> P1
     P1 -->|not available| P2

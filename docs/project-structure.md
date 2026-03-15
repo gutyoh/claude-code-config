@@ -91,7 +91,7 @@ Sourced by `setup.sh`. Each module exports functions used during interactive set
 | `bar.sh` | `render_progress_bar`, `_overlay_pct_inside` | Progress bar rendering (6 styles) |
 | `color.sh` | `get_color_for_pct`, `get_utilization_color`, `get_cc_status_color` | Color helpers |
 | `status.sh` | `collect_service_status` | Claude Code service health (status.claude.com) |
-| `components.sh` | 14 `render_component_*` functions | Individual component renderers |
+| `components.sh` | 15 `render_component_*` functions | Individual component renderers |
 | `assembly.sh` | `render_all_components` | Component joining with merge groups |
 
 ### .claude/skills/ (19 skills)
@@ -100,7 +100,7 @@ Sourced by `setup.sh`. Each module exports functions used during interactive set
 |-------|-------|---------|
 | `brave-search` | 1 | Brave Search MCP slash command |
 | `d2-tala-standards` | 6 | D2 + TALA diagramming standards |
-| `databricks-standards` | 5 | Databricks engineering standards |
+| `databricks-standards` | 6 | Databricks engineering standards |
 | `dbt-standards` | 8 | dbt engineering standards |
 | `design-doc-standards` | 7 | Design doc + DRI working doc + ADR standards |
 | `diataxis-standards` | 8 | Diataxis documentation framework |
