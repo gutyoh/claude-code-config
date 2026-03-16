@@ -131,21 +131,31 @@ refresh_api_cache() {
 get_cached_api_data() {
     local cache_age=999999
 
+    debug "get_cached_api_data: checking cache at ${CACHE_FILE}"
+
     if [[ -f "${CACHE_FILE}" ]]; then
         cache_age=$(get_file_age "${CACHE_FILE}") || cache_age=999999
+        debug "get_cached_api_data: cache age = ${cache_age}s (TTL=${CACHE_TTL}s)"
+    else
+        debug "get_cached_api_data: no cache file exists"
     fi
 
     # 1. Fresh cache (< TTL): serve immediately, no API call
     if [[ ${cache_age} -lt ${CACHE_TTL} ]]; then
+        debug "get_cached_api_data: serving fresh cache"
         cat "${CACHE_FILE}"
         return 0
     fi
 
     # 2. Stale cache: try to refresh (with lock + backoff)
+    debug "get_cached_api_data: attempting API refresh..."
     if try_acquire_lock; then
+        debug "get_cached_api_data: acquired lock"
         if ! should_backoff; then
+            debug "get_cached_api_data: calling get_api_session_data..."
             local data
             if data=$(get_api_session_data) && [[ -n "${data}" ]]; then
+                debug "get_cached_api_data: API success, caching data"
                 local tmp_cache="${CACHE_FILE}.tmp.$$"
                 printf "%s" "${data}" >"${tmp_cache}"
                 mv -f "${tmp_cache}" "${CACHE_FILE}"
@@ -154,18 +164,25 @@ get_cached_api_data() {
                 cat "${CACHE_FILE}"
                 return 0
             else
+                debug "get_cached_api_data: API failed, increasing backoff"
                 increase_backoff
             fi
+        else
+            debug "get_cached_api_data: in backoff period, skipping API call"
         fi
         release_lock
+    else
+        debug "get_cached_api_data: could not acquire lock"
     fi
 
     # 3. Stale-while-error: serve last known good value regardless of age
     if [[ -f "${CACHE_FILE}" ]]; then
+        debug "get_cached_api_data: serving stale cache"
         cat "${CACHE_FILE}"
         return 0
     fi
 
     # 4. No cache ever existed — true cold start
+    debug "get_cached_api_data: cold start, no data available"
     return 1
 }
