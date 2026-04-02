@@ -93,11 +93,11 @@ _fetch_and_cache() {
 
     # Extract rate limit headers
     local util_5h reset_5h status overage_util overage_reset
-    util_5h=$(echo "${response}" | grep -i "anthropic-ratelimit-unified-5h-utilization:" | awk '{print $2}' | tr -d '[:space:]')
-    reset_5h=$(echo "${response}" | grep -i "anthropic-ratelimit-unified-5h-reset:" | awk '{print $2}' | tr -d '[:space:]')
-    status=$(echo "${response}" | grep -i "anthropic-ratelimit-unified-status:" | awk '{print $2}' | tr -d '[:space:]')
-    overage_util=$(echo "${response}" | grep -i "anthropic-ratelimit-unified-overage-utilization:" | awk '{print $2}' | tr -d '[:space:]')
-    overage_reset=$(echo "${response}" | grep -i "anthropic-ratelimit-unified-overage-reset:" | awk '{print $2}' | tr -d '[:space:]')
+    util_5h=$(echo "${response}" | grep -i "anthropic-ratelimit-unified-5h-utilization:" | awk '{print $2}' | tr -d '\r\n ')
+    reset_5h=$(echo "${response}" | grep -i "anthropic-ratelimit-unified-5h-reset:" | awk '{print $2}' | tr -d '\r\n ')
+    status=$(echo "${response}" | grep -i "anthropic-ratelimit-unified-status:" | awk '{print $2}' | tr -d '\r\n ')
+    overage_util=$(echo "${response}" | grep -i "anthropic-ratelimit-unified-overage-utilization:" | awk '{print $2}' | tr -d '\r\n ')
+    overage_reset=$(echo "${response}" | grep -i "anthropic-ratelimit-unified-overage-reset:" | awk '{print $2}' | tr -d '\r\n ')
 
     [[ -z "${util_5h}" ]] && return 1
 

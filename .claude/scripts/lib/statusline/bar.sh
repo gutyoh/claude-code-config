@@ -59,7 +59,7 @@ render_progress_bar() {
             for ((i = 0; i < empty; i++)); do bar+="·"; done
 
             if [[ "${show_inner}" == "true" ]]; then
-                _overlay_pct_inside bar "${clamped}" "${width}"
+                _overlay_pct_inside bar "${clamped}" "${width}" "█" "·"
             fi
 
             printf "[%s]" "${bar}"
@@ -86,7 +86,7 @@ render_progress_bar() {
             for ((i = 0; i < empty_blocks; i++)); do bar+="░"; done
 
             if [[ "${show_inner}" == "true" ]]; then
-                _overlay_pct_inside bar "${clamped}" "${width}"
+                _overlay_pct_inside bar "${clamped}" "${width}" "█" "░"
             fi
 
             printf "%s" "${bar}"
@@ -129,7 +129,7 @@ render_progress_bar() {
             fi
 
             if [[ "${show_inner}" == "true" ]]; then
-                _overlay_pct_inside bar "${clamped}" "${width}"
+                _overlay_pct_inside bar "${clamped}" "${width}" "█" "░"
             fi
 
             printf "%s" "${bar}"
@@ -148,7 +148,7 @@ render_progress_bar() {
             for ((i = 0; i < empty; i++)); do bar+="╌"; done
 
             if [[ "${show_inner}" == "true" ]]; then
-                _overlay_pct_inside bar "${clamped}" "${width}"
+                _overlay_pct_inside bar "${clamped}" "${width}" "━" "╌"
             fi
 
             printf "%s" "${bar}"
@@ -197,10 +197,15 @@ render_progress_bar() {
 }
 
 # Helper: overlay " NN% " at center of bar string (passed by nameref)
+# Builds the bar in three segments (left chars + ASCII label + right chars)
+# instead of iterating/splicing multi-byte characters, which breaks on
+# Windows Git Bash: https://github.com/actions/runner-images/issues/13585
 _overlay_pct_inside() {
     local -n _bar="$1"
     local pct="$2"
     local width="$3"
+    local filled_char="$4"   # e.g. █ ━
+    local empty_char="$5"    # e.g. · ░ ╌
 
     local pct_str=" ${pct}% "
     local pct_len=${#pct_str}
@@ -208,36 +213,34 @@ _overlay_pct_inside() {
     # Only overlay if bar is wide enough
     if [[ ${width} -ge $((pct_len + 2)) ]]; then
         local start=$(((width - pct_len) / 2))
-        # Build new bar with overlay
-        local new_bar=""
-        local i=0
-        local char_idx=0
+        local after=$((start + pct_len))
+        local tail=$((width - after))
 
-        # We need to iterate character by character accounting for multi-byte
-        local bar_chars=()
-        local tmp="${_bar}"
-        while [[ -n "${tmp}" ]]; do
-            # Extract one character (handles multi-byte UTF-8)
-            local ch="${tmp:0:1}"
-            # Check if it's a multi-byte char by checking byte length
-            local byte_len=${#ch}
-            if [[ ${byte_len} -eq 0 ]]; then
-                # Try getting more bytes for multi-byte char
-                ch=$(printf '%s' "${tmp}" | head -c 3)
-                byte_len=${#ch}
+        # Rebuild: left filled/empty chars + ASCII label + right filled/empty chars
+        # Determine how many of the left segment are filled vs empty
+        local filled=$((pct * width / 100))
+
+        local new_bar=""
+        local i
+
+        # Left segment (0..start-1)
+        for ((i = 0; i < start; i++)); do
+            if [[ ${i} -lt ${filled} ]]; then
+                new_bar+="${filled_char}"
+            else
+                new_bar+="${empty_char}"
             fi
-            bar_chars+=("${ch}")
-            tmp="${tmp:${#ch}}"
         done
 
-        local total_chars=${#bar_chars[@]}
-        new_bar=""
-        for ((i = 0; i < total_chars; i++)); do
-            if [[ ${i} -ge ${start} && ${char_idx} -lt ${pct_len} ]]; then
-                new_bar+="${pct_str:${char_idx}:1}"
-                char_idx=$((char_idx + 1))
+        # Middle: ASCII percentage label
+        new_bar+="${pct_str}"
+
+        # Right segment (after..width-1)
+        for ((i = after; i < width; i++)); do
+            if [[ ${i} -lt ${filled} ]]; then
+                new_bar+="${filled_char}"
             else
-                new_bar+="${bar_chars[${i}]}"
+                new_bar+="${empty_char}"
             fi
         done
 
