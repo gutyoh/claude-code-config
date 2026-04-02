@@ -32,6 +32,11 @@ README.md linguist-documentation
 # Force LF for shell scripts (cross-platform compatibility)
 *.sh text eol=lf
 
+# Force LF for PowerShell scripts (PS 5.1+ and 7+ handle LF natively)
+*.ps1 text eol=lf
+*.psd1 text eol=lf
+*.psm1 text eol=lf
+
 # Force LF for markdown files
 *.md text eol=lf
 
