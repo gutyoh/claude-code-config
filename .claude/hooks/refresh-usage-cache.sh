@@ -38,9 +38,9 @@ is_cache_fresh() {
 
     local mtime now age
     case "$(uname -s)" in
-        Darwin) mtime=$(stat -f "%m" "${CACHE_FILE}" 2>/dev/null) ;;
-        Linux)  mtime=$(stat -c "%Y" "${CACHE_FILE}" 2>/dev/null) ;;
-        *)      return 1 ;;
+        Darwin)                    mtime=$(stat -f "%m" "${CACHE_FILE}" 2>/dev/null) ;;
+        Linux | MSYS* | MINGW* | CYGWIN* | *_NT*) mtime=$(stat -c "%Y" "${CACHE_FILE}" 2>/dev/null) ;;
+        *)                         return 1 ;;
     esac
     [[ -z "${mtime}" ]] && return 1
 

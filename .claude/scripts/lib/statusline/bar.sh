@@ -214,7 +214,6 @@ _overlay_pct_inside() {
     if [[ ${width} -ge $((pct_len + 2)) ]]; then
         local start=$(((width - pct_len) / 2))
         local after=$((start + pct_len))
-        local tail=$((width - after))
 
         # Rebuild: left filled/empty chars + ASCII label + right filled/empty chars
         # Determine how many of the left segment are filled vs empty

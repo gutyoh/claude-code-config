@@ -1,6 +1,6 @@
 # mcp.ps1 -- MCP server configuration with backend detection
 # Path: lib/setup-ps/mcp.ps1
-# Dot-sourced by setup-v2.ps1 -- do not execute directly.
+# Dot-sourced by setup.ps1 -- do not execute directly.
 #
 # PowerShell port of lib/setup/mcp.sh
 # Adds Doppler vs envfile backend detection (missing from old setup.ps1).

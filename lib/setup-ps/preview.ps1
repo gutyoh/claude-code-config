@@ -1,6 +1,6 @@
 # preview.ps1 -- Statusline preview rendering for setup TUI
 # Path: lib/setup-ps/preview.ps1
-# Dot-sourced by setup-v2.ps1 -- do not execute directly.
+# Dot-sourced by setup.ps1 -- do not execute directly.
 #
 # PowerShell port of lib/setup/preview.sh
 # Renders live statusline preview with Unicode box drawing.

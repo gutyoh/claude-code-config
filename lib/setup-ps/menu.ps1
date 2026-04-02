@@ -1,6 +1,6 @@
 # menu.ps1 -- Interactive installation menu and customization
 # Path: lib/setup-ps/menu.ps1
-# Dot-sourced by setup-v2.ps1 -- do not execute directly.
+# Dot-sourced by setup.ps1 -- do not execute directly.
 #
 # PowerShell port of lib/setup/menu.sh
 # Uses TUI primitives from tui.ps1 for arrow-key navigation.

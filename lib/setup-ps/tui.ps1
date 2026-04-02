@@ -1,6 +1,6 @@
 # tui.ps1 -- TUI primitives (interactive menus, arrow keys, ANSI)
 # Path: lib/setup-ps/tui.ps1
-# Dot-sourced by setup-v2.ps1 -- do not execute directly.
+# Dot-sourced by setup.ps1 -- do not execute directly.
 #
 # PowerShell port of lib/setup/tui.sh
 # Uses [Console]::ReadKey() for raw input and ANSI escape codes for rendering.
@@ -300,7 +300,7 @@ function Confirm-TuiYesNo {
             { $_ -eq 'left' -or $_ -eq 'up' -or $_ -eq 'y' } {
                 $selected = 0
             }
-            { $_ -eq 'right' -or $_ -eq 'down' -or $_ -eq 'N' } {
+            { $_ -eq 'right' -or $_ -eq 'down' -or $_ -eq 'n' -or $_ -eq 'N' } {
                 $selected = 1
             }
             'enter' {
@@ -311,7 +311,7 @@ function Confirm-TuiYesNo {
             { $_ -eq 'quit' -or $_ -eq 'escape' } {
                 [Console]::WriteLine("")
                 [Console]::CursorVisible = $true
-                return ($selected -eq 1) # escape = no
+                return $false # escape = no
             }
         }
 

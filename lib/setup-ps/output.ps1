@@ -1,6 +1,6 @@
 # output.ps1 -- Console output with ANSI colors (linter-clean)
 # Path: lib/setup-ps/output.ps1
-# Dot-sourced by setup-v2.ps1 -- do not execute directly.
+# Dot-sourced by setup.ps1 -- do not execute directly.
 #
 # Replaces Write-Host with [Console]::WriteLine() + ANSI escape codes.
 # Satisfies PSAvoidUsingWriteHost rule. Works in Windows Terminal, VS Code,

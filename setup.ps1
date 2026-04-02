@@ -150,7 +150,7 @@ if ($Mcp) {
     $script:InstallMcpServers = $Mcp -split ',' | ForEach-Object { $_.Trim() }
     foreach ($m in $script:InstallMcpServers) {
         if ($m -notin $script:McpServerKeys) {
-            Write-Status "Error: Unknown MCP server '${m}'. Available: $($script:McpServerKeys -join ', ')" -ForegroundColor Red
+            Write-Status "Error: Unknown MCP server '${m}'. Available: $($script:McpServerKeys -join ', ')" -Color Red
             exit 1
         }
     }
@@ -240,8 +240,8 @@ if ($Help) {
 # Main
 # ============================================================================
 
-Write-Status "Claude Code Config Setup" -ForegroundColor Cyan
-Write-Status "========================" -ForegroundColor Cyan
+Write-Status "Claude Code Config Setup" -Color Cyan
+Write-Status "========================" -Color Cyan
 Write-Status "Repo location: $($script:RepoDir)"
 Write-Status ""
 
@@ -273,7 +273,7 @@ $step = 0
 
 # --- Create symlinks ---
 $step++
-Write-Status "Step ${step}: Creating symlinks..." -ForegroundColor Yellow
+Write-Status "Step ${step}: Creating symlinks..." -Color Yellow
 
 Initialize-Symlink -Source "$($script:RepoDir)\.claude\hooks" -Target "$($script:ClaudeDir)\hooks" -Name "hooks"
 Initialize-Symlink -Source "$($script:RepoDir)\.claude\scripts" -Target "$($script:ClaudeDir)\scripts" -Name "scripts"
@@ -288,10 +288,10 @@ foreach ($util in @("mcp-key-rotate", "mcp-env-inject")) {
     $source = "$($script:RepoDir)\bin\${util}"
     if (Test-Path $source) {
         Copy-Item $source "$binDir\${util}" -Force
-        Write-Status "  + ~/.local/bin/${util} -> ${source}" -ForegroundColor Green
+        Write-Status "  + ~/.local/bin/${util} -> ${source}" -Color Green
     }
     else {
-        Write-Status "  ! bin/${util} not found (skipping)" -ForegroundColor Yellow
+        Write-Status "  ! bin/${util} not found (skipping)" -Color Yellow
     }
 }
 
@@ -300,7 +300,7 @@ if ($script:InstallAgentsSkills) {
     Initialize-Symlink -Source "$($script:RepoDir)\.claude\agents" -Target "$($script:ClaudeDir)\agents" -Name "agents"
 }
 else {
-    Write-Status "  - Skipping agents & skills (not selected)" -ForegroundColor DarkGray
+    Write-Status "  - Skipping agents & skills (not selected)" -Color DarkGray
 }
 
 Write-Status ""
@@ -308,30 +308,30 @@ Write-Status ""
 # --- Configure settings.json ---
 if ($script:SettingsMode -eq "overwrite") {
     $step++
-    Write-Status "Step ${step}: Overwriting settings.json with repo defaults..." -ForegroundColor Yellow
+    Write-Status "Step ${step}: Overwriting settings.json with repo defaults..." -Color Yellow
     Write-Status ""
 
     Copy-Item "$($script:RepoDir)\.claude\settings.json" $script:SettingsJson -Force
-    Write-Status "  + settings.json replaced with repo defaults" -ForegroundColor Green
+    Write-Status "  + settings.json replaced with repo defaults" -Color Green
 
     Write-Status ""
 
     $step++
-    Write-Status "Step ${step}: Configuring file suggestion (user scope)..." -ForegroundColor Yellow
+    Write-Status "Step ${step}: Configuring file suggestion (user scope)..." -Color Yellow
     Write-Status ""
 
     if ((Get-Command fd -ErrorAction SilentlyContinue) -and (Get-Command fzf -ErrorAction SilentlyContinue)) {
         Update-FileSuggestion
     }
     else {
-        Write-Status "  ! Skipping file suggestion (fd and fzf not installed)" -ForegroundColor Yellow
-        Write-Status "    Install with: scoop install fd fzf" -ForegroundColor DarkGray
+        Write-Status "  ! Skipping file suggestion (fd and fzf not installed)" -Color Yellow
+        Write-Status "    Install with: scoop install fd fzf" -Color DarkGray
     }
 
     Write-Status ""
 
     $step++
-    Write-Status "Step ${step}: Configuring statusline config..." -ForegroundColor Yellow
+    Write-Status "Step ${step}: Configuring statusline config..." -Color Yellow
     Write-Status ""
 
     Update-StatuslineConf -Force $true
@@ -339,14 +339,14 @@ if ($script:SettingsMode -eq "overwrite") {
     Write-Status ""
 
     $step++
-    Write-Status "Step ${step}: Configuring agent teams..." -ForegroundColor Yellow
+    Write-Status "Step ${step}: Configuring agent teams..." -Color Yellow
     Write-Status ""
 
     Update-AgentTeam
 }
 elseif ($script:SettingsMode -eq "merge") {
     $step++
-    Write-Status "Step ${step}: Configuring hooks (user scope)..." -ForegroundColor Yellow
+    Write-Status "Step ${step}: Configuring hooks (user scope)..." -Color Yellow
     Write-Status ""
 
     if (-not (Test-Path $script:SettingsJson)) {
@@ -367,7 +367,7 @@ elseif ($script:SettingsMode -eq "merge") {
             }
         }
         $hookConfig | ConvertTo-Json -Depth 10 | Set-Content $script:SettingsJson -Encoding UTF8
-        Write-Status "  + IDE diagnostics hook configured" -ForegroundColor Green
+        Write-Status "  + IDE diagnostics hook configured" -Color Green
     }
     else {
         Update-IdeHook
@@ -376,35 +376,35 @@ elseif ($script:SettingsMode -eq "merge") {
     Write-Status ""
 
     $step++
-    Write-Status "Step ${step}: Configuring file suggestion (user scope)..." -ForegroundColor Yellow
+    Write-Status "Step ${step}: Configuring file suggestion (user scope)..." -Color Yellow
     Write-Status ""
 
     if ((Get-Command fd -ErrorAction SilentlyContinue) -and (Get-Command fzf -ErrorAction SilentlyContinue)) {
         Update-FileSuggestion
     }
     else {
-        Write-Status "  ! Skipping file suggestion (fd and fzf not installed)" -ForegroundColor Yellow
-        Write-Status "    Install with: scoop install fd fzf" -ForegroundColor DarkGray
+        Write-Status "  ! Skipping file suggestion (fd and fzf not installed)" -Color Yellow
+        Write-Status "    Install with: scoop install fd fzf" -Color DarkGray
     }
 
     Write-Status ""
 
     $step++
-    Write-Status "Step ${step}: Configuring statusline (user scope)..." -ForegroundColor Yellow
+    Write-Status "Step ${step}: Configuring statusline (user scope)..." -Color Yellow
     Write-Status ""
 
     Update-Statusline
 
     if (-not (Get-Command ccusage -ErrorAction SilentlyContinue)) {
         Write-Status ""
-        Write-Status "  Note: Install ccusage for full statusline functionality:" -ForegroundColor DarkGray
-        Write-Status "    npm install -g ccusage" -ForegroundColor DarkGray
+        Write-Status "  Note: Install ccusage for full statusline functionality:" -Color DarkGray
+        Write-Status "    npm install -g ccusage" -Color DarkGray
     }
 
     Write-Status ""
 
     $step++
-    Write-Status "Step ${step}: Configuring statusline config..." -ForegroundColor Yellow
+    Write-Status "Step ${step}: Configuring statusline config..." -Color Yellow
     Write-Status ""
 
     Update-StatuslineConf -Force $script:UserCustomizedStatusline
@@ -412,14 +412,14 @@ elseif ($script:SettingsMode -eq "merge") {
     Write-Status ""
 
     $step++
-    Write-Status "Step ${step}: Configuring agent teams..." -ForegroundColor Yellow
+    Write-Status "Step ${step}: Configuring agent teams..." -Color Yellow
     Write-Status ""
 
     Update-AgentTeam
 }
 else {
     $step++
-    Write-Status "Step ${step}: Skipping settings.json configuration (not selected)" -ForegroundColor DarkGray
+    Write-Status "Step ${step}: Skipping settings.json configuration (not selected)" -Color DarkGray
 }
 
 Write-Status ""
@@ -427,14 +427,14 @@ Write-Status ""
 # --- Configure proxy launcher PATH ---
 if ($script:InstallProxyPath) {
     $step++
-    Write-Status "Step ${step}: Configuring proxy launcher PATH..." -ForegroundColor Yellow
+    Write-Status "Step ${step}: Configuring proxy launcher PATH..." -Color Yellow
     Write-Status ""
 
     Update-ProxyPath
 }
 else {
     $step++
-    Write-Status "Step ${step}: Skipping proxy launcher PATH (not selected)" -ForegroundColor DarkGray
+    Write-Status "Step ${step}: Skipping proxy launcher PATH (not selected)" -Color DarkGray
 }
 
 Write-Status ""
@@ -442,7 +442,7 @@ Write-Status ""
 # --- Configure MCP servers ---
 if ($script:InstallMcpServers.Count -gt 0) {
     $step++
-    Write-Status "Step ${step}: Configuring MCP servers (user scope)..." -ForegroundColor Yellow
+    Write-Status "Step ${step}: Configuring MCP servers (user scope)..." -Color Yellow
     Write-Status ""
 
     Install-McpServer
@@ -450,20 +450,20 @@ if ($script:InstallMcpServers.Count -gt 0) {
     Write-Status ""
 
     $step++
-    Write-Status "Step ${step}: Environment variables" -ForegroundColor Yellow
+    Write-Status "Step ${step}: Environment variables" -Color Yellow
     Write-Status ""
 
     Test-McpEnvVar
 }
 else {
     $step++
-    Write-Status "Step ${step}: Skipping MCP servers (not selected)" -ForegroundColor DarkGray
+    Write-Status "Step ${step}: Skipping MCP servers (not selected)" -Color DarkGray
 }
 
 Write-Status ""
-Write-Status "========================================" -ForegroundColor Cyan
-Write-Status "Setup complete!" -ForegroundColor Green
-Write-Status "========================================" -ForegroundColor Cyan
+Write-Status "========================================" -Color Cyan
+Write-Status "Setup complete!" -Color Green
+Write-Status "========================================" -Color Cyan
 Write-Status ""
 Write-Status "Verify in any project:"
 Write-Status "  cd ~\some-project"

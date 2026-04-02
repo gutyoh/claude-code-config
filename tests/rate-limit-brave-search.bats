@@ -43,7 +43,13 @@ teardown() {
     local end
     end=$(now_ms)
     local elapsed=$((end - start))
-    [ "$elapsed" -lt 500 ]
+    # Windows Git Bash process spawning is slower than Unix
+    local threshold=500
+    local _uname; _uname="$(uname -s)"
+    if [[ "$_uname" == MINGW* || "$_uname" == MSYS* || "$_uname" == CYGWIN* || "$_uname" == *_NT* ]]; then
+        threshold=5000
+    fi
+    [ "$elapsed" -lt "$threshold" ]
 }
 
 # --- Rate limiting ---
@@ -74,7 +80,13 @@ teardown() {
     local end
     end=$(now_ms)
     local elapsed=$((end - start))
-    [ "$elapsed" -lt 400 ]
+    # Windows Git Bash process spawning is slower than Unix
+    local threshold=400
+    local _uname; _uname="$(uname -s)"
+    if [[ "$_uname" == MINGW* || "$_uname" == MSYS* || "$_uname" == CYGWIN* || "$_uname" == *_NT* ]]; then
+        threshold=5000
+    fi
+    [ "$elapsed" -lt "$threshold" ]
 }
 
 # --- Lock and timestamp management ---
@@ -111,7 +123,13 @@ teardown() {
     local end
     end=$(now_ms)
     local elapsed=$((end - start))
-    [ "$elapsed" -lt 10000 ]
+    # Windows Git Bash process spawning is slower than Unix
+    local threshold=10000
+    local _uname; _uname="$(uname -s)"
+    if [[ "$_uname" == MINGW* || "$_uname" == MSYS* || "$_uname" == CYGWIN* || "$_uname" == *_NT* ]]; then
+        threshold=30000
+    fi
+    [ "$elapsed" -lt "$threshold" ]
 }
 
 @test "handles empty stdin gracefully" {

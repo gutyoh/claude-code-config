@@ -1,6 +1,6 @@
 # settings.ps1 -- IDE hook, file suggestion, statusline, and agent teams settings
 # Path: lib/setup-ps/settings.ps1
-# Dot-sourced by setup-v2.ps1 -- do not execute directly.
+# Dot-sourced by setup.ps1 -- do not execute directly.
 #
 # PowerShell port of lib/setup/settings.sh
 # Uses Update-* verb (approved, no ShouldProcess trigger).

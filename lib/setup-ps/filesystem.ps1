@@ -1,6 +1,6 @@
 # filesystem.ps1 -- Symlink creation and prerequisite checking
 # Path: lib/setup-ps/filesystem.ps1
-# Dot-sourced by setup-v2.ps1 -- do not execute directly.
+# Dot-sourced by setup.ps1 -- do not execute directly.
 #
 # PowerShell port of lib/setup/filesystem.sh
 

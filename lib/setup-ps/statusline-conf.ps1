@@ -1,6 +1,6 @@
 # statusline-conf.ps1 -- Statusline config file (statusline.conf) management
 # Path: lib/setup-ps/statusline-conf.ps1
-# Dot-sourced by setup-v2.ps1 -- do not execute directly.
+# Dot-sourced by setup.ps1 -- do not execute directly.
 #
 # PowerShell port of lib/setup/statusline-conf.sh
 
