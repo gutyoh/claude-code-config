@@ -4,18 +4,31 @@
 
 _preview_overlay_pct() {
     # Overlay " NN% " at center of a bar string
-    # Usage: _preview_overlay_pct BAR_VAR pct width
+    # Rebuilds from chars instead of bash substring ops (broken on Windows Git Bash)
+    # Usage: _preview_overlay_pct BAR_VAR pct width filled_char empty_char
     local -n _pbar="$1"
     local pct="$2"
     local width="$3"
+    local filled_char="$4"
+    local empty_char="$5"
     local pstr=" ${pct}% "
     local plen=${#pstr}
 
     if [[ ${width} -ge $((plen + 2)) ]]; then
         local start=$(((width - plen) / 2))
         local after=$((start + plen))
-        local new_bar="${_pbar:0:${start}}${pstr}${_pbar:${after}}"
-        _pbar="${new_bar:0:${width}}"
+        local filled=$((pct * width / 100))
+        local new_bar="" i
+
+        for ((i = 0; i < start; i++)); do
+            if [[ ${i} -lt ${filled} ]]; then new_bar+="${filled_char}"; else new_bar+="${empty_char}"; fi
+        done
+        new_bar+="${pstr}"
+        for ((i = after; i < width; i++)); do
+            if [[ ${i} -lt ${filled} ]]; then new_bar+="${filled_char}"; else new_bar+="${empty_char}"; fi
+        done
+
+        _pbar="${new_bar}"
     fi
 }
 
@@ -35,7 +48,7 @@ render_bar_preview() {
             local bar=""
             for ((i = 0; i < filled; i++)); do bar+="█"; done
             for ((i = 0; i < empty; i++)); do bar+="·"; done
-            [[ "${pct_inside}" == "true" ]] && _preview_overlay_pct bar ${pct} ${width}
+            [[ "${pct_inside}" == "true" ]] && _preview_overlay_pct bar ${pct} ${width} "█" "·"
             printf "[%s]" "${bar}"
             [[ "${pct_inside}" != "true" ]] && printf " %d%%" ${pct}
             ;;
@@ -51,7 +64,7 @@ render_bar_preview() {
             for ((i = 0; i < full_blocks; i++)); do bar+="█"; done
             [[ ${remainder} -gt 0 ]] && bar+="${partials[${remainder}]}"
             for ((i = 0; i < empty_blocks; i++)); do bar+="░"; done
-            [[ "${pct_inside}" == "true" ]] && _preview_overlay_pct bar ${pct} ${width}
+            [[ "${pct_inside}" == "true" ]] && _preview_overlay_pct bar ${pct} ${width} "█" "░"
             printf "%s" "${bar}"
             [[ "${pct_inside}" != "true" ]] && printf " %d%%" ${pct}
             ;;
@@ -76,7 +89,7 @@ render_bar_preview() {
                 fi
                 for ((i = 0; i < remaining; i++)); do bar+="░"; done
             fi
-            [[ "${pct_inside}" == "true" ]] && _preview_overlay_pct bar ${pct} ${width}
+            [[ "${pct_inside}" == "true" ]] && _preview_overlay_pct bar ${pct} ${width} "█" "░"
             printf "%s" "${bar}"
             [[ "${pct_inside}" != "true" ]] && printf " %d%%" ${pct}
             ;;
@@ -86,7 +99,7 @@ render_bar_preview() {
             local bar=""
             for ((i = 0; i < filled; i++)); do bar+="━"; done
             for ((i = 0; i < empty; i++)); do bar+="╌"; done
-            [[ "${pct_inside}" == "true" ]] && _preview_overlay_pct bar ${pct} ${width}
+            [[ "${pct_inside}" == "true" ]] && _preview_overlay_pct bar ${pct} ${width} "━" "╌"
             printf "%s" "${bar}"
             [[ "${pct_inside}" != "true" ]] && printf " %d%%" ${pct}
             ;;

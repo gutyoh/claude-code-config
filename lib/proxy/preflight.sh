@@ -12,6 +12,13 @@
 #   _timestamp_age_hours          Compute age of an ISO 8601 timestamp in hours
 #   check_codex_token_freshness   Warn if Codex auth token is older than threshold
 
+# --- Portable Python (PEP 394) ---
+if command -v python3 &>/dev/null && python3 --version &>/dev/null; then
+    _PY="python3"
+else
+    _PY="python"
+fi
+
 # --- Binary staleness (Go 1.18+ VCS metadata) ---
 
 # _binary_vcs_revision <binary_path>
@@ -102,7 +109,7 @@ _timestamp_age_hours() {
     local ts="$1"
     [[ -n "$ts" ]] || return 1
 
-    python3 -c "
+    "${_PY}" -c "
 from datetime import datetime, timezone
 try:
     dt = datetime.fromisoformat('$ts'.replace('Z', '+00:00'))

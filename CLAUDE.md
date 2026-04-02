@@ -173,16 +173,26 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   │   └── develop-branch-protection.json
 │   └── README.md
 ├── lib/
-│   └── setup/                   # Setup modules (sourced by setup.sh)
-│       ├── tui.sh               # tui_readkey, tui_select, tui_multiselect, tui_confirm
-│       ├── preview.sh           # render_bar_preview, show_statusline_preview, show_preview_box
-│       ├── filesystem.sh        # create_symlink, check_prerequisite
-│       ├── settings.sh          # configure_ide_hook, configure_file_suggestion, configure_statusline, configure_agent_teams
-│       ├── statusline-conf.sh   # configure_statusline_conf
-│       ├── mcp.sh               # configure_mcp_servers
-│       ├── cli.sh               # show_usage, parse_arguments
-│       └── menu.sh              # show_install_menu, customize_installation
+│   ├── setup/                   # Setup modules (sourced by setup.sh)
+│   │   ├── tui.sh               # tui_readkey, tui_select, tui_multiselect, tui_confirm
+│   │   ├── preview.sh           # render_bar_preview, show_statusline_preview, show_preview_box
+│   │   ├── filesystem.sh        # create_symlink, check_prerequisite
+│   │   ├── settings.sh          # configure_ide_hook, configure_file_suggestion, configure_statusline, configure_agent_teams
+│   │   ├── statusline-conf.sh   # configure_statusline_conf
+│   │   ├── mcp.sh               # configure_mcp_servers
+│   │   ├── cli.sh               # show_usage, parse_arguments
+│   │   └── menu.sh              # show_install_menu, customize_installation
+│   └── setup-ps/                # Setup modules (dot-sourced by setup.ps1)
+│       ├── output.ps1           # Write-Status (ANSI color, linter-clean)
+│       ├── tui.ps1              # Select-TuiItem, Select-TuiMultiple, Confirm-TuiYesNo
+│       ├── preview.ps1          # Get-BarPreview, Get-StatuslinePreview, Show-PreviewBox
+│       ├── filesystem.ps1       # Initialize-Symlink, Test-Prerequisite
+│       ├── settings.ps1         # Update-IdeHook, Update-FileSuggestion, Update-Statusline, Update-AgentTeam
+│       ├── statusline-conf.ps1  # Update-StatuslineConf
+│       ├── mcp.ps1              # Get-McpBackend, Install-McpServer, Test-McpEnvVar
+│       └── menu.ps1             # Show-InstallMenu, Invoke-CustomizeInstallation
 ├── CLAUDE.md                    # This file (shared context)
+├── PSScriptAnalyzerSettings.psd1  # PowerShell linter config (equiv of .shellcheckrc)
 └── README.md                    # User documentation
 ```
 

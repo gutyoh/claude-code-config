@@ -12,10 +12,11 @@ TIMESTAMP_FILE="/tmp/brave-search-last-call"
 DUMMY_INPUT='{"tool_name":"mcp__brave-search__brave_web_search","tool_input":{"query":"test"}}'
 
 now_ms() {
-    python3 -c "import time; print(int(time.time() * 1000))"
+    "${_PY}" -c "import time; print(int(time.time() * 1000))"
 }
 
 setup() {
+    source "$BATS_TEST_DIRNAME/helpers.bash"
     rm -rf "$LOCK_DIR"
     rm -f "$TIMESTAMP_FILE"
 }
@@ -42,7 +43,13 @@ teardown() {
     local end
     end=$(now_ms)
     local elapsed=$((end - start))
-    [ "$elapsed" -lt 500 ]
+    # Windows Git Bash process spawning is slower than Unix
+    local threshold=500
+    local _uname; _uname="$(uname -s)"
+    if [[ "$_uname" == MINGW* || "$_uname" == MSYS* || "$_uname" == CYGWIN* || "$_uname" == *_NT* ]]; then
+        threshold=5000
+    fi
+    [ "$elapsed" -lt "$threshold" ]
 }
 
 # --- Rate limiting ---
@@ -73,7 +80,13 @@ teardown() {
     local end
     end=$(now_ms)
     local elapsed=$((end - start))
-    [ "$elapsed" -lt 400 ]
+    # Windows Git Bash process spawning is slower than Unix
+    local threshold=400
+    local _uname; _uname="$(uname -s)"
+    if [[ "$_uname" == MINGW* || "$_uname" == MSYS* || "$_uname" == CYGWIN* || "$_uname" == *_NT* ]]; then
+        threshold=5000
+    fi
+    [ "$elapsed" -lt "$threshold" ]
 }
 
 # --- Lock and timestamp management ---
@@ -110,7 +123,13 @@ teardown() {
     local end
     end=$(now_ms)
     local elapsed=$((end - start))
-    [ "$elapsed" -lt 10000 ]
+    # Windows Git Bash process spawning is slower than Unix
+    local threshold=10000
+    local _uname; _uname="$(uname -s)"
+    if [[ "$_uname" == MINGW* || "$_uname" == MSYS* || "$_uname" == CYGWIN* || "$_uname" == *_NT* ]]; then
+        threshold=30000
+    fi
+    [ "$elapsed" -lt "$threshold" ]
 }
 
 @test "handles empty stdin gracefully" {

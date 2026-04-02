@@ -23,11 +23,19 @@ readonly RATE_LIMIT_MS="${BRAVE_API_RATE_LIMIT_MS:-1100}"
 readonly LOCK_DIR="/tmp/brave-search-rate-limit.lock"
 readonly TIMESTAMP_FILE="/tmp/brave-search-last-call"
 
+# --- Portable Python (PEP 394) ---
+# python3 on Unix/macOS, python on Windows Git Bash
+if command -v python3 &>/dev/null && python3 --version &>/dev/null; then
+    _PY="python3"
+else
+    _PY="python"
+fi
+
 # --- Helpers ---
 
-# Get current time in milliseconds (portable: macOS + Linux)
+# Get current time in milliseconds (portable: macOS + Linux + Windows)
 now_ms() {
-    python3 -c "import time; print(int(time.time() * 1000))"
+    "${_PY}" -c "import time; print(int(time.time() * 1000))"
 }
 
 # Acquire a portable lock using mkdir (atomic on POSIX)
@@ -76,7 +84,7 @@ main() {
         if [[ ${elapsed} -lt ${RATE_LIMIT_MS} ]]; then
             local sleep_ms=$((RATE_LIMIT_MS - elapsed))
             local sleep_sec
-            sleep_sec=$(python3 -c "print(${sleep_ms} / 1000)")
+            sleep_sec=$("${_PY}" -c "print(${sleep_ms} / 1000)")
             sleep "${sleep_sec}"
         fi
     fi

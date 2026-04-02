@@ -38,9 +38,9 @@ is_cache_fresh() {
 
     local mtime now age
     case "$(uname -s)" in
-        Darwin) mtime=$(stat -f "%m" "${CACHE_FILE}" 2>/dev/null) ;;
-        Linux)  mtime=$(stat -c "%Y" "${CACHE_FILE}" 2>/dev/null) ;;
-        *)      return 1 ;;
+        Darwin)                    mtime=$(stat -f "%m" "${CACHE_FILE}" 2>/dev/null) ;;
+        Linux | MSYS* | MINGW* | CYGWIN* | *_NT*) mtime=$(stat -c "%Y" "${CACHE_FILE}" 2>/dev/null) ;;
+        *)                         return 1 ;;
     esac
     [[ -z "${mtime}" ]] && return 1
 
@@ -64,6 +64,15 @@ _get_token() {
         Linux)
             if command -v secret-tool &>/dev/null; then
                 creds=$(secret-tool lookup service "${KEYCHAIN_SERVICE}" 2>/dev/null) || return 1
+            else
+                return 1
+            fi
+            ;;
+        MSYS* | MINGW* | CYGWIN*)
+            # Windows: read from credentials file (same as statusline api.sh)
+            local creds_file="${HOME}/.claude/.credentials.json"
+            if [[ -f "${creds_file}" ]]; then
+                creds=$(cat "${creds_file}" 2>/dev/null)
             else
                 return 1
             fi
@@ -93,11 +102,11 @@ _fetch_and_cache() {
 
     # Extract rate limit headers
     local util_5h reset_5h status overage_util overage_reset
-    util_5h=$(echo "${response}" | grep -i "anthropic-ratelimit-unified-5h-utilization:" | awk '{print $2}' | tr -d '[:space:]')
-    reset_5h=$(echo "${response}" | grep -i "anthropic-ratelimit-unified-5h-reset:" | awk '{print $2}' | tr -d '[:space:]')
-    status=$(echo "${response}" | grep -i "anthropic-ratelimit-unified-status:" | awk '{print $2}' | tr -d '[:space:]')
-    overage_util=$(echo "${response}" | grep -i "anthropic-ratelimit-unified-overage-utilization:" | awk '{print $2}' | tr -d '[:space:]')
-    overage_reset=$(echo "${response}" | grep -i "anthropic-ratelimit-unified-overage-reset:" | awk '{print $2}' | tr -d '[:space:]')
+    util_5h=$(echo "${response}" | grep -i "anthropic-ratelimit-unified-5h-utilization:" | awk '{print $2}' | tr -d '\r\n ')
+    reset_5h=$(echo "${response}" | grep -i "anthropic-ratelimit-unified-5h-reset:" | awk '{print $2}' | tr -d '\r\n ')
+    status=$(echo "${response}" | grep -i "anthropic-ratelimit-unified-status:" | awk '{print $2}' | tr -d '\r\n ')
+    overage_util=$(echo "${response}" | grep -i "anthropic-ratelimit-unified-overage-utilization:" | awk '{print $2}' | tr -d '\r\n ')
+    overage_reset=$(echo "${response}" | grep -i "anthropic-ratelimit-unified-overage-reset:" | awk '{print $2}' | tr -d '\r\n ')
 
     [[ -z "${util_5h}" ]] && return 1
 
@@ -121,7 +130,17 @@ EOF
     mv -f "${tmp_file}" "${CACHE_FILE}"
 }
 
-# Run in background so the hook returns instantly
-_fetch_and_cache &
-disown 2>/dev/null
+# Run in background so the hook returns instantly.
+# On Windows Git Bash (MSYS/MINGW), backgrounded processes get killed when the
+# hook exits — disown doesn't survive. Run in foreground instead (~1-2s block
+# every 60s when cache is stale; fast-exit path above handles the common case).
+case "$(uname -s)" in
+    MSYS* | MINGW* | CYGWIN*)
+        _fetch_and_cache
+        ;;
+    *)
+        _fetch_and_cache &
+        disown 2>/dev/null
+        ;;
+esac
 exit 0

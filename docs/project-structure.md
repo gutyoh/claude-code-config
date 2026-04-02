@@ -16,12 +16,13 @@ claude-code-config/
 ├── README.md                              # User documentation
 ├── Makefile                               # Quality targets: lint, format, test, check, ci
 ├── setup.sh                               # Interactive setup for macOS/Linux
-├── setup.ps1                              # Setup for Windows PowerShell
+├── setup.ps1                              # Interactive setup for Windows (modular, arrow-key TUI)
+├── PSScriptAnalyzerSettings.psd1          # PowerShell linter config (equiv of .shellcheckrc)
 ├── bin/                                   # Utility scripts (installed to PATH)
 ├── lib/                                   # Library modules (sourced by setup/proxy)
 ├── .claude/                               # Claude Code configuration
 ├── branch_protection_rules/               # GitHub Ruleset templates
-├── tests/                                 # BATS test suite
+├── tests/                                 # BATS + Pester test suites
 ├── docs/                                  # Documentation (this directory)
 └── .github/workflows/                     # GitHub Actions
 ```
@@ -52,6 +53,21 @@ Sourced by `setup.sh`. Each module exports functions used during interactive set
 | `mcp.sh` | `mcp_get`, `detect_mcp_backend`, `configure_mcp_servers` | MCP server registration |
 | `cli.sh` | `show_usage`, `parse_arguments` | CLI flag parsing (25+ flags) |
 | `menu.sh` | `show_install_menu`, `customize_installation`, `customize_statusline_with_preview` | Interactive menus |
+
+### lib/setup-ps/
+
+Dot-sourced by `setup.ps1`. PowerShell port of `lib/setup/` with arrow-key TUI, ANSI color output, and PSScriptAnalyzer-clean code.
+
+| File | Functions | Purpose |
+|------|-----------|---------|
+| `output.ps1` | `Write-Status` | ANSI color output (replaces Write-Host, linter-clean) |
+| `tui.ps1` | `Select-TuiItem`, `Select-TuiMultiple`, `Confirm-TuiYesNo` | Arrow-key TUI widgets |
+| `preview.ps1` | `Get-BarPreview`, `Get-StatuslinePreview`, `Show-PreviewBox` | Live statusline preview with Unicode box |
+| `filesystem.ps1` | `Initialize-Symlink`, `Test-Prerequisite` | Symlink creation with conflict handling |
+| `settings.ps1` | `Update-IdeHook`, `Update-FileSuggestion`, `Update-Statusline`, `Update-AgentTeam`, `Update-ProxyPath` | settings.json manipulation |
+| `statusline-conf.ps1` | `Update-StatuslineConf` | `~/.claude/statusline.conf` management |
+| `mcp.ps1` | `Get-McpBackend`, `Install-McpServer`, `Test-McpEnvVar` | MCP server registration + Doppler/envfile detection |
+| `menu.ps1` | `Show-InstallMenu`, `Invoke-CustomizeInstallation`, `Invoke-CustomizeStatuslineWithPreview` | Interactive menus with preview loop |
 
 ### lib/proxy/
 
@@ -149,7 +165,9 @@ Sourced by `setup.sh`. Each module exports functions used during interactive set
 | `gitflow/develop-branch-protection.json` | GitHub Ruleset for GitFlow develop branch |
 | `README.md` | Strategy comparison and import instructions |
 
-## tests/ — BATS test suite
+## tests/ — BATS + Pester test suites
+
+### BATS (bash scripts — macOS/Linux)
 
 | File | Tests |
 |------|-------|
@@ -165,6 +183,12 @@ Sourced by `setup.sh`. Each module exports functions used during interactive set
 | `refresh-usage-cache.bats` | Usage cache refresh hook |
 | `cc-status.bats` | Claude Code service status |
 
+### Pester 5 (PowerShell setup — Windows)
+
+| File | Tests |
+|------|-------|
+| `setup-ps.Tests.ps1` | Bar rendering, preview merging, statusline conf, settings JSON, MCP backend, prerequisites, module existence (44 tests) |
+
 ## .github/workflows/
 
 | File | Purpose |
@@ -177,12 +201,14 @@ Sourced by `setup.sh`. Each module exports functions used during interactive set
 | Entry Point | Command | Description |
 |-------------|---------|-------------|
 | Setup (macOS/Linux) | `./setup.sh` | Interactive TUI setup |
-| Setup (Windows) | `.\setup.ps1` | PowerShell setup |
+| Setup (Windows) | `.\setup.ps1` | Interactive TUI setup (modular, arrow-key menus) |
 | Proxy launcher | `claude-proxy [options]` | Route Claude through proxy |
 | Key rotation | `mcp-key-rotate <service> [action]` | Rotate MCP API keys |
-| Lint | `make lint` | ShellCheck all scripts |
+| Lint (bash) | `make lint` | ShellCheck all scripts |
+| Lint (PS) | `pwsh -c "Invoke-ScriptAnalyzer ..."` | PSScriptAnalyzer on PS scripts |
 | Format | `make format` | shfmt all scripts |
-| Test | `make test` | Run BATS test suite |
+| Test (bash) | `make test` | Run BATS test suite |
+| Test (PS) | `pwsh -c "Invoke-Pester tests/setup-ps.Tests.ps1"` | Run Pester test suite |
 | CI | `make ci` | Full CI: format-check + lint + test |
 
 ## See also
