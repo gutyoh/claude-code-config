@@ -68,6 +68,15 @@ _get_token() {
                 return 1
             fi
             ;;
+        MSYS* | MINGW* | CYGWIN*)
+            # Windows: read from credentials file (same as statusline api.sh)
+            local creds_file="${HOME}/.claude/.credentials.json"
+            if [[ -f "${creds_file}" ]]; then
+                creds=$(cat "${creds_file}" 2>/dev/null)
+            else
+                return 1
+            fi
+            ;;
         *) return 1 ;;
     esac
     [[ -z "${creds}" ]] && return 1
