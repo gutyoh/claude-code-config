@@ -17,7 +17,7 @@ BeforeAll {
     $script:OriginalConsoleOut = [Console]::Out
     [Console]::SetOut([System.IO.StreamWriter]::Null)
 
-    # Dot-source all modules (same as setup-v2.ps1 does)
+    # Dot-source all modules (same as setup.ps1 does)
     . (Join-Path $setupPsDir "output.ps1")
     . (Join-Path $setupPsDir "tui.ps1")
     . (Join-Path $setupPsDir "preview.ps1")
@@ -407,9 +407,9 @@ Describe "Module files exist" {
     }
 }
 
-Describe "setup-v2.ps1 exists" {
+Describe "setup.ps1 exists" {
     It "entry point script exists" {
-        Test-Path (Join-Path $repoRoot "setup-v2.ps1") | Should -BeTrue
+        Test-Path (Join-Path $repoRoot "setup.ps1") | Should -BeTrue
     }
 }
 

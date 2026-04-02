@@ -121,7 +121,17 @@ EOF
     mv -f "${tmp_file}" "${CACHE_FILE}"
 }
 
-# Run in background so the hook returns instantly
-_fetch_and_cache &
-disown 2>/dev/null
+# Run in background so the hook returns instantly.
+# On Windows Git Bash (MSYS/MINGW), backgrounded processes get killed when the
+# hook exits — disown doesn't survive. Run in foreground instead (~1-2s block
+# every 60s when cache is stale; fast-exit path above handles the common case).
+case "$(uname -s)" in
+    MSYS* | MINGW* | CYGWIN*)
+        _fetch_and_cache
+        ;;
+    *)
+        _fetch_and_cache &
+        disown 2>/dev/null
+        ;;
+esac
 exit 0
