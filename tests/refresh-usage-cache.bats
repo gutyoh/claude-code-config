@@ -10,6 +10,7 @@
 HOOK="$BATS_TEST_DIRNAME/../.claude/hooks/refresh-usage-cache.sh"
 
 setup() {
+    source "$BATS_TEST_DIRNAME/helpers.bash"
     export CACHE_DIR="$BATS_TEST_TMPDIR"
     export CACHE_FILE="$BATS_TEST_TMPDIR/claude-usage.json"
     # Short TTL for testing
@@ -22,13 +23,13 @@ teardown() {
 }
 
 now_ms() {
-    python3 -c "import time; print(int(time.time() * 1000))"
+    "${_PY}" -c "import time; print(int(time.time() * 1000))"
 }
 
 # Portable helper: set file mtime to a target epoch (works on macOS + Linux)
 set_file_mtime() {
     local file="$1" target_epoch="$2"
-    python3 -c "import os,sys; os.utime(sys.argv[1], (int(sys.argv[2]), int(sys.argv[2])))" "$file" "$target_epoch"
+    "${_PY}" -c "import os,sys; os.utime(sys.argv[1], (int(sys.argv[2]), int(sys.argv[2])))" "$file" "$target_epoch"
 }
 
 # --- Basic functionality ---
@@ -55,7 +56,14 @@ set_file_mtime() {
     echo '{}' | bash "$HOOK"
     end=$(now_ms)
     elapsed=$((end - start))
-    [[ "$elapsed" -lt 200 ]]
+    # Windows Git Bash spawns processes slower (~2-5s); Unix is <200ms
+    local threshold=200
+    local _uname
+    _uname="$(uname -s)"
+    if [[ "$_uname" == MINGW* || "$_uname" == MSYS* || "$_uname" == CYGWIN* || "$_uname" == *_NT* ]]; then
+        threshold=5000
+    fi
+    [[ "$elapsed" -lt "$threshold" ]]
 }
 
 @test "hook consumes stdin without error" {
@@ -78,8 +86,14 @@ set_file_mtime() {
     echo '{}' | bash "$HOOK"
     end=$(now_ms)
     elapsed=$((end - start))
-    # Should be very fast (no curl), well under 200ms
-    [[ "$elapsed" -lt 200 ]]
+    # Should be very fast (no curl); Windows Git Bash is slower to spawn
+    local threshold=200
+    local _uname
+    _uname="$(uname -s)"
+    if [[ "$_uname" == MINGW* || "$_uname" == MSYS* || "$_uname" == CYGWIN* || "$_uname" == *_NT* ]]; then
+        threshold=5000
+    fi
+    [[ "$elapsed" -lt "$threshold" ]]
 }
 
 @test "hook attempts fetch when cache age > USAGE_CACHE_TTL" {
@@ -138,7 +152,7 @@ set_file_mtime() {
     set_file_mtime "$CACHE_FILE" "$target_ts"
     # Verify the file is actually old enough
     local file_age
-    file_age=$(python3 -c "import os,sys,time; print(int(time.time() - os.stat(sys.argv[1]).st_mtime))" "$CACHE_FILE")
+    file_age=$("${_PY}" -c "import os,sys,time; print(int(time.time() - os.stat(sys.argv[1]).st_mtime))" "$CACHE_FILE")
     [[ "$file_age" -ge 60 ]]
     # Hook should exit 0 (stale cache triggers background fetch)
     run bash "$HOOK" <<< '{}'

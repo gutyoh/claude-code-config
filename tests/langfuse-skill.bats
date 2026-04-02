@@ -13,6 +13,10 @@ SKILL_DIR="$BATS_TEST_DIRNAME/../.claude/skills/langfuse"
 AGENT_FILE="$BATS_TEST_DIRNAME/../.claude/agents/langfuse-expert.md"
 CLAUDE_MD="$BATS_TEST_DIRNAME/../CLAUDE.md"
 
+setup() {
+    source "$BATS_TEST_DIRNAME/helpers.bash"
+}
+
 # ==========================================================================
 # UNIT TESTS: Skill file structure
 # ==========================================================================
@@ -360,7 +364,7 @@ langfuse_available() {
     # Get the first trace ID
     local trace_id
     trace_id=$(npx -y langfuse-cli api traces list --limit 1 --json 2>/dev/null \
-        | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['data'][0]['id'])" 2>/dev/null || echo "")
+        | "${_PY}" -c "import json,sys; d=json.load(sys.stdin); print(d['data'][0]['id'])" 2>/dev/null || echo "")
     if [ -z "$trace_id" ]; then
         skip "No traces found in Langfuse instance"
     fi

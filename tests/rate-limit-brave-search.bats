@@ -12,10 +12,11 @@ TIMESTAMP_FILE="/tmp/brave-search-last-call"
 DUMMY_INPUT='{"tool_name":"mcp__brave-search__brave_web_search","tool_input":{"query":"test"}}'
 
 now_ms() {
-    python3 -c "import time; print(int(time.time() * 1000))"
+    "${_PY}" -c "import time; print(int(time.time() * 1000))"
 }
 
 setup() {
+    source "$BATS_TEST_DIRNAME/helpers.bash"
     rm -rf "$LOCK_DIR"
     rm -f "$TIMESTAMP_FILE"
 }

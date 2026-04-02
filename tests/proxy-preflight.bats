@@ -10,6 +10,7 @@ PREFLIGHT="$BATS_TEST_DIRNAME/../lib/proxy/preflight.sh"
 STUB_DIR=""
 
 setup() {
+    source "$BATS_TEST_DIRNAME/helpers.bash"
     STUB_DIR="$(mktemp -d)"
     source "$PREFLIGHT"
 }
@@ -47,7 +48,7 @@ create_auth_json() {
 
 # Generates an ISO 8601 timestamp N hours ago.
 timestamp_hours_ago() {
-    python3 -c "
+    "${_PY}" -c "
 from datetime import datetime, timezone, timedelta
 dt = datetime.now(timezone.utc) - timedelta(hours=$1)
 print(dt.strftime('%Y-%m-%dT%H:%M:%S.%fZ'))

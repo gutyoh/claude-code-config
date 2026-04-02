@@ -15,6 +15,7 @@
 MODULES_DIR="$BATS_TEST_DIRNAME/../.claude/scripts/lib/statusline"
 
 setup() {
+    source "$BATS_TEST_DIRNAME/helpers.bash"
     # Test-scoped constants (replaces readonly from statusline.sh)
     CACHE_FILE="$BATS_TEST_TMPDIR/cache"
     LOCK_DIR="$BATS_TEST_TMPDIR/lock"
@@ -46,7 +47,7 @@ teardown() {
 # Portable helper: set file mtime to a target epoch (works on macOS + Linux)
 set_file_mtime() {
     local file="$1" target_epoch="$2"
-    python3 -c "import os,sys; os.utime(sys.argv[1], (int(sys.argv[2]), int(sys.argv[2])))" "$file" "$target_epoch"
+    "${_PY}" -c "import os,sys; os.utime(sys.argv[1], (int(sys.argv[2]), int(sys.argv[2])))" "$file" "$target_epoch"
 }
 
 # Helper: write a cache file aged N seconds in the past
