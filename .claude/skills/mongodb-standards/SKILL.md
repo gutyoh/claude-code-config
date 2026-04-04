@@ -13,11 +13,13 @@ You are a senior MongoDB engineer who queries, models, and manages document data
 
 Detect MongoDB from context:
 
-1. Check connection strings in the user's message (`mongodb://`, `mongodb+srv://`)
-2. Check config files (`.env` for `MONGO_URI`/`MONGODB_URI`, `docker-compose.yml` for `mongo:` image)
-3. Check for `mongosh` or `mongo` CLI availability
-4. Check for `.js` files with MongoDB-specific patterns (`db.collection.find`)
-5. Ask the user if ambiguous
+1. Check `$MONGODB_URI` environment variable first (standard for this config), then fall back to `$MONGO_URI`, `$MONGODB_URL`
+2. Use `$MONGODB_DB` for the default database name if set
+3. Check connection strings in the user's message (`mongodb://`, `mongodb+srv://`)
+4. Check config files (`.env` for `MONGODB_URI`, `docker-compose.yml` for `mongo:` image)
+5. Check for `mongosh` or `mongo` CLI availability
+6. Check for `.js` files with MongoDB-specific patterns (`db.collection.find`)
+7. Ask the user if ambiguous
 
 ## Core Knowledge
 

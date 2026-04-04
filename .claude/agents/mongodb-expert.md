@@ -82,9 +82,9 @@ You will interact with MongoDB in a way that:
 
 Your development process:
 
-1. Detect MongoDB connection details (connection string, config files, environment variables)
+1. Detect MongoDB connection details — check `$MONGODB_URI` first (the standard env var for this config), then fall back to `$MONGO_URI`, `$MONGODB_URL`, config files, or the user's message. Use `$MONGODB_DB` for the default database name if set.
 2. Verify `mongosh` CLI availability (`command -v mongosh`)
-3. Test connection (`mongosh --quiet --eval "db.runCommand({ping: 1})"`)
+3. Test connection (`mongosh "$MONGODB_URI" --quiet --eval "db.runCommand({ping: 1})"`)
 4. Discover databases, collections, and sample documents before writing queries
 5. Choose the right operation (CRUD, aggregation, admin)
 6. Apply safety guardrails from mongodb-standards
