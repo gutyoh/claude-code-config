@@ -13,18 +13,18 @@ readonly MCP_SERVER_KEYS=("brave-search" "tavily")
 mcp_get() {
     local key="$1" field="$2"
     case "${key}:${field}" in
-        brave-search:label)      echo "brave-search" ;;
-        brave-search:desc)       echo "Web, image, video, news, local search (1,000/mo free)" ;;
-        brave-search:env_var)    echo "BRAVE_API_KEY" ;;
-        brave-search:package)    echo "@brave/brave-search-mcp-server" ;;
+        brave-search:label) echo "brave-search" ;;
+        brave-search:desc) echo "Web, image, video, news, local search (1,000/mo free)" ;;
+        brave-search:env_var) echo "BRAVE_API_KEY" ;;
+        brave-search:package) echo "@brave/brave-search-mcp-server" ;;
         brave-search:signup_url) echo "https://api-dashboard.search.brave.com/" ;;
         brave-search:free_limit) echo "1,000 searches/month (\$5 free credits)" ;;
-        tavily:label)            echo "tavily" ;;
-        tavily:desc)             echo "AI-native search, extract, crawl, map, research (1,000/mo free)" ;;
-        tavily:env_var)          echo "TAVILY_API_KEY" ;;
-        tavily:package)          echo "tavily-mcp@0.2.17" ;;
-        tavily:signup_url)       echo "https://tavily.com" ;;
-        tavily:free_limit)       echo "1,000 credits/month" ;;
+        tavily:label) echo "tavily" ;;
+        tavily:desc) echo "AI-native search, extract, crawl, map, research (1,000/mo free)" ;;
+        tavily:env_var) echo "TAVILY_API_KEY" ;;
+        tavily:package) echo "tavily-mcp@0.2.17" ;;
+        tavily:signup_url) echo "https://tavily.com" ;;
+        tavily:free_limit) echo "1,000 credits/month" ;;
         *) return 1 ;;
     esac
 }
@@ -82,6 +82,31 @@ configure_mcp_servers() {
     fi
 }
 
+# Build the JSON config for a given MCP server and backend.
+# Usage: _build_mcp_json <key> <backend>
+# Outputs a JSON string suitable for `claude mcp add-json`.
+# Uses jq for safe JSON construction (handles special chars in values).
+_build_mcp_json() {
+    local key="$1"
+    local backend="$2"
+    local package
+    package="$(mcp_get "${key}" package)"
+
+    if [[ "${backend}" == "doppler" ]]; then
+        # Doppler wrapper: doppler run -p PROJECT -c CONFIG -- npx -y <package>
+        jq -n -c \
+            --arg project "${DOPPLER_PROJECT}" \
+            --arg config "${DOPPLER_CONFIG}" \
+            --arg package "${package}" \
+            '{type:"stdio",command:"doppler",args:["run","-p",$project,"-c",$config,"--","npx","-y",$package]}'
+    else
+        # Env file wrapper: mcp-env-inject npx -y <package>
+        jq -n -c \
+            --arg package "${package}" \
+            '{type:"stdio",command:"mcp-env-inject",args:["npx","-y",$package]}'
+    fi
+}
+
 _configure_single_mcp() {
     local key="$1"
     local backend="$2"
@@ -110,28 +135,14 @@ PYTHON_CHECK
 
     echo "  Adding ${key} MCP server (${backend} backend)..."
 
-    if [[ "${backend}" == "doppler" ]]; then
-        # Doppler wrapper: doppler run -- npx -y <package>
-        if claude mcp add "${key}" --scope user \
-            -- doppler run \
-            -p "${DOPPLER_PROJECT}" -c "${DOPPLER_CONFIG}" \
-            -- npx -y "${package}" 2>/dev/null; then
-            echo "  ✓ ${key} MCP added (doppler wrapper)"
-        else
-            echo "  ⚠ Failed to add ${key} MCP with doppler wrapper."
-            echo "    Manual: claude mcp add ${key} --scope user \\"
-            echo "      -- doppler run -p ${DOPPLER_PROJECT} -c ${DOPPLER_CONFIG} -- npx -y ${package}"
-        fi
+    local mcp_json
+    mcp_json="$(_build_mcp_json "${key}" "${backend}")"
+
+    if claude mcp add-json --scope user "${key}" "${mcp_json}" 2>/dev/null; then
+        echo "  ✓ ${key} MCP added (${backend} wrapper)"
     else
-        # Env file wrapper: mcp-env-inject npx -y <package>
-        if claude mcp add "${key}" --scope user \
-            -- mcp-env-inject npx -y "${package}" 2>/dev/null; then
-            echo "  ✓ ${key} MCP added (mcp-env-inject wrapper)"
-        else
-            echo "  ⚠ Failed to add ${key} MCP with env-inject wrapper."
-            echo "    Manual: claude mcp add ${key} --scope user \\"
-            echo "      -- mcp-env-inject npx -y ${package}"
-        fi
+        echo "  ⚠ Failed to add ${key} MCP server."
+        echo "    Manual: claude mcp add-json --scope user ${key} '${mcp_json}'"
     fi
 }
 
@@ -174,7 +185,7 @@ _create_mcp_keys_env() {
 
     if [[ ${keys_written} -gt 0 ]]; then
         mkdir -p "$(dirname "${MCP_KEYS_ENV_FILE}")"
-        printf '%s' "${env_content}" > "${MCP_KEYS_ENV_FILE}"
+        printf '%s' "${env_content}" >"${MCP_KEYS_ENV_FILE}"
         chmod 600 "${MCP_KEYS_ENV_FILE}"
         echo ""
         echo "  ✓ ${MCP_KEYS_ENV_FILE} created (${keys_written} keys, mode 600)"

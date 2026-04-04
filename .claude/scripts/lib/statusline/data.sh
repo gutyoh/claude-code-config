@@ -102,11 +102,11 @@ get_hook_usage_data() {
     local mtime
     case "$(uname -s)" in
         Darwin) mtime=$(stat -f "%m" "${cache_file}" 2>/dev/null) ;;
-        Linux)  mtime=$(stat -c "%Y" "${cache_file}" 2>/dev/null) ;;
+        Linux) mtime=$(stat -c "%Y" "${cache_file}" 2>/dev/null) ;;
         MSYS* | MINGW* | CYGWIN*) mtime=$(stat -c "%Y" "${cache_file}" 2>/dev/null) ;;
     esac
     if [[ -n "${mtime}" ]]; then
-        cache_age=$(( $(date +%s) - mtime ))
+        cache_age=$(($(date +%s) - mtime))
     fi
 
     DATA_SESSION_PCT="${pct}"

@@ -2,7 +2,7 @@
 name: sql-expert
 description: Expert SQL engineer for querying databases, writing cross-dialect SQL, inspecting schemas, and managing data across PostgreSQL, MySQL, SQL Server, SQLite, DuckDB, and Oracle. Use proactively when running SQL queries, exploring schemas, writing migrations, optimizing queries, or transpiling SQL between dialects.
 model: inherit
-color: green
+color: cyan
 skills:
   - sql-standards
 hooks:

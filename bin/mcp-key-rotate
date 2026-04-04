@@ -20,8 +20,10 @@
 set -euo pipefail
 
 # --- Config ---
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+readonly REPO_ROOT
 readonly DOTENV_FILE="${KEY_ROTATE_DOTENV:-${REPO_ROOT}/.env}"
 readonly DOPPLER_PROJECT="${KEY_ROTATE_DOPPLER_PROJECT:-claude-code-config}"
 readonly DOPPLER_CONFIG="${KEY_ROTATE_DOPPLER_CONFIG:-dev}"
@@ -75,10 +77,10 @@ dotenv_set() {
         local tmp="${DOTENV_FILE}.tmp.$$"
         awk -v name="${var}" -v value="${val}" \
             'BEGIN{FS=OFS="="} $1==name{$0=name"="value} {print}' \
-            "${DOTENV_FILE}" > "${tmp}" && mv "${tmp}" "${DOTENV_FILE}"
+            "${DOTENV_FILE}" >"${tmp}" && mv "${tmp}" "${DOTENV_FILE}"
     else
         # Append new entry
-        echo "${var}=${val}" >> "${DOTENV_FILE}"
+        echo "${var}=${val}" >>"${DOTENV_FILE}"
     fi
 }
 
@@ -132,16 +134,22 @@ fi
 secret_get() {
     case "${BACKEND}" in
         doppler) doppler_get "$1" ;;
-        dotenv)  dotenv_get "$1" ;;
-        *) echo "Unknown backend: ${BACKEND}" >&2; exit 1 ;;
+        dotenv) dotenv_get "$1" ;;
+        *)
+            echo "Unknown backend: ${BACKEND}" >&2
+            exit 1
+            ;;
     esac
 }
 
 secret_set() {
     case "${BACKEND}" in
         doppler) doppler_set "$1" "$2" ;;
-        dotenv)  dotenv_set "$1" "$2" ;;
-        *) echo "Unknown backend: ${BACKEND}" >&2; exit 1 ;;
+        dotenv) dotenv_set "$1" "$2" ;;
+        *)
+            echo "Unknown backend: ${BACKEND}" >&2
+            exit 1
+            ;;
     esac
 }
 
@@ -172,9 +180,9 @@ sync_mcp_keys_env() {
         local tmp="${MCP_KEYS_ENV_FILE}.tmp.$$"
         awk -v name="${KEY_VAR}" -v value="${current_key}" \
             'BEGIN{FS=OFS="="} $1==name{$0=name"="value} {print}' \
-            "${MCP_KEYS_ENV_FILE}" > "${tmp}" && mv "${tmp}" "${MCP_KEYS_ENV_FILE}"
+            "${MCP_KEYS_ENV_FILE}" >"${tmp}" && mv "${tmp}" "${MCP_KEYS_ENV_FILE}"
     else
-        echo "${KEY_VAR}=${current_key}" >> "${MCP_KEYS_ENV_FILE}"
+        echo "${KEY_VAR}=${current_key}" >>"${MCP_KEYS_ENV_FILE}"
     fi
     chmod 600 "${MCP_KEYS_ENV_FILE}"
     echo "Synced ${KEY_VAR} to ${MCP_KEYS_ENV_FILE}"
@@ -196,9 +204,9 @@ cmd_sync() {
         local tmp="${MCP_KEYS_ENV_FILE}.tmp.$$"
         awk -v name="${KEY_VAR}" -v value="${current_key}" \
             'BEGIN{FS=OFS="="} $1==name{$0=name"="value} {print}' \
-            "${MCP_KEYS_ENV_FILE}" > "${tmp}" && mv "${tmp}" "${MCP_KEYS_ENV_FILE}"
+            "${MCP_KEYS_ENV_FILE}" >"${tmp}" && mv "${tmp}" "${MCP_KEYS_ENV_FILE}"
     else
-        echo "${KEY_VAR}=${current_key}" >> "${MCP_KEYS_ENV_FILE}"
+        echo "${KEY_VAR}=${current_key}" >>"${MCP_KEYS_ENV_FILE}"
     fi
     chmod 600 "${MCP_KEYS_ENV_FILE}"
     echo "Synced ${SERVICE} key to ${MCP_KEYS_ENV_FILE} ($(mask_key "${current_key}"))"
@@ -235,7 +243,7 @@ quota_cache_read() {
         if [[ "${cached_epoch}" =~ ^[0-9]+$ ]]; then
             local now
             now="$(date +%s)"
-            local age=$(( now - cached_epoch ))
+            local age=$((now - cached_epoch))
             if [[ ${age} -lt ${QUOTA_CACHE_TTL_SEC} ]]; then
                 echo "${cached_data}"
                 return 0
@@ -249,7 +257,7 @@ quota_cache_write() {
     local cache_file="$1" data="$2"
     mkdir -p "${QUOTA_CACHE_DIR}"
     # Store epoch on line 1, data on line 2 (no stat needed for age check)
-    printf '%s\n%s\n' "$(date +%s)" "${data}" > "${cache_file}"
+    printf '%s\n%s\n' "$(date +%s)" "${data}" >"${cache_file}"
 }
 
 # --- Quota providers ---
@@ -344,11 +352,11 @@ quota_brave() {
     month_limit="$(echo "${limit_header}" | awk -F', *' '{print $2}')"
     month_reset="$(echo "${reset_header}" | awk -F', *' '{print $2}')"
 
-    local used=$(( month_limit - month_remaining ))
+    local used=$((month_limit - month_remaining))
     local reset_info=""
     if [[ -n "${month_reset}" && "${month_reset}" -gt 0 ]] 2>/dev/null; then
-        local days=$(( month_reset / 86400 ))
-        local hours=$(( (month_reset % 86400) / 3600 ))
+        local days=$((month_reset / 86400))
+        local hours=$(((month_reset % 86400) / 3600))
         reset_info="resets in ${days}d ${hours}h"
     fi
 
@@ -368,7 +376,7 @@ cmd_status() {
         exit 1
     fi
 
-    IFS=',' read -ra keys <<< "${pool}"
+    IFS=',' read -ra keys <<<"${pool}"
 
     echo "Service: ${SERVICE} (backend: ${BACKEND})"
     echo "Pool: ${#keys[@]} keys"
@@ -394,7 +402,7 @@ cmd_rotate() {
         exit 1
     fi
 
-    IFS=',' read -ra keys <<< "${pool}"
+    IFS=',' read -ra keys <<<"${pool}"
 
     if [[ ${#keys[@]} -lt 2 ]]; then
         echo "Only 1 key in ${SERVICE} pool — nothing to rotate to."
@@ -412,7 +420,7 @@ cmd_rotate() {
     done
 
     # Pick next key (wraps around)
-    local next_idx=$(( (current_idx + 1) % ${#keys[@]} ))
+    local next_idx=$(((current_idx + 1) % ${#keys[@]}))
     local next_key="${keys[$next_idx]}"
 
     secret_set "${KEY_VAR}" "${next_key}"
@@ -439,7 +447,7 @@ cmd_quota() {
     service_lower="$(echo "${SERVICE_UPPER}" | tr '[:upper:]' '[:lower:]')"
     local provider=""
     case "${service_lower}" in
-        brave)  provider="quota_brave" ;;
+        brave) provider="quota_brave" ;;
         tavily) provider="quota_tavily" ;;
     esac
     if [[ -z "${provider}" ]]; then
@@ -448,7 +456,7 @@ cmd_quota() {
         exit 1
     fi
 
-    IFS=',' read -ra keys <<< "${pool}"
+    IFS=',' read -ra keys <<<"${pool}"
 
     echo "Service: ${SERVICE} (backend: ${BACKEND})"
     echo "Pool: ${#keys[@]} keys"
@@ -465,14 +473,14 @@ cmd_quota() {
         quota_data="$("${provider}" "${key}")"
 
         local field1 field2 field3
-        IFS=',' read -r field1 field2 field3 <<< "${quota_data}"
+        IFS=',' read -r field1 field2 field3 <<<"${quota_data}"
 
         local quota_str
         if [[ "${field1}" == "error" ]]; then
             quota_str="(${field2})"
         else
             local used="${field1}" limit="${field2}" reset="${field3}"
-            local remaining=$(( limit - used ))
+            local remaining=$((limit - used))
             quota_str="${used}/${limit} used (${remaining} remaining)"
             if [[ -n "${reset}" ]]; then
                 quota_str="${quota_str}, ${reset}"
@@ -498,7 +506,7 @@ cmd_add() {
     fi
 
     # Check for duplicates
-    IFS=',' read -ra keys <<< "${pool}"
+    IFS=',' read -ra keys <<<"${pool}"
     for k in "${keys[@]}"; do
         if [[ "${k}" == "${new_key}" ]]; then
             echo "Key $(mask_key "${new_key}") already in ${SERVICE} pool."
@@ -512,13 +520,13 @@ cmd_add() {
 
 # --- Main ---
 case "${1:-}" in
-    --status|-s)
+    --status | -s)
         cmd_status
         ;;
-    --quota|-q)
+    --quota | -q)
         cmd_quota
         ;;
-    --add|-a)
+    --add | -a)
         if [[ -z "${2:-}" ]]; then
             echo "Usage: mcp-key-rotate ${SERVICE} --add KEY"
             exit 1
@@ -528,7 +536,7 @@ case "${1:-}" in
     --sync)
         cmd_sync
         ;;
-    --help|-h)
+    --help | -h)
         echo "Usage: mcp-key-rotate <service> [--status|--quota|--add KEY|--sync]"
         echo ""
         echo "  (no args)     Rotate to next key in pool"

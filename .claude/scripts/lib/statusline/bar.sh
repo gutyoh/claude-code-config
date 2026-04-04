@@ -204,8 +204,8 @@ _overlay_pct_inside() {
     local -n _bar="$1"
     local pct="$2"
     local width="$3"
-    local filled_char="$4"   # e.g. █ ━
-    local empty_char="$5"    # e.g. · ░ ╌
+    local filled_char="$4" # e.g. █ ━
+    local empty_char="$5"  # e.g. · ░ ╌
 
     local pct_str=" ${pct}% "
     local pct_len=${#pct_str}

@@ -2,7 +2,7 @@
 name: langfuse-expert
 description: Expert Langfuse engineer for querying traces, debugging LLM applications, managing prompts, analyzing sessions, and instrumenting applications with observability. Use proactively when interacting with Langfuse, querying trace data, debugging LLM pipelines, or managing prompt versions.
 model: inherit
-color: cyan
+color: purple
 skills:
   - langfuse
 ---

@@ -8,20 +8,20 @@
 # Uses a simple stale-while-error cache (no lock needed — public, unauthenticated endpoint).
 
 readonly STATUS_CACHE_FILE="${_TMP_DIR}/status-cache"
-readonly STATUS_CACHE_TTL=300          # Fresh for 5 minutes
-readonly STATUS_CACHE_MAX_STALE=900    # Serve stale up to 15 minutes
-readonly STATUS_CURL_TIMEOUT=3         # Tight timeout to avoid blocking render
+readonly STATUS_CACHE_TTL=300       # Fresh for 5 minutes
+readonly STATUS_CACHE_MAX_STALE=900 # Serve stale up to 15 minutes
+readonly STATUS_CURL_TIMEOUT=3      # Tight timeout to avoid blocking render
 readonly STATUS_API_URL="https://status.claude.com/api/v2/summary.json"
 
 # Map Atlassian Statuspage component status to display label
 _map_status_label() {
     case "$1" in
-        operational)          echo "on" ;;
+        operational) echo "on" ;;
         degraded_performance) echo "degraded" ;;
-        partial_outage)       echo "partial" ;;
-        major_outage)         echo "outage" ;;
-        under_maintenance)    echo "maintenance" ;;
-        *)                    echo "" ;;
+        partial_outage) echo "partial" ;;
+        major_outage) echo "outage" ;;
+        under_maintenance) echo "maintenance" ;;
+        *) echo "" ;;
     esac
 }
 
@@ -32,7 +32,7 @@ _status_cache_age() {
     now=$(date "+%s")
     case "${PLATFORM}" in
         macos) file_mod=$(stat -f "%m" "${STATUS_CACHE_FILE}" 2>/dev/null) ;;
-        *)     file_mod=$(stat -c "%Y" "${STATUS_CACHE_FILE}" 2>/dev/null) ;;
+        *) file_mod=$(stat -c "%Y" "${STATUS_CACHE_FILE}" 2>/dev/null) ;;
     esac
     [[ -z "${file_mod}" ]] && echo "999999" && return
     echo $((now - file_mod))
@@ -51,7 +51,7 @@ _fetch_and_cache_status() {
     [[ -z "${label}" ]] && return 1
 
     local tmp="${STATUS_CACHE_FILE}.tmp.$$"
-    echo "${label}" > "${tmp}"
+    echo "${label}" >"${tmp}"
     mv -f "${tmp}" "${STATUS_CACHE_FILE}"
     echo "${label}"
 }

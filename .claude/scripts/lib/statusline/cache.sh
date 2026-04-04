@@ -99,7 +99,7 @@ increase_backoff() {
         if [[ ${range} -le 0 ]]; then
             next_delay=${BACKOFF_INITIAL_S}
         else
-            next_delay=$(( BACKOFF_INITIAL_S + (RANDOM % (range + 1)) ))
+            next_delay=$((BACKOFF_INITIAL_S + (RANDOM % (range + 1))))
         fi
     fi
     [[ ${next_delay} -gt ${BACKOFF_MAX_S} ]] && next_delay=${BACKOFF_MAX_S}

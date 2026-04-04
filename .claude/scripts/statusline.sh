@@ -67,10 +67,10 @@ readonly _TMP_DIR="${TMPDIR:-${TEMP:-/tmp}}/claude-statusline-${UID:-$(id -u 2>/
 readonly CACHE_FILE="${_TMP_DIR}/api-cache"
 readonly CACHE_TTL=30
 readonly LOCK_DIR="${_TMP_DIR}/api-lock"
-readonly LOCK_MAX_AGE_S=30              # Force-remove stale locks from killed processes
+readonly LOCK_MAX_AGE_S=30 # Force-remove stale locks from killed processes
 readonly BACKOFF_FILE="${_TMP_DIR}/api-backoff"
-readonly BACKOFF_INITIAL_S=30           # First backoff after 429/failure
-readonly BACKOFF_MAX_S=300              # Cap at 5 minutes
+readonly BACKOFF_INITIAL_S=30 # First backoff after 429/failure
+readonly BACKOFF_MAX_S=300    # Cap at 5 minutes
 readonly CONF_FILE="${HOME}/.claude/statusline.conf"
 
 # --- Config Globals (overridden by load_config) ---
@@ -79,14 +79,14 @@ CONF_THEME="dark"
 CONF_COMPONENTS="model,usage,weekly,reset,tokens_in,tokens_out,tokens_cache,cost,burn_rate,email"
 CONF_BAR_STYLE="text"
 CONF_BAR_PCT_INSIDE="false"
-CONF_COMPACT="true"            # Compact mode: no verbose prefixes, tokens merged with /, burn_rate hidden
-CONF_COLOR_SCOPE="percentage"  # "percentage" = color usage component only, "full" = color entire line
-CONF_ICON=""                   # Prefix icon: e.g. "✻", "A\\", "❋", or "" for none
-CONF_ICON_STYLE="plain"        # plain|bold|bracketed|rounded|reverse|bold-color|angle|double-bracket
-CONF_WEEKLY_SHOW_RESET="false" # Show weekly reset countdown inline with weekly %
-CONF_CC_STATUS_POSITION="inline"        # inline | newline
-CONF_CC_STATUS_VISIBILITY="always"      # always | problem_only
-CONF_CC_STATUS_COLOR="full"             # none | full | status_only
+CONF_COMPACT="true"                # Compact mode: no verbose prefixes, tokens merged with /, burn_rate hidden
+CONF_COLOR_SCOPE="percentage"      # "percentage" = color usage component only, "full" = color entire line
+CONF_ICON=""                       # Prefix icon: e.g. "✻", "A\\", "❋", or "" for none
+CONF_ICON_STYLE="plain"            # plain|bold|bracketed|rounded|reverse|bold-color|angle|double-bracket
+CONF_WEEKLY_SHOW_RESET="false"     # Show weekly reset countdown inline with weekly %
+CONF_CC_STATUS_POSITION="inline"   # inline | newline
+CONF_CC_STATUS_VISIBILITY="always" # always | problem_only
+CONF_CC_STATUS_COLOR="full"        # none | full | status_only
 
 # --- Color Globals ---
 # Four tiers: ok (<50%), caution (>=50%), warn (>=75%), crit (>=90%)
@@ -238,14 +238,14 @@ main() {
     fi
 
     # Newline mode: emit cc_status as a second line
-    if [[ ",${CONF_COMPONENTS}," == *",cc_status,"* \
-        && "${CONF_CC_STATUS_POSITION}" == "newline" \
-        && -n "${DATA_CC_STATUS}" ]]; then
+    if [[ ",${CONF_COMPONENTS}," == *",cc_status,"* &&
+        "${CONF_CC_STATUS_POSITION}" == "newline" &&
+        -n "${DATA_CC_STATUS}" ]]; then
 
         # problem_only: skip when operational
-        if [[ "${CONF_CC_STATUS_VISIBILITY}" == "problem_only" \
-            && "${DATA_CC_STATUS}" == "on" ]]; then
-            :  # no second line
+        if [[ "${CONF_CC_STATUS_VISIBILITY}" == "problem_only" &&
+            "${DATA_CC_STATUS}" == "on" ]]; then
+            : # no second line
         else
             local cc_label="${DATA_CC_STATUS}"
             local cc_color=""

@@ -48,14 +48,14 @@ STATUSLINE_THEME="dark"                       # dark | light | colorblind | none
 STATUSLINE_COMPONENTS="model,usage,weekly,reset,tokens_in,tokens_out,tokens_cache,cost,burn_rate,email"
 STATUSLINE_BAR_STYLE="text"
 STATUSLINE_BAR_PCT_INSIDE="false"
-STATUSLINE_COMPACT="true"            # Compact: no labels, merged tokens, no burn_rate in wide mode
-STATUSLINE_COLOR_SCOPE="percentage"  # "percentage" = color usage only, "full" = color entire line
-STATUSLINE_ICON=""                   # Prefix icon: "✻", "A\", "❋", etc. or "" for none
-STATUSLINE_ICON_STYLE="plain"        # plain|bold|bracketed|rounded|reverse|bold-color|angle|double-bracket
-STATUSLINE_WEEKLY_SHOW_RESET="false" # Show weekly reset countdown inline
-STATUSLINE_CC_STATUS_POSITION="inline"        # inline | newline
-STATUSLINE_CC_STATUS_VISIBILITY="always"      # always | problem_only
-STATUSLINE_CC_STATUS_COLOR="full"             # none | full | status_only
+STATUSLINE_COMPACT="true"                # Compact: no labels, merged tokens, no burn_rate in wide mode
+STATUSLINE_COLOR_SCOPE="percentage"      # "percentage" = color usage only, "full" = color entire line
+STATUSLINE_ICON=""                       # Prefix icon: "✻", "A\", "❋", etc. or "" for none
+STATUSLINE_ICON_STYLE="plain"            # plain|bold|bracketed|rounded|reverse|bold-color|angle|double-bracket
+STATUSLINE_WEEKLY_SHOW_RESET="false"     # Show weekly reset countdown inline
+STATUSLINE_CC_STATUS_POSITION="inline"   # inline | newline
+STATUSLINE_CC_STATUS_VISIBILITY="always" # always | problem_only
+STATUSLINE_CC_STATUS_COLOR="full"        # none | full | status_only
 INSTALL_AGENT_TEAMS="true"
 INSTALL_PROXY_PATH="true"
 ACCEPT_DEFAULTS="false"

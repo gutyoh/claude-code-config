@@ -32,9 +32,9 @@ get_utilization_color() {
 #   label: on, degraded, partial, outage, maintenance
 get_cc_status_color() {
     case "$1" in
-        degraded)    printf "%s" "${COLOR_CAUTION}" ;;
-        partial)     printf "%s" "${COLOR_WARN}" ;;
-        outage)      printf "%s" "${COLOR_CRIT}" ;;
+        degraded) printf "%s" "${COLOR_CAUTION}" ;;
+        partial) printf "%s" "${COLOR_WARN}" ;;
+        outage) printf "%s" "${COLOR_CRIT}" ;;
         maintenance) printf "%s" "${COLOR_CAUTION}" ;;
     esac
 }
