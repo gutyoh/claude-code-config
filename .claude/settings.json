@@ -11,7 +11,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./.claude/hooks/enforce-git-pull-rebase.sh"
+            "command": "~/.claude/hooks/enforce-git-pull-rebase.sh"
           }
         ]
       },
@@ -20,7 +20,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./.claude/hooks/open-file-in-ide.sh"
+            "command": "~/.claude/hooks/open-file-in-ide.sh"
           }
         ]
       },
@@ -38,7 +38,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./.claude/hooks/rate-limit-brave-search.sh"
+            "command": "~/.claude/hooks/rate-limit-brave-search.sh"
           }
         ]
       }
