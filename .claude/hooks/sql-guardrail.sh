@@ -25,7 +25,15 @@
 set -euo pipefail
 
 INPUT=$(cat)
-COMMAND=$(echo "${INPUT}" | jq -r '.tool_input.command // empty')
+
+# Fail open on empty stdin
+[[ -z "${INPUT}" ]] && exit 0
+
+# Fail open if jq is unavailable
+command -v jq >/dev/null 2>&1 || exit 0
+
+# Fail open on invalid JSON / jq parse errors
+COMMAND="$(printf '%s' "${INPUT}" | jq -r '.tool_input.command // empty' 2>/dev/null || true)"
 
 # Skip if no command
 [[ -z "${COMMAND}" ]] && exit 0

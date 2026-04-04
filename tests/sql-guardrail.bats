@@ -18,6 +18,7 @@ make_input() {
 
 setup() {
     source "$BATS_TEST_DIRNAME/helpers.bash"
+    command -v jq >/dev/null 2>&1 || skip "jq is required for sql-guardrail tests"
 }
 
 # ============================================================================

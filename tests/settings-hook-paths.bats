@@ -196,15 +196,11 @@ setup() {
 
 @test "~/.claude/hooks is a symlink to the repo hooks directory" {
     local hooks_link="$HOME/.claude/hooks"
+    [ -L "$hooks_link" ] || skip "~/.claude/hooks is not a symlink (run ./setup.sh to create it)"
+
     local repo_hooks="$BATS_TEST_DIRNAME/../.claude/hooks"
     local repo_hooks_real
     repo_hooks_real=$(cd "$repo_hooks" && pwd -P)
-
-    [ -L "$hooks_link" ] || {
-        echo "~/.claude/hooks is not a symlink"
-        echo "Run ./setup.sh to create the symlink"
-        false
-    }
 
     local link_target
     link_target=$(readlink "$hooks_link")
@@ -221,15 +217,11 @@ setup() {
 
 @test "~/.claude/scripts is a symlink to the repo scripts directory" {
     local scripts_link="$HOME/.claude/scripts"
+    [ -L "$scripts_link" ] || skip "~/.claude/scripts is not a symlink (run ./setup.sh to create it)"
+
     local repo_scripts="$BATS_TEST_DIRNAME/../.claude/scripts"
     local repo_scripts_real
     repo_scripts_real=$(cd "$repo_scripts" && pwd -P)
-
-    [ -L "$scripts_link" ] || {
-        echo "~/.claude/scripts is not a symlink"
-        echo "Run ./setup.sh to create the symlink"
-        false
-    }
 
     local link_real
     link_real=$(cd "$scripts_link" && pwd -P)

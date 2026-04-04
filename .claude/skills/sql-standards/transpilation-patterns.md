@@ -29,7 +29,7 @@ python3 -c "import sqlglot; print(sqlglot.transpile('SELECT a,b,c FROM t WHERE x
 
 ## Supported Dialects
 
-### Official (15)
+### Official (18)
 
 | Dialect | sqlglot name |
 |---------|-------------|
