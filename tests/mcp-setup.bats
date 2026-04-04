@@ -395,10 +395,19 @@ MOCK
 }
 
 @test "integration: configure_mcp_servers warns when claude CLI not found" {
-    # Run in a subshell with PATH stripped to only system dirs (no claude).
-    # /usr/bin:/bin provide bash, rm, jq, python3, etc.
+    # Build a hermetic PATH with only the tools mcp.sh needs (bash, jq, python3)
+    # but intentionally excluding claude — avoids false pass if claude is in
+    # /usr/local/bin or /opt/homebrew/bin on some machines.
+    local hermetic="${TEST_TMPDIR}/hermetic-bin"
+    mkdir -p "${hermetic}"
+    local cmd
+    for cmd in bash jq python3; do
+        local real
+        real="$(command -v "${cmd}" 2>/dev/null)" && ln -s "${real}" "${hermetic}/${cmd}"
+    done
+
     run bash -c '
-        export PATH="/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"
+        export PATH="'"${hermetic}"'"
         source "'"${MCP_SH}"'"
         INSTALL_MCP_SERVERS=("brave-search")
         configure_mcp_servers
