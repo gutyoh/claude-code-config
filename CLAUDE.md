@@ -22,7 +22,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   │   ├── enforce-git-pull-rebase.sh
 │   │   ├── open-file-in-ide.sh
 │   │   ├── rate-limit-brave-search.sh  # Rate limits Brave Search API calls
-│   │   └── validate-readonly-sql.sh  # Blocks destructive SQL in databricks commands
+│   │   └── sql-guardrail.sh      # Unified DB guardrail (STRICT/STANDARD/MONGO modes)
 │   ├── skills/                  # Reusable skills
 │   │   ├── databricks-standards/
 │   │   │   ├── SKILL.md
@@ -88,6 +88,30 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   │   │       ├── cli.md
 │   │   │       ├── instrumentation.md
 │   │   │       └── prompt-migration.md
+│   │   ├── mongodb-standards/
+│   │   │   ├── SKILL.md
+│   │   │   ├── core.md
+│   │   │   ├── crud-patterns.md
+│   │   │   ├── aggregation-patterns.md
+│   │   │   ├── schema-patterns.md
+│   │   │   ├── index-patterns.md
+│   │   │   ├── admin-patterns.md
+│   │   │   ├── tools-patterns.md
+│   │   │   └── evals/
+│   │   │       └── evals.json
+│   │   ├── sql-standards/
+│   │   │   ├── SKILL.md
+│   │   │   ├── core.md
+│   │   │   ├── postgresql-patterns.md
+│   │   │   ├── mysql-patterns.md
+│   │   │   ├── mssql-patterns.md
+│   │   │   ├── sqlite-patterns.md
+│   │   │   ├── duckdb-patterns.md
+│   │   │   ├── oracle-patterns.md
+│   │   │   ├── transpilation-patterns.md
+│   │   │   ├── formatting-patterns.md
+│   │   │   └── evals/
+│   │   │       └── evals.json
 │   │   ├── pr-operations/
 │   │   │   └── SKILL.md
 │   │   ├── pr-writing/
@@ -146,10 +170,12 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   │   ├── internet-researcher.md
 │   │   ├── kedro-expert.md
 │   │   ├── langfuse-expert.md
+│   │   ├── mongodb-expert.md
 │   │   ├── pr-manager.md
 │   │   ├── linus-torvalds.md
 │   │   ├── python-expert.md
 │   │   ├── sonarqube-fixer.md
+│   │   ├── sql-expert.md
 │   │   └── ui-designer.md
 │   ├── scripts/                 # Utility scripts
 │   │   ├── file-suggestion.sh
@@ -212,6 +238,8 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 - **internet-research**: Expert internet research using Tavily and Brave Search (task-based routing)
 - **kedro-standards**: Kedro engineering standards for building clean, modular, production-ready data pipelines (Kedro 1.0+)
 - **langfuse**: Langfuse observability platform standards for querying traces, managing prompts, debugging LLM applications, and accessing data via `langfuse-cli` (26 API resources, self-hosted or cloud)
+- **mongodb-standards**: MongoDB engineering standards for querying collections, building aggregation pipelines, designing document schemas, managing indexes, and administering deployments via `mongosh` (CRUD, aggregation, schema design, index optimization, admin, tools)
+- **sql-standards**: SQL engineering standards for writing correct, safe, cross-dialect SQL across PostgreSQL, MySQL, SQL Server, SQLite, DuckDB, and Oracle via native CLIs (transpilation with sqlglot, formatting with SQLFluff)
 - **pr-operations**: Cross-platform PR/MR operations for GitHub, GitLab, and Azure DevOps (platform detection, CLI commands, workflow detection)
 - **pr-writing**: Expert PR and commit message writing following Conventional Commits
 - **python-standards**: Python engineering standards for clean, type-safe, production-ready code (Python 3.12+)
@@ -236,10 +264,12 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 - **kedro-expert**: Expert Kedro engineer for building data pipelines, managing catalogs, configuring environments, and deploying projects
 - **langfuse-expert**: Expert Langfuse engineer for querying traces, debugging LLM applications, managing prompts, analyzing sessions, and instrumenting observability
 - **linus-torvalds**: Stern software engineering mentor channeling Linus Torvalds for brutally honest technical advice, career guidance, and no-bullshit industry perspectives
+- **mongodb-expert**: Expert MongoDB engineer for querying collections, building aggregation pipelines, designing schemas, managing indexes, and administering deployments via `mongosh`. Auto-detects `$MONGODB_URI` and `$MONGODB_DB` env vars.
 - **pr-manager**: Expert PR/MR manager for full lifecycle (list, view, create, review, edit, close, reopen) with automatic workflow detection (GitFlow vs Trunk-based)
 - **python-expert**: Expert Python engineer for clean, type-safe, production-ready code
 - **rust-expert**: Expert Rust engineer for safe, performant, idiomatic code with modern 2024 edition patterns
 - **sonarqube-fixer**: Expert SonarQube issue fixer for cognitive complexity, code smells, and security vulnerabilities
+- **sql-expert**: Expert SQL engineer for querying databases, writing cross-dialect SQL, inspecting schemas, and managing data across PostgreSQL, MySQL, SQL Server, SQLite, DuckDB, and Oracle via native CLIs. Supports transpilation (sqlglot) and linting (SQLFluff).
 - **ui-designer**: Expert UI designer for components, styling, design systems, and accessibility
 
 ### Slash Commands (Skills)
@@ -257,7 +287,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 - **enforce-git-pull-rebase**: Automatically adds `--rebase` to all `git pull` commands
 - **ide-diagnostics-opener**: Automatically opens files in IDE before `mcp__ide__getDiagnostics` (fixes JetBrains timeout bug #3085)
 - **rate-limit-brave-search**: Enforces rate limiting on Brave Search MCP calls (configurable via `BRAVE_API_RATE_LIMIT_MS`)
-- **validate-readonly-sql**: Blocks destructive SQL operations (INSERT, UPDATE, DELETE, DROP, etc.) in databricks commands
+- **sql-guardrail**: Unified database guardrail for all database CLIs with 3 safety levels: STRICT (Databricks — blocks all mutations), STANDARD (psql/mysql/sqlcmd/sqlite3/duckdb/sqlplus — blocks catastrophic ops), MONGO (mongosh — blocks dropDatabase/drop/deleteMany with empty filter)
 
 ## Environment Variables Required
 
@@ -271,6 +301,10 @@ export TAVILY_API_KEY="your-key-here"
 export LANGFUSE_PUBLIC_KEY="pk-lf-..."
 export LANGFUSE_SECRET_KEY="sk-lf-..."
 export LANGFUSE_HOST="http://localhost:3000"  # or https://cloud.langfuse.com
+
+# MongoDB (for mongodb-expert agent)
+export MONGODB_URI="mongodb+srv://user:pass@cluster.mongodb.net/mydb"
+export MONGODB_DB="mydb"
 
 # Optional: Brave Search rate limit (default: 1100ms for free tier)
 # Set to 50 for paid plans (20 req/sec)

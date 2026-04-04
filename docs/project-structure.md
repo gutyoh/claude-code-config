@@ -84,7 +84,7 @@ Dot-sourced by `setup.ps1`. PowerShell port of `lib/setup/` with arrow-key TUI, 
 | `enforce-git-pull-rebase.sh` | PreToolUse | `Bash` | Adds `--rebase` to `git pull` commands |
 | `open-file-in-ide.sh` | PreToolUse | `mcp__ide__getDiagnostics` | Opens file in IDE before diagnostics (13 IDEs) |
 | `rate-limit-brave-search.sh` | PreToolUse | `mcp__brave-search__.*` | Filesystem mutex + sleep for rate limiting |
-| `validate-readonly-sql.sh` | PreToolUse | `Bash` (agent-scoped) | Blocks destructive SQL in databricks commands |
+| `sql-guardrail.sh` | PreToolUse | `Bash` (agent-scoped) | Unified DB guardrail: STRICT (Databricks), STANDARD (SQL CLIs), MONGO (mongosh) |
 | `refresh-usage-cache.sh` | PreToolUse + Stop | `.*` and `""` | Background Haiku API ping for usage data |
 
 ### .claude/scripts/
@@ -134,14 +134,14 @@ Dot-sourced by `setup.ps1`. PowerShell port of `lib/setup/` with arrow-key TUI, 
 | `tavily-search` | 1 | Tavily AI-native search command |
 | `web-search` | 1 | Built-in web search command |
 
-### .claude/agents/ (17 agents)
+### .claude/agents/ (19 agents)
 
 | Agent | Color | Skills | Hooks |
 |-------|-------|--------|-------|
 | `code-reviewer-expert` | blue | pr-operations | — |
 | `d2-tala-expert` | blue | d2-tala-standards | — |
 | `data-scientist` | purple | — | — |
-| `databricks-expert` | red | databricks-standards | validate-readonly-sql |
+| `databricks-expert` | red | databricks-standards | sql-guardrail (STRICT) |
 | `dbt-expert` | orange | dbt-standards | — |
 | `design-doc-expert` | yellow | design-doc-standards | — |
 | `diataxis-expert` | pink | diataxis-standards | — |
@@ -150,10 +150,12 @@ Dot-sourced by `setup.ps1`. PowerShell port of `lib/setup/` with arrow-key TUI, 
 | `kedro-expert` | yellow | kedro-standards | — |
 | `langfuse-expert` | cyan | langfuse | — |
 | `linus-torvalds` | yellow | — | — |
+| `mongodb-expert` | green | mongodb-standards | sql-guardrail (MONGO) |
 | `pr-manager` | blue | pr-writing, pr-operations | — |
 | `python-expert` | green | python-standards | — |
 | `rust-expert` | orange | rust-standards | — |
 | `sonarqube-fixer` | orange | — | — |
+| `sql-expert` | green | sql-standards | sql-guardrail (STANDARD) |
 | `ui-designer` | pink | — | — |
 
 ## branch_protection_rules/
