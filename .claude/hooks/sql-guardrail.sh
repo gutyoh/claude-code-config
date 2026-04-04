@@ -100,12 +100,12 @@ fi
 # --- STRICT mode (Databricks): block ALL mutations ---
 
 if [[ "${SAFETY_LEVEL}" == "STRICT" ]]; then
-    if echo "${COMMAND}" | grep -iE '\b(INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|TRUNCATE\s+TABLE|MERGE\s+INTO|DROP\s+(TABLE|SCHEMA|CATALOG|DATABASE))\b' >/dev/null; then
+    if echo "${COMMAND}" | grep -iE '\b(INSERT\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM|TRUNCATE\s+TABLE|MERGE\s+INTO|DROP\s+(TABLE|SCHEMA|CATALOG|DATABASE)|CREATE\s+(TABLE|VIEW|SCHEMA|DATABASE|CATALOG|FUNCTION)|ALTER\s+(TABLE|VIEW|SCHEMA|DATABASE|CATALOG)|GRANT\b|REVOKE\b)\b' >/dev/null; then
         cat >&2 <<'EOF'
-BLOCKED: Destructive SQL operation detected in Databricks command.
-INSERT, UPDATE, DELETE, TRUNCATE, MERGE, and DROP TABLE/SCHEMA/CATALOG
-are NEVER allowed via the databricks-expert agent.
-Use dbt or proper CI/CD pipelines for data mutations.
+BLOCKED: Mutating or privilege-changing SQL detected in Databricks command.
+INSERT, UPDATE, DELETE, TRUNCATE, MERGE, DROP, CREATE, ALTER, GRANT,
+and REVOKE are NEVER allowed via the databricks-expert agent.
+Use dbt or proper CI/CD pipelines for data and schema changes.
 EOF
         exit 2
     fi
@@ -134,10 +134,9 @@ EOF
 fi
 
 # ALWAYS block: DELETE without WHERE clause
-# Matches: DELETE FROM table; or DELETE FROM table (end of string)
+# Matches: DELETE FROM table; or DELETE FROM table" (end of quoted string)
 # Does NOT match: DELETE FROM table WHERE ...
-if echo "${COMMAND}" | grep -iE '\bDELETE\s+FROM\s+\S+\s*;' >/dev/null; then
-    # Check if there's a WHERE clause between DELETE FROM and the semicolon
+if echo "${COMMAND}" | grep -iE '\bDELETE\s+FROM\s+\S+' >/dev/null; then
     if ! echo "${COMMAND}" | grep -iE '\bDELETE\s+FROM\s+\S+\s+WHERE\b' >/dev/null; then
         cat >&2 <<'EOF'
 BLOCKED: DELETE without WHERE clause detected.
