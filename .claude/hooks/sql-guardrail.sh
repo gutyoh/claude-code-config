@@ -2,15 +2,17 @@
 # Hook: sql-guardrail.sh
 # Path: .claude/hooks/sql-guardrail.sh
 #
-# Unified SQL guardrail for ALL database CLI commands.
+# Unified database guardrail for ALL database CLI commands (SQL + NoSQL).
 # Replaces validate-readonly-sql.sh with a single, unified hook
 # that detects the CLI tool and applies the correct safety level.
 #
 # Safety Levels:
-#   STRICT  — Databricks: read-only, blocks ALL mutations (INSERT/UPDATE/DELETE/MERGE)
+#   STRICT   — Databricks: read-only, blocks ALL mutations (INSERT/UPDATE/DELETE/MERGE)
 #   STANDARD — psql/mysql/sqlcmd/sqlite3/duckdb/sqlplus/clickhouse: blocks catastrophic
 #              operations (DROP DATABASE, TRUNCATE, DELETE without WHERE) but allows
 #              controlled writes (INSERT, UPDATE, CREATE) since sql-expert needs them.
+#   MONGO    — mongosh: blocks dropDatabase(), collection.drop(), deleteMany({}),
+#              remove({}) with empty filter. Allows normal CRUD with filters.
 #
 # Exit codes:
 #   0 = allow (pass through)
@@ -34,12 +36,66 @@ SAFETY_LEVEL=""
 
 if echo "${COMMAND}" | grep -qiE '(databricks|DATABRICKS)'; then
     SAFETY_LEVEL="STRICT"
+elif echo "${COMMAND}" | grep -qiE '\b(mongosh|mongo)\b'; then
+    SAFETY_LEVEL="MONGO"
 elif echo "${COMMAND}" | grep -qiE '\b(psql|mysql|mariadb|sqlcmd|mssql-cli|sqlite3|duckdb|sqlplus|cockroach\s+sql|clickhouse-client|clickhouse\s+client)\b'; then
     SAFETY_LEVEL="STANDARD"
 fi
 
 # Not a database CLI command — pass through
 [[ -z "${SAFETY_LEVEL}" ]] && exit 0
+
+# --- MONGO mode (mongosh): block catastrophic operations ---
+
+if [[ "${SAFETY_LEVEL}" == "MONGO" ]]; then
+    # ALWAYS block: dropDatabase()
+    if echo "${COMMAND}" | grep -iE '\.dropDatabase\s*\(' >/dev/null; then
+        cat >&2 <<'EOF'
+BLOCKED: db.dropDatabase() is never allowed via this agent.
+This permanently deletes the entire database and all its collections.
+Run it manually in mongosh with extreme caution if truly needed.
+EOF
+        exit 2
+    fi
+
+    # ALWAYS block: collection.drop()
+    if echo "${COMMAND}" | grep -iE '\.drop\s*\(\s*\)' >/dev/null; then
+        cat >&2 <<'EOF'
+BLOCKED: db.collection.drop() is never allowed via this agent.
+This permanently deletes the entire collection and all its indexes.
+Run it manually in mongosh if truly needed.
+EOF
+        exit 2
+    fi
+
+    # ALWAYS block: deleteMany({}) or deleteMany() with empty filter
+    if echo "${COMMAND}" | grep -iE '\.deleteMany\s*\(\s*\{\s*\}\s*\)' >/dev/null; then
+        cat >&2 <<'EOF'
+BLOCKED: deleteMany({}) with empty filter detected.
+This would delete ALL documents in the collection.
+Add a filter to target specific documents: deleteMany({ field: value })
+EOF
+        exit 2
+    fi
+
+    # ALWAYS block: remove({}) with empty filter (legacy method)
+    if echo "${COMMAND}" | grep -iE '\.remove\s*\(\s*\{\s*\}\s*\)' >/dev/null; then
+        cat >&2 <<'EOF'
+BLOCKED: remove({}) with empty filter detected.
+This would delete ALL documents in the collection.
+Use deleteMany({ filter }) with a specific filter instead.
+EOF
+        exit 2
+    fi
+
+    # WARN: updateMany({}, ...) with empty filter
+    if echo "${COMMAND}" | grep -iE '\.updateMany\s*\(\s*\{\s*\}' >/dev/null; then
+        echo "WARNING: updateMany({}) with empty filter detected. This updates ALL documents in the collection. Ensure the user has explicitly confirmed this operation." >&2
+        exit 0
+    fi
+
+    exit 0
+fi
 
 # --- STRICT mode (Databricks): block ALL mutations ---
 

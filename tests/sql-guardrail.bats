@@ -292,6 +292,70 @@ setup() {
 }
 
 # ============================================================================
+# MONGO mode — mongosh
+# ============================================================================
+
+@test "MONGO mongosh: blocks db.dropDatabase()" {
+    run bash -c 'echo '"'"'{"tool_name":"Bash","tool_input":{"command":"mongosh mydb --quiet --eval \"db.dropDatabase()\""}}'"'"' | bash '"$HOOK"
+    [ "$status" -eq 2 ]
+}
+
+@test "MONGO mongosh: blocks collection.drop()" {
+    run bash -c 'echo '"'"'{"tool_name":"Bash","tool_input":{"command":"mongosh mydb --quiet --eval \"db.users.drop()\""}}'"'"' | bash '"$HOOK"
+    [ "$status" -eq 2 ]
+}
+
+@test "MONGO mongosh: blocks deleteMany({}) with empty filter" {
+    run bash -c 'echo '"'"'{"tool_name":"Bash","tool_input":{"command":"mongosh mydb --quiet --eval \"db.users.deleteMany({})\""}}'"'"' | bash '"$HOOK"
+    [ "$status" -eq 2 ]
+}
+
+@test "MONGO mongosh: blocks remove({}) with empty filter" {
+    run bash -c 'echo '"'"'{"tool_name":"Bash","tool_input":{"command":"mongosh mydb --quiet --eval \"db.users.remove({})\""}}'"'"' | bash '"$HOOK"
+    [ "$status" -eq 2 ]
+}
+
+@test "MONGO mongosh: warns on updateMany({}) with empty filter (exit 0)" {
+    run bash -c 'echo '"'"'{"tool_name":"Bash","tool_input":{"command":"mongosh mydb --quiet --eval \"db.users.updateMany({}, {\\$set: {active: false}})\""}}'"'"' | bash '"$HOOK"
+    [ "$status" -eq 0 ]
+}
+
+@test "MONGO mongosh: allows find with filter" {
+    run bash -c 'echo '"'"'{"tool_name":"Bash","tool_input":{"command":"mongosh mydb --quiet --json=relaxed --eval \"db.users.find({status: 'active'}).limit(10).toArray()\""}}'"'"' | bash '"$HOOK"
+    [ "$status" -eq 0 ]
+}
+
+@test "MONGO mongosh: allows insertOne" {
+    run bash -c 'echo '"'"'{"tool_name":"Bash","tool_input":{"command":"mongosh mydb --quiet --eval \"db.users.insertOne({name: 'Alice'})\""}}'"'"' | bash '"$HOOK"
+    [ "$status" -eq 0 ]
+}
+
+@test "MONGO mongosh: allows deleteMany with specific filter" {
+    run bash -c 'echo '"'"'{"tool_name":"Bash","tool_input":{"command":"mongosh mydb --quiet --eval \"db.sessions.deleteMany({expiresAt: {\\$lt: new Date()}})\""}}'"'"' | bash '"$HOOK"
+    [ "$status" -eq 0 ]
+}
+
+@test "MONGO mongosh: allows aggregate" {
+    run bash -c 'echo '"'"'{"tool_name":"Bash","tool_input":{"command":"mongosh mydb --quiet --json=relaxed --eval \"db.orders.aggregate([{\\$group: {_id: null, total: {\\$sum: 1}}}])\""}}'"'"' | bash '"$HOOK"
+    [ "$status" -eq 0 ]
+}
+
+@test "MONGO mongosh: allows countDocuments" {
+    run bash -c 'echo '"'"'{"tool_name":"Bash","tool_input":{"command":"mongosh mydb --quiet --eval \"db.users.countDocuments({})\""}}'"'"' | bash '"$HOOK"
+    [ "$status" -eq 0 ]
+}
+
+@test "MONGO mongosh: allows getIndexes" {
+    run bash -c 'echo '"'"'{"tool_name":"Bash","tool_input":{"command":"mongosh mydb --quiet --json=relaxed --eval \"db.users.getIndexes()\""}}'"'"' | bash '"$HOOK"
+    [ "$status" -eq 0 ]
+}
+
+@test "MONGO mongosh: stderr mentions dropDatabase on block" {
+    run bash -c 'echo '"'"'{"tool_name":"Bash","tool_input":{"command":"mongosh --eval \"db.dropDatabase()\""}}'"'"' | bash '"$HOOK"
+    [ "$status" -eq 2 ]
+}
+
+# ============================================================================
 # Case insensitivity
 # ============================================================================
 
