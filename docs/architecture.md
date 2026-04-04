@@ -103,7 +103,7 @@ Each hook solves a specific problem:
 - **enforce-git-pull-rebase**: ensures linear commit history by injecting `--rebase` into all `git pull` commands. The hook rewrites the command and returns it via `updatedInput` JSON.
 - **open-file-in-ide**: works around JetBrains bug #3085 where diagnostics timeout if the file is not the active tab. Uses a 3-tier IDE detection system (env var → running process → PATH fallback).
 - **rate-limit-brave-search**: enforces per-second rate limiting on Brave Search API calls using a filesystem mutex (`mkdir` atomic lock) and a timestamp file. Prevents quota exhaustion on the free tier.
-- **validate-readonly-sql**: blocks destructive SQL operations (INSERT, UPDATE, DELETE, DROP, etc.) in databricks CLI commands. Configured at the agent level (databricks-expert frontmatter), not project level.
+- **sql-guardrail**: unified database guardrail with 3 safety levels — STRICT (Databricks: blocks all mutations including CREATE/ALTER/GRANT/REVOKE), STANDARD (SQL CLIs: blocks catastrophic ops like DROP DATABASE, TRUNCATE, DELETE without WHERE), MONGO (mongosh: blocks dropDatabase, drop, deleteMany with empty filter). Configured at the agent level (databricks-expert, sql-expert, mongodb-expert frontmatter), not project level. Fails open on empty stdin, missing jq, or invalid JSON.
 - **refresh-usage-cache**: fires a background Haiku API call to cache rate limit utilization data. Runs on every tool call and on agent stop.
 
 ## The statusline data pipeline

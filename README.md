@@ -21,7 +21,7 @@ A portable, Git-versioned configuration repository for Claude Code that works se
 - [Hooks](#hooks)
   - [Git Pull Rebase Hook](#1-git-pull-rebase-hook)
   - [IDE Diagnostics Hook](#2-ide-diagnostics-hook-jetbrainsvscode-workaround)
-  - [SQL Safety Hook (Databricks)](#3-sql-safety-hook-databricks)
+  - [Unified Database Guardrail](#3-unified-database-guardrail)
   - [Fast File Suggestion](#4-fast-file-suggestion-optional-performance-enhancement)
   - [Statusline with Billing Tracking](#5-statusline-with-billing-tracking)
 - [Proxy Launcher](#proxy-launcher)
@@ -321,7 +321,7 @@ claude-code-config/
 │   ├── hooks/                     # Hook scripts
 │   │   ├── enforce-git-pull-rebase.sh
 │   │   ├── open-file-in-ide.sh
-│   │   └── validate-readonly-sql.sh  # Blocks destructive SQL in databricks commands
+│   │   └── sql-guardrail.sh       # Unified DB guardrail (STRICT/STANDARD/MONGO)
 │   ├── skills/                    # Skills (reusable capabilities)
 │   │   ├── brave-search/          # Brave Search MCP skill
 │   │   ├── d2-tala-standards/     # D2 + TALA diagramming standards
@@ -333,6 +333,8 @@ claude-code-config/
 │   │   ├── internet-research/     # Multi-source internet research
 │   │   ├── kedro-standards/       # Kedro pipeline standards
 │   │   ├── langfuse/              # Langfuse observability standards
+│   │   ├── mongodb-standards/     # MongoDB engineering standards (+ evals)
+│   │   ├── sql-standards/         # Cross-dialect SQL standards (+ evals)
 │   │   ├── mcp-key-rotate/        # MCP API key rotation
 │   │   ├── pr/                    # PR creation (Conventional Commits)
 │   │   ├── pr-operations/         # Cross-platform PR/MR operations
@@ -355,10 +357,12 @@ claude-code-config/
 │   │   ├── kedro-expert.md
 │   │   ├── langfuse-expert.md
 │   │   ├── linus-torvalds.md
+│   │   ├── mongodb-expert.md
 │   │   ├── pr-manager.md
 │   │   ├── python-expert.md
 │   │   ├── rust-expert.md
 │   │   ├── sonarqube-fixer.md
+│   │   ├── sql-expert.md
 │   │   └── ui-designer.md
 │   ├── scripts/                   # Utility scripts
 │   │   ├── file-suggestion.sh
@@ -455,30 +459,28 @@ export CLAUDE_IDE="windsurf"        # Force Windsurf
 
 This hook benefits **all agents** that use `getDiagnostics`, especially the `sonarqube-fixer` agent.
 
-### 3. SQL Safety Hook (Databricks)
+### 3. Unified Database Guardrail
 
-Blocks destructive SQL operations when running `databricks` CLI commands. This hook is configured at the **agent level** (in `databricks-expert.md` frontmatter), not in project-level `settings.json`.
+A single hook that protects all database CLI commands with three safety levels. Configured at the **agent level** (in agent frontmatter), not in project-level `settings.json`.
 
-**Location:** `.claude/hooks/validate-readonly-sql.sh`
+**Location:** `.claude/hooks/sql-guardrail.sh`
 
-**What it blocks:**
+**Safety Levels:**
 
-| Operation | Example |
-|-----------|---------|
-| `INSERT INTO` | `INSERT INTO schema.table VALUES (...)` |
-| `UPDATE ... SET` | `UPDATE schema.table SET col = val` |
-| `DELETE FROM` | `DELETE FROM schema.table WHERE ...` |
-| `TRUNCATE TABLE` | `TRUNCATE TABLE schema.table` |
-| `MERGE INTO` | `MERGE INTO target USING source ...` |
-| `DROP TABLE/SCHEMA/CATALOG` | `DROP TABLE schema.table` |
+| Level | CLIs | What it blocks | What it allows |
+|-------|------|----------------|----------------|
+| **STRICT** | `databricks` | All mutations: INSERT, UPDATE, DELETE, TRUNCATE, MERGE, DROP, CREATE, ALTER, GRANT, REVOKE | SELECT, DESCRIBE, SHOW, EXPLAIN |
+| **STANDARD** | `psql`, `mysql`, `sqlcmd`, `sqlite3`, `duckdb`, `sqlplus`, `clickhouse-client` | Catastrophic ops: DROP DATABASE, TRUNCATE TABLE, DELETE without WHERE | Controlled writes: INSERT, UPDATE, CREATE, DELETE with WHERE |
+| **MONGO** | `mongosh` | `db.dropDatabase()`, `collection.drop()`, `deleteMany({})`, `remove({})` with empty filter | Normal CRUD with filters, aggregation, index management |
 
 **How it works:**
 1. Reads the tool input JSON from stdin (standard Claude Code hook protocol)
-2. Checks if the command contains `databricks` — skips non-databricks commands
-3. Pattern-matches against destructive SQL keywords (case-insensitive)
-4. Exits with code `2` to block the tool call and feed an error message back to Claude
+2. Detects the database CLI in the command and assigns the safety level
+3. Pattern-matches against blocked operations (case-insensitive)
+4. Exits with code `2` to block, or `0` to allow (with optional stderr warnings)
+5. Fails open on empty stdin, missing `jq`, or invalid JSON — never blocks non-database commands
 
-**Why this exists:** The `databricks-expert` agent is designed for **read-only exploration** — querying data, inspecting catalogs, auditing permissions. Data mutations should go through dbt or proper CI/CD pipelines, never through an ad-hoc agent.
+**Agents using this hook:** `databricks-expert`, `sql-expert`, `mongodb-expert`
 
 ### 4. Fast File Suggestion (Optional Performance Enhancement)
 
