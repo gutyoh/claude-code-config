@@ -26,6 +26,10 @@ setup() {
     BACKOFF_MAX_S=300
     PLATFORM="macos"
 
+    # Stubs for functions defined in statusline.sh (not sourced to avoid readonly)
+    debug() { :; }
+    debug_var() { :; }
+
     # Source only the modules under test (no readonly declarations)
     source "$MODULES_DIR/cache.sh"
 
@@ -570,8 +574,8 @@ mock_api_failure() {
 
 @test "statusline.sh uses UID-scoped /tmp directory" {
     local statusline="$BATS_TEST_DIRNAME/../.claude/scripts/statusline.sh"
-    # Verify _TMP_DIR includes $UID
-    grep -q 'claude-statusline-\${UID}' "$statusline"
+    # Verify _TMP_DIR includes $UID (with or without fallback)
+    grep -q 'claude-statusline-\${UID' "$statusline"
 }
 
 @test "cache, lock, and backoff paths are under UID-scoped dir" {

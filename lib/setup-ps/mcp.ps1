@@ -92,6 +92,38 @@ function Install-McpServer {
     }
 }
 
+function Get-McpJson {
+    <#
+    .SYNOPSIS
+    Build the JSON config for a given MCP server and backend.
+    Returns a JSON string suitable for `claude mcp add-json`.
+    #>
+    param(
+        [string]$Key,
+        [string]$Backend
+    )
+
+    $server = $script:McpServers[$Key]
+    $package = $server.package
+
+    if ($Backend -eq "doppler") {
+        $config = @{
+            type    = "stdio"
+            command = "doppler"
+            args    = @("run", "-p", $script:DopplerProject, "-c", $script:DopplerConfig, "--", "npx", "-y", $package)
+        }
+    }
+    else {
+        $config = @{
+            type    = "stdio"
+            command = "mcp-env-inject"
+            args    = @("npx", "-y", $package)
+        }
+    }
+
+    return ($config | ConvertTo-Json -Compress)
+}
+
 function Install-SingleMcp {
     param(
         [string]$Key,
@@ -118,40 +150,19 @@ function Install-SingleMcp {
 
     Write-Status "  Adding ${Key} MCP server (${Backend} backend)..."
 
-    if ($Backend -eq "doppler") {
-        try {
-            & claude mcp add $Key --scope user `
-                -- doppler run `
-                -p $script:DopplerProject -c $script:DopplerConfig `
-                -- npx -y $package 2>$null
+    $mcpJson = Get-McpJson -Key $Key -Backend $Backend
 
-            if ($LASTEXITCODE -eq 0) {
-                Write-Status "  + ${Key} MCP added (doppler wrapper)" -Color Green
-            }
-            else { throw "exit code $LASTEXITCODE" }
+    try {
+        & claude mcp add-json --scope user $Key $mcpJson 2>$null
+
+        if ($LASTEXITCODE -eq 0) {
+            Write-Status "  + ${Key} MCP added (${Backend} wrapper)" -Color Green
         }
-        catch {
-            Write-Status "  ! Failed to add ${Key} MCP with doppler wrapper." -Color Yellow
-            Write-Status "    Manual: claude mcp add ${Key} --scope user ``" -Color DarkGray
-            Write-Status "      -- doppler run -p $($script:DopplerProject) -c $($script:DopplerConfig) -- npx -y ${package}" -Color DarkGray
-        }
+        else { throw "exit code $LASTEXITCODE" }
     }
-    else {
-        # envfile backend: use mcp-env-inject wrapper
-        try {
-            & claude mcp add $Key --scope user `
-                -- mcp-env-inject npx -y $package 2>$null
-
-            if ($LASTEXITCODE -eq 0) {
-                Write-Status "  + ${Key} MCP added (mcp-env-inject wrapper)" -Color Green
-            }
-            else { throw "exit code $LASTEXITCODE" }
-        }
-        catch {
-            Write-Status "  ! Failed to add ${Key} MCP with env-inject wrapper." -Color Yellow
-            Write-Status "    Manual: claude mcp add ${Key} --scope user ``" -Color DarkGray
-            Write-Status "      -- mcp-env-inject npx -y ${package}" -Color DarkGray
-        }
+    catch {
+        Write-Status "  ! Failed to add ${Key} MCP server." -Color Yellow
+        Write-Status "    Manual: claude mcp add-json --scope user ${Key} '${mcpJson}'" -Color DarkGray
     }
 }
 
