@@ -34,11 +34,31 @@
         ]
       },
       {
+        "matcher": "mcp__(tavily|brave-search)__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/guard-mcp-key.sh"
+          }
+        ]
+      },
+      {
         "matcher": "mcp__brave-search__.*",
         "hooks": [
           {
             "type": "command",
             "command": "~/.claude/hooks/rate-limit-brave-search.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "mcp__(tavily|brave-search)__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/auto-rotate-mcp-key.sh"
           }
         ]
       }

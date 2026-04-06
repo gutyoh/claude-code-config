@@ -21,7 +21,9 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   ├── hooks/                   # Git and workflow hooks
 │   │   ├── enforce-git-pull-rebase.sh
 │   │   ├── open-file-in-ide.sh
+│   │   ├── guard-mcp-key.sh            # Blocks MCP calls when API key is missing
 │   │   ├── rate-limit-brave-search.sh  # Rate limits Brave Search API calls
+│   │   ├── auto-rotate-mcp-key.sh     # Auto-rotates API keys on quota exhaustion
 │   │   └── sql-guardrail.sh      # Unified DB guardrail (STRICT/STANDARD/MONGO modes)
 │   ├── skills/                  # Reusable skills
 │   │   ├── databricks-standards/
@@ -286,7 +288,9 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 ### Hooks
 - **enforce-git-pull-rebase**: Automatically adds `--rebase` to all `git pull` commands
 - **ide-diagnostics-opener**: Automatically opens files in IDE before `mcp__ide__getDiagnostics` (fixes JetBrains timeout bug #3085)
+- **guard-mcp-key**: PreToolUse hook that blocks MCP tool calls when the required API key (`TAVILY_API_KEY` or `BRAVE_API_KEY`) is not configured. Prevents noisy failures for users without keys and suggests `/web-search` as a zero-config fallback.
 - **rate-limit-brave-search**: Enforces rate limiting on Brave Search MCP calls (configurable via `BRAVE_API_RATE_LIMIT_MS`)
+- **auto-rotate-mcp-key**: PostToolUse hook that auto-rotates API keys on quota exhaustion (Tavily HTTP 432, Brave HTTP 429). Runs `mcp-key-rotate` automatically, enters cooldown to prevent rotation storms, and outputs restart instructions. Configurable via `AUTO_ROTATE_COOLDOWN_SEC` (default: 300s).
 - **sql-guardrail**: Unified database guardrail for all database CLIs with 3 safety levels: STRICT (Databricks — blocks all mutations), STANDARD (psql/mysql/sqlcmd/sqlite3/duckdb/sqlplus — blocks catastrophic ops), MONGO (mongosh — blocks dropDatabase/drop/deleteMany with empty filter)
 
 ## Environment Variables Required
@@ -348,15 +352,27 @@ See `branch_protection_rules/` for ready-to-use GitHub Ruleset configurations:
 - `trunk-based/` - Current workflow (recommended for 2026)
 - `gitflow/` - Enterprise/traditional workflow (archived)
 
-## MCP Quota Exhaustion (429 Handling)
+## MCP Quota Exhaustion (429/432 Handling)
 
-When a Brave Search or Tavily MCP call fails with HTTP 429 (quota exceeded):
+### Automatic Rotation (PostToolUse Hook)
 
-1. Tell the user their API quota is exhausted
-2. Run `mcp-key-rotate <service> --quota` to show per-key credit usage
-3. If another key has remaining credits, run `mcp-key-rotate <service>` to rotate
-4. Tell the user: **"Restart Claude Code for the new key to take effect"**
-5. Suggest `/web-search` as an immediate fallback (uses Claude's built-in search, no MCP key needed)
+The `auto-rotate-mcp-key.sh` PostToolUse hook automatically handles quota exhaustion:
+
+1. Detects Tavily HTTP 432 or Brave HTTP 429 errors in tool results
+2. Runs `mcp-key-rotate <service>` to advance to the next pool key
+3. Enters cooldown (`AUTO_ROTATE_COOLDOWN_SEC`, default 300s) to prevent rotation storms
+4. Outputs instructions for Claude to relay: restart required + `/web-search` fallback
+
+After auto-rotation, the MCP server still holds the old key in memory. The user **must restart Claude Code** for the new key to take effect.
+
+### Manual Fallback
+
+If auto-rotation fails or you need to investigate:
+
+1. Run `mcp-key-rotate <service> --quota` to show per-key credit usage
+2. If another key has remaining credits, run `mcp-key-rotate <service>` to rotate
+3. Tell the user: **"Restart Claude Code for the new key to take effect"**
+4. Suggest `/web-search` as an immediate fallback (uses Claude's built-in search, no MCP key needed)
 
 ### All Keys Exhausted
 
@@ -367,7 +383,7 @@ If `--quota` shows all keys in the pool are exhausted:
 3. Suggest `/web-search` as an immediate fallback
 4. Suggest `mcp-key-rotate <service> --add KEY` if the user has a new key to add
 
-Do NOT retry the same MCP call after a 429 — it will fail again with the same key.
+Do NOT retry the same MCP call after a 429/432 — it will fail again with the same key.
 
 ## Conventions
 
