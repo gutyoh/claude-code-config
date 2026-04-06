@@ -115,7 +115,7 @@ tui_multiselect() {
     done
     for idx in "${_ms_selected[@]}"; do
         if [[ ${idx} -ge 0 && ${idx} -lt ${count} ]]; then
-            checked[${idx}]="true"
+            checked[idx]="true"
         fi
     done
 
@@ -162,9 +162,9 @@ tui_multiselect() {
                 ;;
             space)
                 if [[ "${checked[$cur]}" == "true" ]]; then
-                    checked[$cur]="false"
+                    checked[cur]="false"
                 else
-                    checked[$cur]="true"
+                    checked[cur]="true"
                 fi
                 ;;
             enter)
@@ -173,13 +173,13 @@ tui_multiselect() {
             a)
                 # Select all
                 for ((i = 0; i < count; i++)); do
-                    checked[$i]="true"
+                    checked[i]="true"
                 done
                 ;;
             n)
                 # Select none
                 for ((i = 0; i < count; i++)); do
-                    checked[$i]="false"
+                    checked[i]="false"
                 done
                 ;;
             quit | escape)
