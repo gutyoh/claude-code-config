@@ -7,6 +7,11 @@
 # Default shell dialect
 shell=bash
 
+# Follow sourced files (resolves SC1091 for dynamic source paths)
+external-sources=true
+source-path=SCRIPTDIR
+source-path=SCRIPTDIR/..
+
 # Disable rules for genuine false positives (unfixable — shellcheck limitation):
 #   SC2034: Variable appears unused (used via nameref or indirect reference)
 #   SC2016: Single-quoted expressions (intentional for literal ${VAR} in CLI args)
