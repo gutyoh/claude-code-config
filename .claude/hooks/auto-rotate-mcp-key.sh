@@ -37,6 +37,37 @@ cooldown_file() {
     echo "${STATE_DIR}/mcp-auto-rotate-${service}.ts"
 }
 
+lock_dir() {
+    local service="$1"
+    echo "${STATE_DIR}/mcp-auto-rotate-${service}.lock"
+}
+
+# Acquire a per-service lock (atomic mkdir, same pattern as rate-limit hook)
+acquire_lock() {
+    local service="$1"
+    local lockdir
+    lockdir="$(lock_dir "${service}")"
+    mkdir -p "${STATE_DIR}"
+
+    local retries=0
+    local max_retries=20 # 20 * 100ms = 2 seconds max wait
+    while ! mkdir "${lockdir}" 2>/dev/null; do
+        retries=$((retries + 1))
+        if [[ ${retries} -ge ${max_retries} ]]; then
+            # Stale lock — force remove and retry once
+            rm -rf "${lockdir}"
+            mkdir "${lockdir}" 2>/dev/null || true
+            break
+        fi
+        sleep 0.1
+    done
+}
+
+release_lock() {
+    local service="$1"
+    rm -rf "$(lock_dir "${service}")"
+}
+
 is_in_cooldown() {
     local service="$1"
     local cf
@@ -86,18 +117,24 @@ is_quota_error() {
     case "${service}" in
         tavily)
             # Tavily returns HTTP 432 for quota exhaustion
-            if [[ "${result_text}" =~ 432 ]] ||
-               [[ "${result_text}" =~ [Qq]uota ]] ||
+            # Anchored patterns: require context words to avoid false positives
+            # (e.g. "found 432 results" won't match)
+            if [[ "${result_text}" =~ status[[:space:]]*code[[:space:]]*432 ]] ||
+               [[ "${result_text}" =~ [Ee]rror[[:space:]:.]*432 ]] ||
+               [[ "${result_text}" =~ HTTP[[:space:]]*432 ]] ||
+               [[ "${result_text}" =~ [Qq]uota[[:space:]]*(exceeded|exhausted|reached|limit) ]] ||
                [[ "${result_text}" =~ [Rr]ate[[:space:]]*[Ll]imit ]]; then
                 return 0
             fi
             ;;
         brave)
             # Brave returns HTTP 429 for rate limit / quota
-            if [[ "${result_text}" =~ 429 ]] ||
+            if [[ "${result_text}" =~ status[[:space:]]*code[[:space:]]*429 ]] ||
+               [[ "${result_text}" =~ [Ee]rror[[:space:]:.]*429 ]] ||
+               [[ "${result_text}" =~ HTTP[[:space:]]*429 ]] ||
                [[ "${result_text}" =~ [Tt]oo[[:space:]]*[Mm]any[[:space:]]*[Rr]equests ]] ||
                [[ "${result_text}" =~ [Rr]ate[[:space:]]*[Ll]imit ]] ||
-               [[ "${result_text}" =~ [Qq]uota ]]; then
+               [[ "${result_text}" =~ [Qq]uota[[:space:]]*(exceeded|exhausted|reached|limit) ]]; then
                 return 0
             fi
             ;;
@@ -159,13 +196,13 @@ main() {
         exit 0
     fi
 
-    # Extract tool result (handles string, object, or null)
+    # Extract tool result (handles string, object, array, scalar, or null)
     # Check multiple possible field names for robustness
     local result_text
     result_text=$(echo "${input}" | jq -r '
         [.tool_result, .tool_output, .tool_error, .error] |
         map(select(. != null)) |
-        map(if type == "object" then tostring else . end) |
+        map(tostring) |
         join(" ")
     ' 2>/dev/null) || true
 
@@ -179,6 +216,10 @@ main() {
     fi
 
     # --- Quota error detected ---
+
+    # Acquire per-service lock (atomic mkdir) to prevent concurrent rotations
+    acquire_lock "${service}"
+    trap 'release_lock "${service}"' EXIT
 
     # Check cooldown (prevent rotation storms)
     if is_in_cooldown "${service}"; then

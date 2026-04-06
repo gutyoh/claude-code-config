@@ -60,7 +60,7 @@ main() {
     fi
 
     # Key is missing — block the call with a helpful message
-    echo "No ${key_var} configured. Use /web-search instead (no API key needed), or set ${key_var} in your .env file and restart Claude Code." >&2
+    echo "No ${key_var} configured. Use /web-search instead (no API key needed), or add ${key_var} to your .env file (or export ${key_var}=... in your shell) and restart Claude Code." >&2
     exit 2
 }
 

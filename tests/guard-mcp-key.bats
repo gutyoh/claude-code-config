@@ -25,6 +25,7 @@ make_input() {
 
 setup() {
     source "$BATS_TEST_DIRNAME/helpers.bash"
+    command -v jq >/dev/null 2>&1 || skip "jq not installed"
 }
 
 # ==========================================================================
@@ -177,12 +178,13 @@ setup() {
     [[ "$output" == *"/web-search"* ]]
 }
 
-@test "error message suggests setting key in .env" {
+@test "error message suggests setting key in .env or shell export" {
     local input
     input="$(make_input "mcp__tavily__tavily_search")"
     run bash -c "echo '${input}' | env -u TAVILY_API_KEY bash '$HOOK' 2>&1"
     [ "$status" -eq 2 ]
     [[ "$output" == *".env"* ]]
+    [[ "$output" == *"export"* ]]
 }
 
 # ==========================================================================

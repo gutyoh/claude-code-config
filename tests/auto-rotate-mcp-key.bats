@@ -78,6 +78,7 @@ MOCK_EOF
 
 setup() {
     source "$BATS_TEST_DIRNAME/helpers.bash"
+    command -v jq >/dev/null 2>&1 || skip "jq not installed"
     export TEST_TMPDIR
     TEST_TMPDIR="$(mktemp -d)"
     export AUTO_ROTATE_STATE_DIR="${TEST_TMPDIR}/state"
@@ -178,7 +179,7 @@ teardown() {
 @test "resolves mcp__tavily__tavily_crawl to tavily" {
     create_rotate_mock
     local input
-    input="$(make_input "mcp__tavily__tavily_crawl" "432")"
+    input="$(make_input "mcp__tavily__tavily_crawl" "Error: 432")"
     run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
     [ "$status" -eq 0 ]
     [[ "$output" == *"tavily"* ]]
@@ -196,7 +197,7 @@ teardown() {
 @test "resolves mcp__brave-search__brave_news_search to brave" {
     create_rotate_mock
     local input
-    input="$(make_input "mcp__brave-search__brave_news_search" "429")"
+    input="$(make_input "mcp__brave-search__brave_news_search" "Error: 429")"
     run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
     [ "$status" -eq 0 ]
     [[ "$output" == *"brave"* ]]
@@ -224,16 +225,24 @@ teardown() {
     [[ "$output" == *"tavily"* ]]
 }
 
-@test "detects tavily bare 432 in result" {
+@test "detects tavily Error: 432 pattern" {
     create_rotate_mock
     local input
-    input="$(make_input "mcp__tavily__tavily_search" "Error 432")"
+    input="$(make_input "mcp__tavily__tavily_search" "Error: 432")"
     run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
     [ "$status" -eq 0 ]
     [[ "$output" == *"[auto-rotate]"* ]]
 }
 
-@test "detects tavily quota keyword" {
+@test "does NOT false-positive on bare 432 in content" {
+    local input
+    input="$(make_input "mcp__tavily__tavily_search" "Found 432 results for your query")"
+    run bash -c "echo '${input}' | bash '$HOOK'"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+}
+
+@test "detects tavily quota exceeded keyword" {
     create_rotate_mock
     local input
     input="$(make_input "mcp__tavily__tavily_search" "API quota exceeded for this key")"
@@ -242,7 +251,7 @@ teardown() {
     [[ "$output" == *"[auto-rotate]"* ]]
 }
 
-@test "detects tavily Quota (capitalized)" {
+@test "detects tavily Quota limit reached" {
     create_rotate_mock
     local input
     input="$(make_input "mcp__tavily__tavily_search" "Quota limit reached")"
@@ -298,13 +307,21 @@ teardown() {
     [[ "$output" == *"brave"* ]]
 }
 
-@test "detects brave bare 429" {
+@test "detects brave Error: 429 pattern" {
     create_rotate_mock
     local input
     input="$(make_input "mcp__brave-search__brave_web_search" "Error: 429")"
     run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
     [ "$status" -eq 0 ]
     [[ "$output" == *"[auto-rotate]"* ]]
+}
+
+@test "does NOT false-positive on bare 429 in content" {
+    local input
+    input="$(make_input "mcp__brave-search__brave_web_search" "Page 429 of search results")"
+    run bash -c "echo '${input}' | bash '$HOOK'"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
 }
 
 @test "detects brave Too Many Requests" {
@@ -433,6 +450,35 @@ teardown() {
 }
 
 # ==========================================================================
+# INTEGRATION: Lock mechanism
+# ==========================================================================
+
+@test "lock: lock directory is cleaned up after rotation" {
+    create_rotate_mock
+    local input
+    input="$(make_input "mcp__tavily__tavily_search" "status code 432")"
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+    [ ! -d "${AUTO_ROTATE_STATE_DIR}/mcp-auto-rotate-tavily.lock" ]
+}
+
+@test "lock: lock directory is cleaned up after cooldown hit" {
+    create_rotate_mock
+    export AUTO_ROTATE_COOLDOWN_SEC=300
+    local input
+    input="$(make_input "mcp__tavily__tavily_search" "status code 432")"
+
+    # First call: rotate (creates cooldown)
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+
+    # Second call: hits cooldown
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+    [ ! -d "${AUTO_ROTATE_STATE_DIR}/mcp-auto-rotate-tavily.lock" ]
+}
+
+# ==========================================================================
 # INTEGRATION: Cooldown mechanism
 # ==========================================================================
 
@@ -492,7 +538,7 @@ teardown() {
 
     local tavily_input brave_input
     tavily_input="$(make_input "mcp__tavily__tavily_search" "status code 432")"
-    brave_input="$(make_input "mcp__brave-search__brave_web_search" "429")"
+    brave_input="$(make_input "mcp__brave-search__brave_web_search" "HTTP 429")"
 
     # Rotate tavily
     run bash -c "echo '${tavily_input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
