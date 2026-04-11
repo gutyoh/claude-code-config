@@ -1,0 +1,412 @@
+#!/usr/bin/env bash
+# mcp-proxy-search
+# Path: claude-code-config/bin/mcp-proxy-search
+#
+# Bash MCP (Model Context Protocol) server that proxies Tavily and Brave web
+# search, handling quota rotation transparently so Claude Code never sees
+# HTTP 432 / 429 errors.
+#
+# Protocol: JSON-RPC 2.0 over stdio (newline-delimited). Spec:
+#   https://spec.modelcontextprotocol.io/specification/2024-11-05/basic/
+#
+# Tools:
+#   tavily_search      -> https://api.tavily.com/search
+#   brave_web_search   -> https://api.search.brave.com/res/v1/web/search
+#
+# Rotation: on 429/432 the proxy shells out to mcp-key-rotate with
+# --recover-from-failure, then retries the call once with the newly-active key.
+# Circuit state is shared with the existing mcp-key-rotate CLI.
+#
+# Requires: bash, jq, curl, and mcp-key-rotate on PATH (or next to this script).
+
+set -euo pipefail
+
+# --- Config ---
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
+
+_default_rotate="${SCRIPT_DIR}/mcp-key-rotate"
+if [[ ! -x "${_default_rotate}" ]]; then
+    _default_rotate="mcp-key-rotate"
+fi
+readonly MCP_KEY_ROTATE="${MCP_KEY_ROTATE_BIN:-${_default_rotate}}"
+
+readonly BAD_KEY_TTL_SEC="${PROXY_BAD_KEY_TTL_SEC:-3600}"
+readonly HTTP_TIMEOUT_SEC="${PROXY_HTTP_TIMEOUT_SEC:-30}"
+readonly DOPPLER_PROJECT="${KEY_ROTATE_DOPPLER_PROJECT:-claude-code-config}"
+readonly DOPPLER_CONFIG="${KEY_ROTATE_DOPPLER_CONFIG:-dev}"
+readonly CURL_CMD="${CURL_CMD:-curl}"
+
+readonly MCP_PROTOCOL_VERSION="2024-11-05"
+readonly SERVER_NAME="mcp-proxy-search"
+readonly SERVER_VERSION="0.1.0"
+
+# ok | no_key | quota_exhausted | http_error | network_error
+CALL_STATUS=""
+CALL_BODY=""
+# Set by split_curl_raw
+CURL_STATUS=""
+CURL_BODY=""
+
+# --- Logging (stderr only; stdout is reserved for JSON-RPC) ---
+log() {
+    if [[ -n "${MCP_PROXY_DEBUG:-}" ]]; then
+        printf '[mcp-proxy-search] %s\n' "$*" >&2
+    fi
+}
+
+# Fresh per-call. Honors KEY_ROTATE_BACKEND=doppler|dotenv|auto (default auto).
+read_active_key() {
+    local service="$1"
+    local upper
+    upper="$(printf '%s' "${service}" | tr '[:lower:]' '[:upper:]')"
+    local var="${upper}_API_KEY"
+    local backend="${KEY_ROTATE_BACKEND:-auto}"
+
+    if [[ "${backend}" == "doppler" || "${backend}" == "auto" ]]; then
+        if command -v doppler &>/dev/null; then
+            local val=""
+            val="$(doppler secrets get "${var}" --plain \
+                -p "${DOPPLER_PROJECT}" -c "${DOPPLER_CONFIG}" 2>/dev/null || echo "")"
+            if [[ -n "${val}" ]]; then
+                printf '%s' "${val}"
+                return 0
+            fi
+        fi
+        # Doppler explicitly requested but unavailable: no fall-through.
+        if [[ "${backend}" == "doppler" ]]; then
+            printf '%s' "${!var:-}"
+            return 0
+        fi
+    fi
+
+    if [[ "${backend}" == "dotenv" || "${backend}" == "auto" ]]; then
+        local dotenv="${KEY_ROTATE_DOTENV:-${SCRIPT_DIR}/../.env}"
+        if [[ -f "${dotenv}" ]]; then
+            local val=""
+            val="$(grep "^${var}=" "${dotenv}" 2>/dev/null | head -1 | cut -d'=' -f2- | sed 's/^"//;s/"$//' || true)"
+            if [[ -n "${val}" ]]; then
+                printf '%s' "${val}"
+                return 0
+            fi
+        fi
+    fi
+
+    printf '%s' "${!var:-}"
+}
+
+# --- Recovery: mark failing key bad, rotate, return new active key ---
+# Prints the new active key on stdout (empty on failure) and returns 0/1.
+recover_from_failure() {
+    local service="$1" failed_key="$2"
+
+    if ! command -v "${MCP_KEY_ROTATE}" &>/dev/null && [[ ! -x "${MCP_KEY_ROTATE}" ]]; then
+        return 1
+    fi
+
+    local output
+    if ! output=$("${MCP_KEY_ROTATE}" "${service}" \
+        --recover-from-failure "${failed_key}" "${BAD_KEY_TTL_SEC}" 2>&1); then
+        return 1
+    fi
+
+    local new_key
+    new_key="$(printf '%s\n' "${output}" | awk -F': ' '/^Active: /{print $2; exit}')"
+    if [[ -z "${new_key}" ]]; then
+        return 1
+    fi
+    printf '%s' "${new_key}"
+}
+
+# Vendor HTTP wrappers. Print raw curl output on stdout so both the body and
+# the HTTP status survive the $( ) subshell the caller wraps them in; the
+# orchestrator parses them via the trailing __HTTP_STATUS__<code> marker.
+# Non-zero exit = network-level failure (curl non-zero).
+
+http_tavily_search() {
+    local key="$1" query="$2" max_results="$3"
+    local body
+    body="$(jq -nc \
+        --arg k "${key}" \
+        --arg q "${query}" \
+        --argjson mr "${max_results}" \
+        '{api_key: $k, query: $q, max_results: $mr}')"
+
+    "${CURL_CMD}" -sS --max-time "${HTTP_TIMEOUT_SEC}" \
+        -w '\n__HTTP_STATUS__%{http_code}' \
+        -X POST https://api.tavily.com/search \
+        -H "Content-Type: application/json" \
+        -d "${body}" 2>/dev/null
+}
+
+http_brave_search() {
+    local key="$1" query="$2" count="$3"
+    "${CURL_CMD}" -sS --max-time "${HTTP_TIMEOUT_SEC}" \
+        -w '\n__HTTP_STATUS__%{http_code}' \
+        --get "https://api.search.brave.com/res/v1/web/search" \
+        --data-urlencode "q=${query}" \
+        --data-urlencode "count=${count}" \
+        -H "X-Subscription-Token: ${key}" \
+        -H "Accept: application/json" 2>/dev/null
+}
+
+# Sets CURL_STATUS + CURL_BODY from the trailing __HTTP_STATUS__<code> marker.
+# Used via globals (not return values) to survive callers' $( ) subshells.
+split_curl_raw() {
+    local raw="$1"
+    CURL_STATUS="${raw##*__HTTP_STATUS__}"
+    CURL_BODY="${raw%$'\n'__HTTP_STATUS__*}"
+}
+
+# Sets CALL_STATUS + CALL_BODY. Caller MUST invoke without $( ) so the globals
+# survive (subshell capture would discard them). Retries once on 429/432.
+call_with_rotation() {
+    local service="$1"
+    shift
+
+    CALL_STATUS=""
+    CALL_BODY=""
+
+    local attempt
+    for attempt in 1 2; do
+        local key
+        key="$(read_active_key "${service}")"
+        if [[ -z "${key}" ]]; then
+            CALL_STATUS="no_key"
+            return 1
+        fi
+
+        local raw
+        if ! case "${service}" in
+                tavily) raw="$(http_tavily_search "${key}" "$1" "$2")" ;;
+                brave)  raw="$(http_brave_search "${key}" "$1" "$2")" ;;
+                *)      CALL_STATUS="http_error"; return 1 ;;
+            esac
+        then
+            CALL_STATUS="network_error"
+            return 1
+        fi
+
+        split_curl_raw "${raw}"
+
+        if [[ "${CURL_STATUS}" == "200" ]]; then
+            CALL_STATUS="ok"
+            CALL_BODY="${CURL_BODY}"
+            return 0
+        fi
+
+        # Quota / rate limit: rotate once and retry.
+        if [[ "${attempt}" -eq 1 ]] && { [[ "${CURL_STATUS}" == "429" ]] || [[ "${CURL_STATUS}" == "432" ]]; }; then
+            local new_key
+            if new_key="$(recover_from_failure "${service}" "${key}")" && [[ -n "${new_key}" ]]; then
+                log "rotated ${service} after HTTP ${CURL_STATUS}; retrying"
+                continue
+            fi
+            CALL_STATUS="quota_exhausted"
+            return 1
+        fi
+
+        CALL_STATUS="http_error"
+        return 1
+    done
+
+    CALL_STATUS="quota_exhausted"
+    return 1
+}
+
+# --- JSON-RPC response emitters ---
+
+emit_result() {
+    local id_json="$1" result_json="$2"
+    jq -nc \
+        --argjson id "${id_json}" \
+        --argjson r "${result_json}" \
+        '{jsonrpc: "2.0", id: $id, result: $r}'
+}
+
+emit_rpc_error() {
+    local id_json="$1" code="$2" msg="$3"
+    jq -nc \
+        --argjson id "${id_json}" \
+        --argjson code "${code}" \
+        --arg m "${msg}" \
+        '{jsonrpc: "2.0", id: $id, error: {code: $code, message: $m}}'
+}
+
+emit_tool_success() {
+    local id_json="$1" text="$2"
+    jq -nc \
+        --argjson id "${id_json}" \
+        --arg t "${text}" \
+        '{
+            jsonrpc: "2.0",
+            id: $id,
+            result: {
+                content: [{type: "text", text: $t}],
+                isError: false
+            }
+        }'
+}
+
+emit_tool_error() {
+    local id_json="$1" text="$2"
+    jq -nc \
+        --argjson id "${id_json}" \
+        --arg t "${text}" \
+        '{
+            jsonrpc: "2.0",
+            id: $id,
+            result: {
+                content: [{type: "text", text: $t}],
+                isError: true
+            }
+        }'
+}
+
+# --- Method handlers ---
+
+handle_initialize() {
+    local id_json="$1"
+    local result
+    result="$(jq -nc \
+        --arg pv "${MCP_PROTOCOL_VERSION}" \
+        --arg name "${SERVER_NAME}" \
+        --arg ver "${SERVER_VERSION}" \
+        '{
+            protocolVersion: $pv,
+            capabilities: {tools: {}},
+            serverInfo: {name: $name, version: $ver}
+        }')"
+    emit_result "${id_json}" "${result}"
+}
+
+handle_tools_list() {
+    local id_json="$1"
+    local result
+    result="$(jq -nc '{
+        tools: [
+            {
+                name: "tavily_search",
+                description: "Search the web via Tavily. Transparently rotates API keys on quota errors; never throws on 429/432.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        query: {type: "string", description: "Search query"},
+                        max_results: {type: "integer", description: "Max results (default 5)", default: 5}
+                    },
+                    required: ["query"]
+                }
+            },
+            {
+                name: "brave_web_search",
+                description: "Search the web via Brave. Transparently rotates API keys on rate-limit errors; never throws on 429.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        query: {type: "string", description: "Search query"},
+                        count: {type: "integer", description: "Max results 1-20 (default 10)", default: 10}
+                    },
+                    required: ["query"]
+                }
+            }
+        ]
+    }')"
+    emit_result "${id_json}" "${result}"
+}
+
+handle_tool_call() {
+    local id_json="$1" name="$2" args_json="$3"
+
+    case "${name}" in
+        tavily_search)
+            local query max_results
+            query="$(printf '%s' "${args_json}" | jq -r '.query // empty')"
+            if [[ -z "${query}" ]]; then
+                emit_tool_error "${id_json}" "missing required argument: query"
+                return
+            fi
+            max_results="$(printf '%s' "${args_json}" | jq -r '(.max_results // 5) | tonumber? // 5')"
+            if call_with_rotation tavily "${query}" "${max_results}"; then
+                emit_tool_success "${id_json}" "${CALL_BODY}"
+            else
+                emit_tool_error "${id_json}" "tavily_search failed: ${CALL_STATUS}"
+            fi
+            ;;
+        brave_web_search)
+            local query count
+            query="$(printf '%s' "${args_json}" | jq -r '.query // empty')"
+            if [[ -z "${query}" ]]; then
+                emit_tool_error "${id_json}" "missing required argument: query"
+                return
+            fi
+            count="$(printf '%s' "${args_json}" | jq -r '(.count // 10) | tonumber? // 10')"
+            if call_with_rotation brave "${query}" "${count}"; then
+                emit_tool_success "${id_json}" "${CALL_BODY}"
+            else
+                emit_tool_error "${id_json}" "brave_web_search failed: ${CALL_STATUS}"
+            fi
+            ;;
+        *)
+            emit_tool_error "${id_json}" "unknown tool: ${name}"
+            ;;
+    esac
+}
+
+# --- Dispatch a single JSON-RPC request ---
+dispatch_line() {
+    local line="$1"
+    [[ -z "${line}" ]] && return 0
+
+    local method id_json
+    method="$(printf '%s' "${line}" | jq -r '.method // empty' 2>/dev/null || true)"
+    id_json="$(printf '%s' "${line}" | jq -c '.id // null' 2>/dev/null || echo "null")"
+
+    log "method=${method} id=${id_json}"
+
+    case "${method}" in
+        "")
+            # Malformed / missing method — ignore silently (MCP clients don't
+            # benefit from noisy errors on bad input; surfacing would leak to stdout).
+            ;;
+        initialize)
+            handle_initialize "${id_json}"
+            ;;
+        notifications/initialized)
+            # Notification has no id and expects no response.
+            ;;
+        tools/list)
+            handle_tools_list "${id_json}"
+            ;;
+        tools/call)
+            local name args_json
+            name="$(printf '%s' "${line}" | jq -r '.params.name // empty' 2>/dev/null || true)"
+            args_json="$(printf '%s' "${line}" | jq -c '.params.arguments // {}' 2>/dev/null || echo '{}')"
+            handle_tool_call "${id_json}" "${name}" "${args_json}"
+            ;;
+        ping)
+            emit_result "${id_json}" '{}'
+            ;;
+        shutdown)
+            emit_result "${id_json}" '{}'
+            ;;
+        notifications/*)
+            # Other client notifications — no response expected.
+            ;;
+        *)
+            emit_rpc_error "${id_json}" -32601 "method not found: ${method}"
+            ;;
+    esac
+}
+
+main() {
+    local line
+    while IFS= read -r line; do
+        dispatch_line "${line}"
+    done
+}
+
+# Run main only when executed directly; sourcing (for unit tests) imports
+# functions without entering the stdio loop.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main
+fi
