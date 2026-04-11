@@ -15,23 +15,18 @@
 #   mcp-key-rotate <service> --reset-health    # Clear all circuit state for service
 #   mcp-key-rotate <service> --add KEY         # Add a new key to the pool
 #
-# Circuit-breaker semantics (Envoy outlier-detection pattern):
-#   Each key in the pool has an independent health state:
-#     CLOSED    -- healthy, eligible for rotation
-#     OPEN      -- ejected, skipped until open_until expires
-#     HALF_OPEN -- cooldown expired, probed on next rotate
-#   Rotation structurally cannot land on an OPEN key unless ALL keys are OPEN,
-#   in which case it picks the one that cools down soonest (least-bad).
-#   State is persisted in JSON at ${MCP_KEY_HEALTH_DIR}/<service>.json
-#   keyed by sha256(key)[:12] -- raw keys are never written to the state file.
+# Circuit breaker: each key is CLOSED / OPEN / HALF_OPEN. Rotation skips OPEN
+# keys; if all are OPEN it picks the one with the soonest open_until. Health
+# state at ${MCP_KEY_HEALTH_DIR}/<service>.json, keyed by sha256(key)[:12] so
+# raw keys never hit disk.
 #
 # Services: brave, tavily (or any MCP service with {SERVICE}_API_KEY vars)
 # Backends: doppler (auto-detected), dotenv (.env file)
-# Override: KEY_ROTATE_BACKEND=doppler|dotenv
-# Health state dir: MCP_KEY_HEALTH_DIR (default: ~/.claude/state)
+# Overrides:
+#   KEY_ROTATE_BACKEND=doppler|dotenv
+#   MCP_KEY_HEALTH_DIR (default: ~/.claude/state)
 #
-# Requires: doppler CLI (for doppler backend) or .env file (for dotenv backend)
-#           jq (for JSON state file operations)
+# Requires: doppler CLI or .env file, plus jq.
 
 set -euo pipefail
 
@@ -44,13 +39,9 @@ readonly DOTENV_FILE="${KEY_ROTATE_DOTENV:-${REPO_ROOT}/.env}"
 readonly DOPPLER_PROJECT="${KEY_ROTATE_DOPPLER_PROJECT:-claude-code-config}"
 readonly DOPPLER_CONFIG="${KEY_ROTATE_DOPPLER_CONFIG:-dev}"
 
-# Circuit-breaker state dir (persists across Claude Code restarts).
-# Override with MCP_KEY_HEALTH_DIR=/tmp/foo for isolated tests.
 readonly HEALTH_DIR="${MCP_KEY_HEALTH_DIR:-${HOME}/.claude/state}"
-# Default TTL when --mark-bad is called without an explicit TTL argument.
-# 1h is conservative: short enough to recover from transient rate limits,
-# long enough to avoid pointless re-probing of monthly-quota-exhausted keys
-# in the typical "hook fires once per user query" cadence.
+# 1h default TTL: short enough for transient 429s to recover, long enough to
+# avoid re-probing monthly-quota-exhausted keys on every hook fire.
 readonly HEALTH_DEFAULT_TTL_SEC="${MCP_KEY_HEALTH_DEFAULT_TTL_SEC:-3600}"
 
 # --- Parse service argument ---
@@ -247,31 +238,13 @@ mask_key() {
     fi
 }
 
-# --- Key health (per-key circuit breaker) ---
-# State file: ${HEALTH_DIR}/<service>.json
-# Schema:
-#   {
-#     "schema": 1,
-#     "updated_at": <epoch>,
-#     "keys": {
-#       "<fingerprint>": {
-#         "state": "closed"|"open",
-#         "open_until": <epoch>,
-#         "consecutive_failures": <int>,
-#         "ejection_count": <int>,
-#         "last_error": "<string>",
-#         "last_error_at": <epoch>
-#       }
-#     }
-#   }
-# Fingerprint: first 12 hex chars of sha256(key). Raw keys are never stored.
+# Key health state: ~/.claude/state/<service>.json, keyed by sha256(key)[:12].
+# Raw keys never hit disk.
 
 health_file() {
     echo "${HEALTH_DIR}/${SERVICE}.json"
 }
 
-# Hash the raw key so the state file never contains secrets.
-# Tries shasum (macOS + Linux) then sha256sum (Linux) then last-8 chars fallback.
 key_fingerprint() {
     local key="$1"
     if command -v shasum &>/dev/null; then
@@ -279,12 +252,10 @@ key_fingerprint() {
     elif command -v sha256sum &>/dev/null; then
         printf '%s' "${key}" | sha256sum | cut -c1-12
     else
-        # Last resort: use last 8 chars. Not privacy-ideal but works without sha tools.
         printf '%s' "${key: -8}"
     fi
 }
 
-# Read a single field from the health file. Prints empty string on any miss.
 _health_read_field() {
     local key="$1" field="$2"
     local file fp
@@ -307,8 +278,7 @@ health_open_until() {
     echo "${val:-0}"
 }
 
-# Returns 0 if the key is currently eligible (CLOSED or OPEN-but-expired=HALF_OPEN).
-# Returns 1 if the key is OPEN and still in cooldown.
+# CLOSED or HALF_OPEN (open_until expired) => eligible.
 health_is_eligible() {
     local key="$1" now state ou
     now="$(date +%s)"
@@ -318,12 +288,12 @@ health_is_eligible() {
     fi
     ou="$(health_open_until "${key}")"
     if [[ "${ou}" -le "${now}" ]]; then
-        return 0 # HALF_OPEN -- ready to probe
+        return 0
     fi
     return 1
 }
 
-# Atomic update: rewrite file via tmp+rename so readers never see a half-written doc.
+# Atomic write via tmp+rename so readers never see a half-written doc.
 _health_write_file() {
     local tmp="$1"
     local file
@@ -333,10 +303,6 @@ _health_write_file() {
     chmod 600 "${file}" 2>/dev/null || true
 }
 
-# Mark a key OPEN with an explicit cooldown TTL. Increments consecutive_failures
-# and ejection_count. On subsequent failures the caller can pass a larger TTL
-# to implement exponential backoff; this function does not compute backoff itself
-# so callers can use vendor Retry-After / X-RateLimit-Reset headers verbatim.
 health_mark_open() {
     local key="$1" ttl_sec="$2" error_msg="${3:-}"
     local file fp now open_until tmp
@@ -420,7 +386,6 @@ health_mark_closed() {
     _health_write_file "${tmp}"
 }
 
-# Delete the service's entire health file. Used by --reset-health and tests.
 health_reset() {
     local file
     file="$(health_file)"
@@ -616,9 +581,7 @@ cmd_rotate() {
         exit 1
     fi
 
-    # Find current key index. If the current active key is not in the pool
-    # (manual edit, stale pointer), treat current_idx as -1 so iteration starts
-    # from slot 0.
+    # Stale pointer or manual edit: treat current_idx=-1 so iteration starts at slot 0.
     local current_idx=-1
     local i
     for i in "${!keys[@]}"; do
@@ -628,9 +591,6 @@ cmd_rotate() {
         fi
     done
 
-    # Walk N-1 candidates in rotation order (skip current). Pick the first
-    # eligible one (CLOSED or HALF_OPEN). This is the core of the circuit breaker:
-    # structurally we cannot land on an OPEN key as long as any other key is healthy.
     local next_idx=-1
     local attempt
     for ((attempt = 1; attempt < n; attempt++)); do
@@ -642,9 +602,7 @@ cmd_rotate() {
         fi
     done
 
-    # All-open fallback: every other key is still in cooldown. Pick the one that
-    # will recover soonest (least-bad). Never rotate to the current key --
-    # the caller invoked us precisely because current just failed.
+    # All-open fallback: pick the key with the soonest open_until (least-bad).
     local warn_all_open=0
     if [[ ${next_idx} -lt 0 ]]; then
         warn_all_open=1
@@ -766,11 +724,9 @@ cmd_mark_bad() {
     echo "Recovers at epoch ${until_epoch}"
 }
 
-# Mark an EXPLICITLY-PROVIDED key as OPEN. Unlike --mark-bad, this ignores
-# the backend "current" pointer entirely -- the caller passes the key that
-# actually failed. Used by auto-rotate-mcp-key.sh to flag the in-process env
-# key that the MCP server just hit a 429/432 with, which may differ from the
-# backend's current (drift happens after out-of-band rotations).
+# Like --mark-bad but takes an explicit key arg (ignores backend current).
+# Used by auto-rotate-mcp-key.sh to flag the key the MCP server actually used,
+# which may have drifted from the backend's current pointer.
 cmd_mark_bad_key() {
     local key="$1"
     local ttl="${2:-${HEALTH_DEFAULT_TTL_SEC}}"
@@ -786,20 +742,10 @@ cmd_mark_bad_key() {
     echo "Marked $(mask_key "${key}") as OPEN for ${ttl}s"
 }
 
-# Atomic recovery: given the key that just failed (from the caller's own env),
-# mark it OPEN and ensure the backend points to a HEALTHY key -- rotating only
-# if necessary. Prints the resulting active key on the last line for the caller
-# to parse.
-#
-# Decision matrix:
-#   1. Mark FAILED_KEY as OPEN (if non-empty)
-#   2. Read backend current
-#   3. If current is eligible (CLOSED or HALF_OPEN) AND current != FAILED_KEY
-#      -> no-op, print current, exit 0
-#   4. Else -> walk the pool starting from (current_idx + 1) % n and pick the
-#      first eligible key that isn't FAILED_KEY. Set backend to it.
-#   5. If no eligible key exists -> pick the key with the soonest open_until
-#      (least-bad), set backend to it, print a warning.
+# Atomic recovery: mark the failing key OPEN, then ensure backend points to a
+# healthy key (no-op if current is already eligible and != failed_key, else
+# rotate skipping OPEN keys; least-bad fallback if all are OPEN). Prints the
+# resulting active key on the final line as "Active: <key>".
 cmd_recover() {
     local failed_key="${1:-}"
     local ttl="${2:-${HEALTH_DEFAULT_TTL_SEC}}"
@@ -820,15 +766,12 @@ cmd_recover() {
     IFS=',' read -ra keys <<<"${pool}"
     local n=${#keys[@]}
 
-    # 1. Mark the failing key as OPEN (if provided).
     if [[ -n "${failed_key}" ]]; then
         health_mark_open "${failed_key}" "${ttl}" "marked bad via --recover-from-failure"
     fi
 
-    # 2. Fast path (drift case): current is already healthy AND we KNOW it's
-    # not the one that failed. Requires a non-empty failed_key -- if the caller
-    # didn't pass one, we can't tell whether current is safe, so fall through
-    # and rotate unconditionally (old "always rotate on 432" semantics).
+    # Drift fast path: current is already healthy and isn't the failed key.
+    # Empty failed_key falls through to rotate (can't prove current is safe).
     if [[ -n "${failed_key}" && -n "${current}" && "${current}" != "${failed_key}" ]] \
         && health_is_eligible "${current}"; then
         echo "No rotation needed ${SERVICE}: current $(mask_key "${current}") is already healthy."
@@ -837,7 +780,6 @@ cmd_recover() {
         return 0
     fi
 
-    # 3. Need to rotate. Find current index (-1 if not in pool).
     local current_idx=-1
     local i
     for i in "${!keys[@]}"; do
@@ -847,9 +789,8 @@ cmd_recover() {
         fi
     done
 
-    # 4. Walk N candidates starting after current. Accept first eligible that
-    # is not equal to failed_key. We walk all N (not N-1) so that if the caller
-    # didn't pass a failed_key, we can legitimately return to current after a wrap.
+    # Walk all N slots so that when failed_key is empty the loop can wrap back
+    # to current; skip any slot that equals failed_key.
     local next_idx=-1
     local attempt
     for ((attempt = 1; attempt <= n; attempt++)); do
@@ -864,7 +805,7 @@ cmd_recover() {
         fi
     done
 
-    # 5. All-open fallback: pick soonest-to-recover (still excluding failed_key).
+    # All-open fallback: pick soonest-to-recover, still excluding failed_key.
     local warn_all_open=0
     if [[ ${next_idx} -lt 0 ]]; then
         warn_all_open=1
@@ -883,7 +824,6 @@ cmd_recover() {
                 soonest_idx=${try_idx}
             fi
         done
-        # Degenerate case: pool has only failed_key. Fall back to current anyway.
         if [[ ${soonest_idx} -lt 0 ]]; then
             echo "Error: pool contains only the failing key (${SERVICE})." >&2
             exit 1

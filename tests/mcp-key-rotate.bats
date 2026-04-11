@@ -876,7 +876,6 @@ REPO_ROOT="$BATS_TEST_DIRNAME/.."
     [ "$status" -eq 0 ]
     [[ "$output" == *"OPEN"* ]]
 
-    # Health file should exist and record KEY_A as OPEN
     local health_file="${MCP_KEY_HEALTH_DIR}/brave.json"
     [ -f "$health_file" ]
     local fp
@@ -1007,17 +1006,13 @@ REPO_ROOT="$BATS_TEST_DIRNAME/.."
     doppler_seed "BRAVE_API_KEY" "${KEY_A}"
     doppler_seed "BRAVE_API_KEY_POOL" "${KEY_A},${KEY_B},${KEY_C}"
 
-    # Mark KEY_B (next in round-robin order) as OPEN with a long TTL
+    # Mark KEY_B OPEN by temporarily making it the active key.
     env KEY_ROTATE_BACKEND=doppler bash "$SCRIPT" brave --mark-bad 7200 >/dev/null
-    # current=KEY_A, now rotate to KEY_B next-index — but we marked KEY_A bad...
-    # swap: switch active to KEY_B via secret_set so rotation goes B -> [C skipped if bad] -> A
-    # Easier: mark KEY_B as bad directly by temporarily making it active.
     doppler_seed "BRAVE_API_KEY" "${KEY_B}"
     env KEY_ROTATE_BACKEND=doppler bash "$SCRIPT" brave --mark-bad 7200 >/dev/null
     doppler_seed "BRAVE_API_KEY" "${KEY_A}"
     env KEY_ROTATE_BACKEND=doppler bash "$SCRIPT" brave --mark-good >/dev/null
 
-    # Pool=[A,B,C], current=A (healthy), B is OPEN. Rotate should SKIP B and pick C.
     run env KEY_ROTATE_BACKEND=doppler \
         bash "$SCRIPT" brave
     [ "$status" -eq 0 ]
@@ -1033,17 +1028,12 @@ REPO_ROOT="$BATS_TEST_DIRNAME/.."
     doppler_seed "TAVILY_API_KEY" "${KEY_A}"
     doppler_seed "TAVILY_API_KEY_POOL" "${KEY_A},${KEY_B},${KEY_C}"
 
-    # Mark KEY_B bad
     doppler_seed "TAVILY_API_KEY" "${KEY_B}"
     env KEY_ROTATE_BACKEND=doppler bash "$SCRIPT" tavily --mark-bad 7200 >/dev/null
-    # Mark KEY_C bad
     doppler_seed "TAVILY_API_KEY" "${KEY_C}"
     env KEY_ROTATE_BACKEND=doppler bash "$SCRIPT" tavily --mark-bad 7200 >/dev/null
-    # Reset active back to A, leave A CLOSED
     doppler_seed "TAVILY_API_KEY" "${KEY_A}"
 
-    # Pool=[A,B,C], current=A. B and C are OPEN. Since we walk only N-1=2 other
-    # keys, both are bad -> fall into all-open branch, pick least-bad (B or C).
     run env KEY_ROTATE_BACKEND=doppler \
         bash "$SCRIPT" tavily
     [ "$status" -eq 0 ]
@@ -1160,23 +1150,16 @@ REPO_ROOT="$BATS_TEST_DIRNAME/.."
     doppler_seed "BRAVE_API_KEY" "${KEY_A}"
     doppler_seed "BRAVE_API_KEY_POOL" "${KEY_A},${KEY_B},${KEY_C}"
 
-    # Mark KEY_B bad explicitly, even though Doppler current is KEY_A.
-    # This is the critical drift scenario: the caller knows a different key
-    # failed and wants to flag it without touching the backend pointer.
     run env KEY_ROTATE_BACKEND=doppler \
         bash "$SCRIPT" brave --mark-bad-key "${KEY_B}" 600
     [ "$status" -eq 0 ]
 
     local health_file="${MCP_KEY_HEALTH_DIR}/brave.json"
-    local fp_a fp_b
+    local fp_a fp_b state_a state_b
     fp_a="$(printf '%s' "${KEY_A}" | shasum -a 256 | cut -c1-12)"
     fp_b="$(printf '%s' "${KEY_B}" | shasum -a 256 | cut -c1-12)"
-    # KEY_A (Doppler current) must NOT have been touched
-    local state_a
     state_a="$(jq -r --arg fp "$fp_a" '.keys[$fp] // "absent"' "$health_file")"
     [ "$state_a" = "absent" ]
-    # KEY_B must be OPEN
-    local state_b
     state_b="$(jq -r --arg fp "$fp_b" '.keys[$fp].state' "$health_file")"
     [ "$state_b" = "open" ]
 }
@@ -1228,23 +1211,17 @@ REPO_ROOT="$BATS_TEST_DIRNAME/.."
     doppler_seed "BRAVE_API_KEY" "${KEY_A}"
     doppler_seed "BRAVE_API_KEY_POOL" "${KEY_A},${KEY_B},${KEY_C}"
 
-    # Drift scenario: caller says KEY_B failed, but backend is on healthy KEY_A.
-    # Expected: no rotation, KEY_B marked bad, final "Active: KEY_A".
     run env KEY_ROTATE_BACKEND=doppler \
         bash "$SCRIPT" brave --recover-from-failure "${KEY_B}" 600
     [ "$status" -eq 0 ]
     [[ "$output" == *"No rotation needed"* ]]
     [[ "$output" == *"Active: ${KEY_A}" ]]
 
-    # Doppler current must still be KEY_A
-    local new_active
+    local new_active fp state
     new_active="$(doppler_read "BRAVE_API_KEY")"
     [ "$new_active" = "${KEY_A}" ]
 
-    # KEY_B must be marked OPEN in health file
-    local fp
     fp="$(printf '%s' "${KEY_B}" | shasum -a 256 | cut -c1-12)"
-    local state
     state="$(jq -r --arg fp "$fp" '.keys[$fp].state' "${MCP_KEY_HEALTH_DIR}/brave.json")"
     [ "$state" = "open" ]
 }
@@ -1275,11 +1252,8 @@ REPO_ROOT="$BATS_TEST_DIRNAME/.."
     doppler_seed "TAVILY_API_KEY" "${KEY_A}"
     doppler_seed "TAVILY_API_KEY_POOL" "${KEY_A},${KEY_B},${KEY_C}"
 
-    # Pre-mark KEY_A as OPEN
     env KEY_ROTATE_BACKEND=doppler bash "$SCRIPT" tavily --mark-bad-key "${KEY_A}" 7200 >/dev/null
 
-    # Caller says KEY_X (hypothetical) failed. Even though current != KEY_X,
-    # current is already OPEN, so recover must rotate away from it.
     run env KEY_ROTATE_BACKEND=doppler \
         bash "$SCRIPT" tavily --recover-from-failure "some-other-key" 600
     [ "$status" -eq 0 ]
@@ -1287,7 +1261,6 @@ REPO_ROOT="$BATS_TEST_DIRNAME/.."
 
     local new_active
     new_active="$(doppler_read "TAVILY_API_KEY")"
-    # Must have moved off KEY_A
     [ "$new_active" != "${KEY_A}" ]
 }
 
@@ -1312,8 +1285,6 @@ REPO_ROOT="$BATS_TEST_DIRNAME/.."
     doppler_seed "BRAVE_API_KEY" "${KEY_A}"
     doppler_seed "BRAVE_API_KEY_POOL" "${KEY_A},${KEY_B}"
 
-    # When no failed_key is passed, recover must not take the "no rotation needed"
-    # fast path (we can't prove current is safe), so it rotates like plain --rotate.
     run env KEY_ROTATE_BACKEND=doppler \
         bash "$SCRIPT" brave --recover-from-failure "" 600
     [ "$status" -eq 0 ]
@@ -1328,8 +1299,6 @@ REPO_ROOT="$BATS_TEST_DIRNAME/.."
     doppler_seed "TAVILY_API_KEY" "${KEY_A}"
     doppler_seed "TAVILY_API_KEY_POOL" "${KEY_A},${KEY_B},${KEY_C}"
 
-    # Mark B and C both bad. Only A is CLOSED -- but A is the "failed" key,
-    # so recover must NOT pick A. Falls through to least-bad (B or C).
     env KEY_ROTATE_BACKEND=doppler bash "$SCRIPT" tavily --mark-bad-key "${KEY_B}" 7200 >/dev/null
     env KEY_ROTATE_BACKEND=doppler bash "$SCRIPT" tavily --mark-bad-key "${KEY_C}" 3600 >/dev/null
 
@@ -1338,7 +1307,6 @@ REPO_ROOT="$BATS_TEST_DIRNAME/.."
     [ "$status" -eq 0 ]
     [[ "$output" == *"circuit-open"* ]]
 
-    # Must have rotated to C (shorter TTL, least-bad)
     local new_active
     new_active="$(doppler_read "TAVILY_API_KEY")"
     [ "$new_active" = "${KEY_C}" ]
@@ -1352,7 +1320,6 @@ REPO_ROOT="$BATS_TEST_DIRNAME/.."
         bash "$SCRIPT" brave --recover-from-failure "${KEY_A}" 600
     [ "$status" -eq 0 ]
 
-    # Parseable final line in format: "Active: <key>"
     local final_active
     final_active="$(echo "$output" | awk -F': ' '/^Active: /{print $2; exit}')"
     [ "$final_active" = "${KEY_B}" ]

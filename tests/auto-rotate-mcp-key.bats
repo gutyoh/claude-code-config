@@ -222,17 +222,10 @@ setup() {
     TEST_TMPDIR="$(mktemp -d)"
     export AUTO_ROTATE_STATE_DIR="${TEST_TMPDIR}/state"
     mkdir -p "${AUTO_ROTATE_STATE_DIR}"
-    # Default: no cooldown (0 seconds) for fast tests
     export AUTO_ROTATE_COOLDOWN_SEC=0
-    # Hermetic default: disable transparent replay so tests don't hit real
-    # Tavily/Brave APIs or burn credits. Replay-path tests explicitly unset
-    # this and provide curl/key mocks.
+    # Keep replay off by default so tests don't burn real API credits.
     export AUTO_ROTATE_DISABLE_REPLAY=1
-    # Unset any real API keys inherited from the developer's shell. The hook
-    # reads TAVILY_API_KEY/BRAVE_API_KEY to learn what the MCP server ACTUALLY
-    # used, but in tests those would be real (non-fixture) values that drift
-    # the circuit-breaker fast path. Tests that want to simulate drift set
-    # these explicitly in their own invocation.
+    # Tests that want drift set TAVILY/BRAVE_API_KEY explicitly; default empty.
     unset TAVILY_API_KEY
     unset BRAVE_API_KEY
 }
@@ -826,10 +819,6 @@ teardown() {
 }
 
 @test "settings.json: PostToolUseFailure hook is configured" {
-    # Regression guard: Tavily/Brave MCP servers raise HTTP errors as thrown
-    # exceptions (which fire PostToolUseFailure, NOT PostToolUse). Without
-    # this registration the hook never runs on 432/429 and transparent
-    # recovery is impossible.
     local count
     count="$(jq '[.hooks.PostToolUseFailure[].hooks[].command] | map(select(contains("auto-rotate-mcp-key"))) | length' \
         "${REPO_ROOT}/.claude/settings.json")"
@@ -1287,13 +1276,9 @@ MOCK_EOF
 }
 
 # ==========================================================================
-# CIRCUIT BREAKER: end-to-end with real mcp-key-rotate + mock doppler
-# These tests exercise the mark-bad + skip-bad rotation integration by
-# using the real bin/mcp-key-rotate script with a mock doppler backend.
+# CIRCUIT BREAKER: e2e with real bin/mcp-key-rotate + mock doppler
 # ==========================================================================
 
-# Set up a mock doppler that stores secrets in flat files and seed the pool.
-# Leaves TEST_TMPDIR/doppler_store/ populated so helpers can read back state.
 _cb_setup_doppler_pool() {
     local service="$1" current="$2" pool="$3"
 
@@ -1333,17 +1318,9 @@ _cb_doppler_read() {
     cat "${MOCK_DOPPLER_STORE}/${name}" 2>/dev/null
 }
 
-# Drive the full hook pipeline with the circuit breaker enabled. Returns the
-# hook's exit status in `status` and its combined stdout/stderr in `output`.
-#
-# Args:
-#   $1 service    (tavily|brave)
-#   $2 tool_name  full MCP tool identifier
-#   $3 err_text   error string to put in tool_response (matched by is_quota_error)
-#   $4 env_key    optional: value to inject as TAVILY_API_KEY/BRAVE_API_KEY.
-#                 Defaults to the CURRENT value stored in the mock doppler --
-#                 simulating "MCP server inherited the same key Doppler has now".
-#                 Pass an explicit value to simulate drift (env != backend current).
+# _cb_run_hook <service> <tool_name> <err_text> [env_key]
+# env_key defaults to the mock doppler's current value (no drift); pass an
+# explicit value to simulate env != backend current.
 _cb_run_hook() {
     local service="$1" tool_name="$2" err_text="$3"
     local env_key="${4:-}"
@@ -1354,9 +1331,6 @@ _cb_run_hook() {
     upper="$(echo "${service}" | tr '[:lower:]' '[:upper:]')"
     env_var_name="${upper}_API_KEY"
 
-    # Default: use whatever the mock doppler currently holds as the "inherited"
-    # MCP env key. This mirrors the common case where the hook's env matches
-    # backend state and the hook correctly identifies the failing key.
     if [[ -z "${env_key}" ]]; then
         env_key="$(cat "${MOCK_DOPPLER_STORE}/${env_var_name}" 2>/dev/null || echo "")"
     fi
@@ -1364,8 +1338,6 @@ _cb_run_hook() {
     local input
     input="$(make_input_real "${tool_name}" "q" "${err_text}")"
 
-    # Critical: PATH has our mock doppler BEFORE system doppler.
-    # AUTO_ROTATE_DISABLE_REPLAY=1 (inherited) keeps us off the network.
     run bash -c "echo '${input}' | \
         PATH='${TEST_TMPDIR}:${PATH}' \
         MOCK_DOPPLER_STORE='${MOCK_DOPPLER_STORE}' \
@@ -1552,21 +1524,11 @@ _cb_run_hook() {
 }
 
 # ==========================================================================
-# CIRCUIT BREAKER: env-var drift scenarios (the original bug)
-# The MCP server uses $TAVILY_API_KEY / $BRAVE_API_KEY from its inherited env,
-# which was set by Claude Code at launch time. The backend "current" (Doppler
-# or dotenv) can drift from that value if an out-of-band rotation has happened.
-# These tests verify the hook uses the env-var value, not the backend current,
-# as the source of truth for "which key actually failed".
+# CIRCUIT BREAKER: env-var drift (backend current != hook env)
 # ==========================================================================
 
 @test "drift: hook marks env-key bad (NOT backend current) when they differ" {
-    # Setup: Doppler says current is KEY_C, but MCP server's env has KEY_A.
-    # This is the exact scenario the user's live session was stuck in.
     _cb_setup_doppler_pool tavily "${KEY_C}" "${KEY_A},${KEY_B},${KEY_C}"
-
-    # Hook runs with TAVILY_API_KEY=KEY_A in its inherited env. The 432 came
-    # from KEY_A, not KEY_C.
     _cb_run_hook tavily mcp__tavily__tavily_search "status code 432" "${KEY_A}"
     [ "$status" -eq 0 ]
 
@@ -1575,7 +1537,6 @@ _cb_run_hook() {
     fp_a="$(printf '%s' "${KEY_A}" | shasum -a 256 | cut -c1-12)"
     fp_c="$(printf '%s' "${KEY_C}" | shasum -a 256 | cut -c1-12)"
 
-    # KEY_A must be OPEN (it's the one that actually failed)
     local state_a
     state_a="$(jq -r --arg fp "$fp_a" '.keys[$fp].state' "$health_file")"
     [ "$state_a" = "open" ]
@@ -1672,13 +1633,7 @@ _cb_run_hook() {
 }
 
 # ==========================================================================
-# REGRESSION: hook_event_name echo (Claude Code validates event name match)
-# Claude Code rejects hook JSON output if output.hookSpecificOutput.hookEventName
-# doesn't match the event that fired the hook. Before this fix the hook
-# hardcoded "PostToolUse" in both emit_updated_output and emit_fallback_context,
-# which broke transparent replay on the PostToolUseFailure path (where MCP
-# servers like Tavily/Brave raise HTTP errors as thrown exceptions rather than
-# returning structured isError content).
+# REGRESSION: hookEventName echo (Claude Code rejects mismatches)
 # ==========================================================================
 
 @test "event name: fallback echoes PostToolUse when hook fires as PostToolUse" {
@@ -1687,7 +1642,6 @@ _cb_run_hook() {
     input="$(make_input_real "mcp__tavily__tavily_search" "q" "status code 432")"
     run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
     [ "$status" -eq 0 ]
-    # JSON output must echo the firing event name
     local emitted
     emitted="$(echo "$output" | jq -r '.hookSpecificOutput.hookEventName' 2>/dev/null)"
     [ "$emitted" = "PostToolUse" ]
@@ -1724,10 +1678,6 @@ _cb_run_hook() {
 }
 
 @test "event name: replay success on PostToolUseFailure embeds content in additionalContext (not updatedMCPToolOutput)" {
-    # Claude Code's hooks contract: updatedMCPToolOutput is silently dropped
-    # on PostToolUseFailure events. Only additionalContext reaches the model.
-    # The hook must put replayed results into additionalContext for the model
-    # to actually see recovered content.
     create_curl_mock
     export TAVILY_MOCK_STATUS=success
     unset AUTO_ROTATE_DISABLE_REPLAY
@@ -1743,22 +1693,15 @@ _cb_run_hook() {
     emitted="$(echo "$output" | jq -r '.hookSpecificOutput.hookEventName' 2>/dev/null)"
     [ "$emitted" = "PostToolUseFailure" ]
 
-    # updatedMCPToolOutput must NOT be set on the failure path (it would be
-    # dropped anyway, but emitting it wastes bytes and may confuse validators).
     has_updated_field="$(echo "$output" | jq -r '.hookSpecificOutput | has("updatedMCPToolOutput")' 2>/dev/null)"
     [ "$has_updated_field" = "false" ]
 
-    # additionalContext MUST contain the replayed result content. The curl
-    # mock returns results with "Mocked Result 1" as the title.
     ctx="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null)"
     [[ "$ctx" == *"Mocked Result 1"* ]]
     [[ "$ctx" == *"RECOVERED RESULTS"* ]]
 }
 
 @test "event name: PostToolUseFailure additionalContext stays under 10K char cap" {
-    # Claude Code caps additionalContext at 10,000 chars (larger content is
-    # written to a file reference). This test guards against regressions
-    # where a large replayed response would push us over the cap.
     create_curl_mock
     export TAVILY_MOCK_STATUS=success
     unset AUTO_ROTATE_DISABLE_REPLAY
@@ -1772,13 +1715,10 @@ _cb_run_hook() {
 
     local ctx_len
     ctx_len="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext | length' 2>/dev/null)"
-    # Budget: 10000 hard cap minus ~500 chars for safety margin
     [ "$ctx_len" -lt 10000 ]
 }
 
 @test "event name: PostToolUseFailure replay truncates huge content with marker" {
-    # Force a mock that returns a huge response; verify the hook truncates
-    # and includes a visible truncation marker in additionalContext.
     local huge_mock="${TEST_TMPDIR}/curl"
     cat > "${huge_mock}" <<'MOCK_EOF'
 #!/usr/bin/env bash
@@ -1831,14 +1771,12 @@ MOCK_EOF
     [ "$emitted" = "PostToolUseFailure" ]
 
     ctx="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null)"
-    # Brave mock returns "Brave Mock 1" / "Brave Mock 2" titles
     [[ "$ctx" == *"Brave Mock 1"* ]]
     [[ "$ctx" == *"RECOVERED RESULTS"* ]]
 }
 
 @test "event name: cooldown path echoes correct event name" {
     create_rotate_mock
-    # Prime cooldown so the hook takes the cooldown branch
     mkdir -p "${AUTO_ROTATE_STATE_DIR}"
     date +%s > "${AUTO_ROTATE_STATE_DIR}/mcp-auto-rotate-tavily.ts"
     export AUTO_ROTATE_COOLDOWN_SEC=3600
@@ -1853,8 +1791,6 @@ MOCK_EOF
 }
 
 @test "event name: no hook_event_name in input defaults to PostToolUse" {
-    # Older hook payloads may omit hook_event_name. The hook must degrade to
-    # PostToolUse so existing integrations don't break.
     create_rotate_mock
     local input
     input='{"tool_name":"mcp__tavily__tavily_search","tool_input":{"query":"q"},"tool_response":{"content":[{"type":"text","text":"status code 432"}],"isError":true}}'
