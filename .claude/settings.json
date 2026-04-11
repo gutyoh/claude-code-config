@@ -63,6 +63,17 @@
         ]
       }
     ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "mcp__(tavily|brave-search)__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/auto-rotate-mcp-key.sh"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "matcher": "",

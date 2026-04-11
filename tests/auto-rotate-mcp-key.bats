@@ -78,6 +78,31 @@ make_input_real() {
         }'
 }
 
+# Same as make_input_real but sets hook_event_name to PostToolUseFailure to
+# simulate the failure-path event Claude Code fires when an MCP tool throws
+# (e.g. Tavily/Brave raise on 432/429 instead of returning isError content).
+make_input_failure() {
+    local tool_name="$1" query="$2" err_text="$3"
+    jq -n \
+        --arg tn "${tool_name}" \
+        --arg q "${query}" \
+        --arg e "${err_text}" \
+        '{
+            session_id: "test-session",
+            transcript_path: "/tmp/fake-transcript.jsonl",
+            cwd: "/tmp",
+            permission_mode: "default",
+            hook_event_name: "PostToolUseFailure",
+            tool_name: $tn,
+            tool_input: { query: $q },
+            tool_response: {
+                content: [ { type: "text", text: $e } ],
+                isError: true
+            },
+            tool_use_id: "toolu_test_01"
+        }'
+}
+
 # Create a curl mock that returns canned Tavily and Brave JSON without
 # hitting the network. Placed in TEST_TMPDIR and picked up via PATH.
 # Controlled by env vars so tests can exercise success/failure paths:
@@ -203,6 +228,13 @@ setup() {
     # Tavily/Brave APIs or burn credits. Replay-path tests explicitly unset
     # this and provide curl/key mocks.
     export AUTO_ROTATE_DISABLE_REPLAY=1
+    # Unset any real API keys inherited from the developer's shell. The hook
+    # reads TAVILY_API_KEY/BRAVE_API_KEY to learn what the MCP server ACTUALLY
+    # used, but in tests those would be real (non-fixture) values that drift
+    # the circuit-breaker fast path. Tests that want to simulate drift set
+    # these explicitly in their own invocation.
+    unset TAVILY_API_KEY
+    unset BRAVE_API_KEY
 }
 
 teardown() {
@@ -718,6 +750,7 @@ teardown() {
         KEY_ROTATE_BACKEND=dotenv \
         KEY_ROTATE_DOTENV='${test_dotenv}' \
         MCP_KEYS_ENV_FILE='${TEST_TMPDIR}/mcp-keys.env' \
+        MCP_KEY_HEALTH_DIR='${TEST_TMPDIR}/health' \
         PATH='${REPO_ROOT}/bin:${PATH}' \
         bash '$HOOK'"
     [ "$status" -eq 0 ]
@@ -742,6 +775,7 @@ teardown() {
         KEY_ROTATE_BACKEND=dotenv \
         KEY_ROTATE_DOTENV='${test_dotenv}' \
         MCP_KEYS_ENV_FILE='${TEST_TMPDIR}/mcp-keys.env' \
+        MCP_KEY_HEALTH_DIR='${TEST_TMPDIR}/health' \
         PATH='${REPO_ROOT}/bin:${PATH}' \
         bash '$HOOK'"
     [ "$status" -eq 0 ]
@@ -789,6 +823,25 @@ teardown() {
     if echo "Bash" | grep -qE "${matcher}" 2>/dev/null; then
         false  # Should not match
     fi
+}
+
+@test "settings.json: PostToolUseFailure hook is configured" {
+    # Regression guard: Tavily/Brave MCP servers raise HTTP errors as thrown
+    # exceptions (which fire PostToolUseFailure, NOT PostToolUse). Without
+    # this registration the hook never runs on 432/429 and transparent
+    # recovery is impossible.
+    local count
+    count="$(jq '[.hooks.PostToolUseFailure[].hooks[].command] | map(select(contains("auto-rotate-mcp-key"))) | length' \
+        "${REPO_ROOT}/.claude/settings.json")"
+    [ "$count" = "1" ]
+}
+
+@test "settings.json: PostToolUseFailure matcher covers tavily and brave-search" {
+    local matcher
+    matcher="$(jq -r '.hooks.PostToolUseFailure[] | select(.hooks[].command | contains("auto-rotate-mcp-key")) | .matcher' \
+        "${REPO_ROOT}/.claude/settings.json")"
+    echo "mcp__tavily__tavily_search" | grep -qE "${matcher}"
+    echo "mcp__brave-search__brave_web_search" | grep -qE "${matcher}"
 }
 
 # ==========================================================================
@@ -1231,4 +1284,583 @@ MOCK_EOF
     [ "$status" -eq 0 ]
     # Must NOT contain the burn guard's stderr message
     [[ "$output" != *"CURL WAS CALLED"* ]]
+}
+
+# ==========================================================================
+# CIRCUIT BREAKER: end-to-end with real mcp-key-rotate + mock doppler
+# These tests exercise the mark-bad + skip-bad rotation integration by
+# using the real bin/mcp-key-rotate script with a mock doppler backend.
+# ==========================================================================
+
+# Set up a mock doppler that stores secrets in flat files and seed the pool.
+# Leaves TEST_TMPDIR/doppler_store/ populated so helpers can read back state.
+_cb_setup_doppler_pool() {
+    local service="$1" current="$2" pool="$3"
+
+    mkdir -p "${TEST_TMPDIR}/doppler_store"
+    cat > "${TEST_TMPDIR}/doppler" <<'MOCK_EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "secrets" ]]; then
+    if [[ "${2:-}" == "get" ]]; then
+        local_name="${3:-}"
+        store_file="${MOCK_DOPPLER_STORE}/${local_name}"
+        if [[ -f "${store_file}" ]]; then
+            cat "${store_file}"
+        else
+            exit 1
+        fi
+    elif [[ "${2:-}" == "set" ]]; then
+        local_pair="${3:-}"
+        local_name="${local_pair%%=*}"
+        local_value="${local_pair#*=}"
+        echo -n "${local_value}" > "${MOCK_DOPPLER_STORE}/${local_name}"
+    fi
+fi
+MOCK_EOF
+    chmod +x "${TEST_TMPDIR}/doppler"
+    export MOCK_DOPPLER_STORE="${TEST_TMPDIR}/doppler_store"
+
+    # Seed pool contents
+    local upper
+    upper="$(echo "${service}" | tr '[:lower:]' '[:upper:]')"
+    echo -n "${current}" > "${MOCK_DOPPLER_STORE}/${upper}_API_KEY"
+    echo -n "${pool}" > "${MOCK_DOPPLER_STORE}/${upper}_API_KEY_POOL"
+}
+
+_cb_doppler_read() {
+    local name="$1"
+    cat "${MOCK_DOPPLER_STORE}/${name}" 2>/dev/null
+}
+
+# Drive the full hook pipeline with the circuit breaker enabled. Returns the
+# hook's exit status in `status` and its combined stdout/stderr in `output`.
+#
+# Args:
+#   $1 service    (tavily|brave)
+#   $2 tool_name  full MCP tool identifier
+#   $3 err_text   error string to put in tool_response (matched by is_quota_error)
+#   $4 env_key    optional: value to inject as TAVILY_API_KEY/BRAVE_API_KEY.
+#                 Defaults to the CURRENT value stored in the mock doppler --
+#                 simulating "MCP server inherited the same key Doppler has now".
+#                 Pass an explicit value to simulate drift (env != backend current).
+_cb_run_hook() {
+    local service="$1" tool_name="$2" err_text="$3"
+    local env_key="${4:-}"
+    local health_dir="${TEST_TMPDIR}/health"
+    mkdir -p "${health_dir}"
+
+    local upper env_var_name
+    upper="$(echo "${service}" | tr '[:lower:]' '[:upper:]')"
+    env_var_name="${upper}_API_KEY"
+
+    # Default: use whatever the mock doppler currently holds as the "inherited"
+    # MCP env key. This mirrors the common case where the hook's env matches
+    # backend state and the hook correctly identifies the failing key.
+    if [[ -z "${env_key}" ]]; then
+        env_key="$(cat "${MOCK_DOPPLER_STORE}/${env_var_name}" 2>/dev/null || echo "")"
+    fi
+
+    local input
+    input="$(make_input_real "${tool_name}" "q" "${err_text}")"
+
+    # Critical: PATH has our mock doppler BEFORE system doppler.
+    # AUTO_ROTATE_DISABLE_REPLAY=1 (inherited) keeps us off the network.
+    run bash -c "echo '${input}' | \
+        PATH='${TEST_TMPDIR}:${PATH}' \
+        MOCK_DOPPLER_STORE='${MOCK_DOPPLER_STORE}' \
+        KEY_ROTATE_BACKEND=doppler \
+        MCP_KEY_HEALTH_DIR='${health_dir}' \
+        ${env_var_name}='${env_key}' \
+        bash '$HOOK'"
+}
+
+@test "circuit: hook marks current key bad before rotating on 432" {
+    _cb_setup_doppler_pool tavily "${KEY_A}" "${KEY_A},${KEY_B},${KEY_C}"
+
+    _cb_run_hook tavily mcp__tavily__tavily_search "status code 432"
+    [ "$status" -eq 0 ]
+
+    # Health file should exist and mark KEY_A as OPEN
+    local health_file="${TEST_TMPDIR}/health/tavily.json"
+    [ -f "$health_file" ]
+    local fp
+    fp="$(printf '%s' "${KEY_A}" | shasum -a 256 | cut -c1-12)"
+    local state
+    state="$(jq -r --arg fp "$fp" '.keys[$fp].state' "$health_file")"
+    [ "$state" = "open" ]
+}
+
+@test "circuit: hook rotates A->B when pool is fresh" {
+    _cb_setup_doppler_pool brave "${KEY_A}" "${KEY_A},${KEY_B},${KEY_C}"
+
+    _cb_run_hook brave mcp__brave-search__brave_web_search "429 Too Many Requests"
+    [ "$status" -eq 0 ]
+
+    local new_active
+    new_active="$(_cb_doppler_read BRAVE_API_KEY)"
+    [ "$new_active" = "${KEY_B}" ]
+}
+
+@test "circuit: hook SKIPS pre-marked bad key and lands on healthy C" {
+    _cb_setup_doppler_pool brave "${KEY_A}" "${KEY_A},${KEY_B},${KEY_C}"
+
+    # Pre-mark KEY_B as OPEN with a long TTL so the hook must skip it.
+    echo -n "${KEY_B}" > "${MOCK_DOPPLER_STORE}/BRAVE_API_KEY"
+    env PATH="${TEST_TMPDIR}:${PATH}" \
+        MOCK_DOPPLER_STORE="${MOCK_DOPPLER_STORE}" \
+        KEY_ROTATE_BACKEND=doppler \
+        MCP_KEY_HEALTH_DIR="${TEST_TMPDIR}/health" \
+        bash "${REPO_ROOT}/bin/mcp-key-rotate" brave --mark-bad 7200 >/dev/null
+    echo -n "${KEY_A}" > "${MOCK_DOPPLER_STORE}/BRAVE_API_KEY"
+
+    _cb_run_hook brave mcp__brave-search__brave_web_search "status code 429"
+    [ "$status" -eq 0 ]
+
+    local new_active
+    new_active="$(_cb_doppler_read BRAVE_API_KEY)"
+    # Hook first marks A bad (via --mark-bad), then rotates from A.
+    # B is already OPEN, so rotation must skip B and land on C.
+    [ "$new_active" = "${KEY_C}" ]
+}
+
+@test "circuit: hook rotation is idempotent against repeated 432s" {
+    _cb_setup_doppler_pool tavily "${KEY_A}" "${KEY_A},${KEY_B},${KEY_C}"
+
+    # First invocation: should mark A bad and rotate to B
+    _cb_run_hook tavily mcp__tavily__tavily_search "Quota exceeded"
+    [ "$status" -eq 0 ]
+    local after1
+    after1="$(_cb_doppler_read TAVILY_API_KEY)"
+    [ "$after1" = "${KEY_B}" ]
+
+    # Clear cooldown so second invocation actually rotates (simulating time passing)
+    rm -f "${AUTO_ROTATE_STATE_DIR}/mcp-auto-rotate-tavily.ts"
+
+    # Second invocation with B now active: should mark B bad and rotate to C
+    # (NOT back to A, which is already in circuit-open state).
+    _cb_run_hook tavily mcp__tavily__tavily_search "Quota exceeded"
+    [ "$status" -eq 0 ]
+    local after2
+    after2="$(_cb_doppler_read TAVILY_API_KEY)"
+    [ "$after2" = "${KEY_C}" ]
+
+    # Both A and B should now be in circuit-open state in the health file
+    local health_file="${TEST_TMPDIR}/health/tavily.json"
+    local fp_a fp_b
+    fp_a="$(printf '%s' "${KEY_A}" | shasum -a 256 | cut -c1-12)"
+    fp_b="$(printf '%s' "${KEY_B}" | shasum -a 256 | cut -c1-12)"
+    local state_a state_b
+    state_a="$(jq -r --arg fp "$fp_a" '.keys[$fp].state' "$health_file")"
+    state_b="$(jq -r --arg fp "$fp_b" '.keys[$fp].state' "$health_file")"
+    [ "$state_a" = "open" ]
+    [ "$state_b" = "open" ]
+}
+
+@test "circuit: hook all-keys-open picks least-bad and falls through to Claude" {
+    _cb_setup_doppler_pool tavily "${KEY_A}" "${KEY_A},${KEY_B},${KEY_C}"
+
+    # Pre-mark ALL three keys as OPEN, with distinct cooldown times.
+    local key ttl
+    for key in "${KEY_A}:7200" "${KEY_B}:3600" "${KEY_C}:7200"; do
+        local k="${key%%:*}"
+        ttl="${key##*:}"
+        echo -n "${k}" > "${MOCK_DOPPLER_STORE}/TAVILY_API_KEY"
+        env PATH="${TEST_TMPDIR}:${PATH}" \
+            MOCK_DOPPLER_STORE="${MOCK_DOPPLER_STORE}" \
+            KEY_ROTATE_BACKEND=doppler \
+            MCP_KEY_HEALTH_DIR="${TEST_TMPDIR}/health" \
+            bash "${REPO_ROOT}/bin/mcp-key-rotate" tavily --mark-bad "${ttl}" >/dev/null
+    done
+    echo -n "${KEY_A}" > "${MOCK_DOPPLER_STORE}/TAVILY_API_KEY"
+
+    _cb_run_hook tavily mcp__tavily__tavily_search "status code 432"
+    [ "$status" -eq 0 ]
+
+    # Hook should still succeed (exits 0), emit additionalContext for Claude,
+    # and fall through to least-bad key (KEY_B has shortest TTL).
+    local new_active
+    new_active="$(_cb_doppler_read TAVILY_API_KEY)"
+    [ "$new_active" = "${KEY_B}" ]
+
+    # Output should contain the all-open warning from mcp-key-rotate
+    [[ "$output" == *"circuit-open"* ]] || [[ "$output" == *"least-bad"* ]]
+}
+
+@test "circuit: hook marks NEWLY-ROTATED key bad when replay also fails" {
+    # This tests the second mark-bad call in the hook: after rotation, if replay
+    # also fails, the new key gets flagged so subsequent rotations skip it.
+    _cb_setup_doppler_pool brave "${KEY_A}" "${KEY_A},${KEY_B}"
+
+    # With DISABLE_REPLAY=1 (set in setup), try_replay returns 1 -> second mark-bad path fires.
+    _cb_run_hook brave mcp__brave-search__brave_web_search "status code 429"
+    [ "$status" -eq 0 ]
+
+    local health_file="${TEST_TMPDIR}/health/brave.json"
+    [ -f "$health_file" ]
+
+    # Both A (marked before rotate) and B (marked after failed replay) should be OPEN
+    local fp_a fp_b
+    fp_a="$(printf '%s' "${KEY_A}" | shasum -a 256 | cut -c1-12)"
+    fp_b="$(printf '%s' "${KEY_B}" | shasum -a 256 | cut -c1-12)"
+    local state_a state_b
+    state_a="$(jq -r --arg fp "$fp_a" '.keys[$fp].state' "$health_file")"
+    state_b="$(jq -r --arg fp "$fp_b" '.keys[$fp].state' "$health_file")"
+    [ "$state_a" = "open" ]
+    [ "$state_b" = "open" ]
+}
+
+@test "circuit: hook health state file stores fingerprints, not raw keys" {
+    _cb_setup_doppler_pool tavily "${KEY_A}" "${KEY_A},${KEY_B},${KEY_C}"
+
+    _cb_run_hook tavily mcp__tavily__tavily_search "status code 432"
+    [ "$status" -eq 0 ]
+
+    local health_file="${TEST_TMPDIR}/health/tavily.json"
+    # Raw key values must NEVER appear in the health state file
+    ! grep -q "${KEY_A}" "$health_file"
+    ! grep -q "${KEY_B}" "$health_file"
+    ! grep -q "${KEY_C}" "$health_file"
+}
+
+@test "circuit: bad-key TTL is configurable via AUTO_ROTATE_BAD_KEY_TTL_SEC" {
+    _cb_setup_doppler_pool brave "${KEY_A}" "${KEY_A},${KEY_B}"
+
+    local input
+    input="$(make_input_real "mcp__brave-search__brave_web_search" "q" "status code 429")"
+    local before
+    before="$(date +%s)"
+
+    run bash -c "echo '${input}' | \
+        PATH='${TEST_TMPDIR}:${PATH}' \
+        MOCK_DOPPLER_STORE='${MOCK_DOPPLER_STORE}' \
+        KEY_ROTATE_BACKEND=doppler \
+        MCP_KEY_HEALTH_DIR='${TEST_TMPDIR}/health' \
+        AUTO_ROTATE_BAD_KEY_TTL_SEC=7200 \
+        BRAVE_API_KEY='${KEY_A}' \
+        bash '$HOOK'"
+    [ "$status" -eq 0 ]
+
+    local health_file="${TEST_TMPDIR}/health/brave.json"
+    local fp
+    fp="$(printf '%s' "${KEY_A}" | shasum -a 256 | cut -c1-12)"
+    local ou
+    ou="$(jq -r --arg fp "$fp" '.keys[$fp].open_until' "$health_file")"
+    local diff=$((ou - before))
+    [ "$diff" -ge 7198 ]
+    [ "$diff" -le 7210 ]
+}
+
+# ==========================================================================
+# CIRCUIT BREAKER: env-var drift scenarios (the original bug)
+# The MCP server uses $TAVILY_API_KEY / $BRAVE_API_KEY from its inherited env,
+# which was set by Claude Code at launch time. The backend "current" (Doppler
+# or dotenv) can drift from that value if an out-of-band rotation has happened.
+# These tests verify the hook uses the env-var value, not the backend current,
+# as the source of truth for "which key actually failed".
+# ==========================================================================
+
+@test "drift: hook marks env-key bad (NOT backend current) when they differ" {
+    # Setup: Doppler says current is KEY_C, but MCP server's env has KEY_A.
+    # This is the exact scenario the user's live session was stuck in.
+    _cb_setup_doppler_pool tavily "${KEY_C}" "${KEY_A},${KEY_B},${KEY_C}"
+
+    # Hook runs with TAVILY_API_KEY=KEY_A in its inherited env. The 432 came
+    # from KEY_A, not KEY_C.
+    _cb_run_hook tavily mcp__tavily__tavily_search "status code 432" "${KEY_A}"
+    [ "$status" -eq 0 ]
+
+    local health_file="${TEST_TMPDIR}/health/tavily.json"
+    local fp_a fp_c
+    fp_a="$(printf '%s' "${KEY_A}" | shasum -a 256 | cut -c1-12)"
+    fp_c="$(printf '%s' "${KEY_C}" | shasum -a 256 | cut -c1-12)"
+
+    # KEY_A must be OPEN (it's the one that actually failed)
+    local state_a
+    state_a="$(jq -r --arg fp "$fp_a" '.keys[$fp].state' "$health_file")"
+    [ "$state_a" = "open" ]
+
+    # KEY_C (backend current) must NOT have been touched -- this was the
+    # critical bug: the old code marked Doppler current bad, which was the
+    # only healthy key.
+    local state_c
+    state_c="$(jq -r --arg fp "$fp_c" '.keys[$fp] // "absent"' "$health_file")"
+    [ "$state_c" = "absent" ]
+}
+
+@test "drift: hook does NOT rotate when backend current is already healthy" {
+    # Doppler is already on healthy KEY_C (out-of-band rotation happened).
+    # Env has KEY_A (stale, exhausted). Hook should leave Doppler alone.
+    _cb_setup_doppler_pool tavily "${KEY_C}" "${KEY_A},${KEY_B},${KEY_C}"
+
+    _cb_run_hook tavily mcp__tavily__tavily_search "status code 432" "${KEY_A}"
+    [ "$status" -eq 0 ]
+
+    # Doppler must remain on KEY_C
+    local new_active
+    new_active="$(_cb_doppler_read TAVILY_API_KEY)"
+    [ "$new_active" = "${KEY_C}" ]
+
+    # Hook output must say "No rotation needed"
+    [[ "$output" == *"No rotation needed"* ]]
+}
+
+@test "drift: subsequent call (with new env) uses healthy key from prior recover" {
+    # Simulates: session 1 crashed with KEY_A, Doppler was advanced to KEY_B by
+    # session 1's hook. Session 2 starts with KEY_B in env (new launch). Now
+    # session 2 also hits 432 (KEY_B also exhausted). Hook should mark KEY_B
+    # bad and rotate to KEY_C.
+    _cb_setup_doppler_pool tavily "${KEY_B}" "${KEY_A},${KEY_B},${KEY_C}"
+    # Pre-mark KEY_A as already bad from "session 1"
+    env PATH="${TEST_TMPDIR}:${PATH}" \
+        MOCK_DOPPLER_STORE="${MOCK_DOPPLER_STORE}" \
+        KEY_ROTATE_BACKEND=doppler \
+        MCP_KEY_HEALTH_DIR="${TEST_TMPDIR}/health" \
+        bash "${REPO_ROOT}/bin/mcp-key-rotate" tavily --mark-bad-key "${KEY_A}" 7200 >/dev/null
+
+    # Session 2: env has KEY_B, 432 happens
+    _cb_run_hook tavily mcp__tavily__tavily_search "status code 432" "${KEY_B}"
+    [ "$status" -eq 0 ]
+
+    # Must rotate from B to C (skipping already-bad A)
+    local new_active
+    new_active="$(_cb_doppler_read TAVILY_API_KEY)"
+    [ "$new_active" = "${KEY_C}" ]
+
+    # Both A and B must be OPEN
+    local health_file="${TEST_TMPDIR}/health/tavily.json"
+    local fp_a fp_b
+    fp_a="$(printf '%s' "${KEY_A}" | shasum -a 256 | cut -c1-12)"
+    fp_b="$(printf '%s' "${KEY_B}" | shasum -a 256 | cut -c1-12)"
+    local state_a state_b
+    state_a="$(jq -r --arg fp "$fp_a" '.keys[$fp].state' "$health_file")"
+    state_b="$(jq -r --arg fp "$fp_b" '.keys[$fp].state' "$health_file")"
+    [ "$state_a" = "open" ]
+    [ "$state_b" = "open" ]
+}
+
+@test "drift: env key matches backend current (no drift) still rotates" {
+    # Baseline: the "no drift" case -- env and backend agree. Should still
+    # rotate because current == failed_key, so fast path doesn't apply.
+    _cb_setup_doppler_pool brave "${KEY_A}" "${KEY_A},${KEY_B}"
+
+    _cb_run_hook brave mcp__brave-search__brave_web_search "status code 429" "${KEY_A}"
+    [ "$status" -eq 0 ]
+
+    local new_active
+    new_active="$(_cb_doppler_read BRAVE_API_KEY)"
+    [ "$new_active" = "${KEY_B}" ]
+    [[ "$output" == *"Rotated brave"* ]]
+}
+
+@test "drift: hook does not mark wrong key on drift scenario (regression guard)" {
+    # Regression guard against the pre-fix bug: if backend current drifts,
+    # the hook must NOT flag the backend current as bad. This is the exact
+    # check that would have caught the original drift bug.
+    _cb_setup_doppler_pool brave "${KEY_B}" "${KEY_A},${KEY_B}"
+
+    _cb_run_hook brave mcp__brave-search__brave_web_search "status code 429" "${KEY_A}"
+    [ "$status" -eq 0 ]
+
+    # KEY_B (Doppler current AND the healthy one) must NEVER be marked bad
+    local health_file="${TEST_TMPDIR}/health/brave.json"
+    local fp_b
+    fp_b="$(printf '%s' "${KEY_B}" | shasum -a 256 | cut -c1-12)"
+    local state_b
+    state_b="$(jq -r --arg fp "$fp_b" '.keys[$fp] // "absent"' "$health_file")"
+    [ "$state_b" = "absent" ]
+}
+
+# ==========================================================================
+# REGRESSION: hook_event_name echo (Claude Code validates event name match)
+# Claude Code rejects hook JSON output if output.hookSpecificOutput.hookEventName
+# doesn't match the event that fired the hook. Before this fix the hook
+# hardcoded "PostToolUse" in both emit_updated_output and emit_fallback_context,
+# which broke transparent replay on the PostToolUseFailure path (where MCP
+# servers like Tavily/Brave raise HTTP errors as thrown exceptions rather than
+# returning structured isError content).
+# ==========================================================================
+
+@test "event name: fallback echoes PostToolUse when hook fires as PostToolUse" {
+    create_rotate_mock
+    local input
+    input="$(make_input_real "mcp__tavily__tavily_search" "q" "status code 432")"
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+    # JSON output must echo the firing event name
+    local emitted
+    emitted="$(echo "$output" | jq -r '.hookSpecificOutput.hookEventName' 2>/dev/null)"
+    [ "$emitted" = "PostToolUse" ]
+}
+
+@test "event name: fallback echoes PostToolUseFailure when hook fires as PostToolUseFailure" {
+    create_rotate_mock
+    local input
+    input="$(make_input_failure "mcp__tavily__tavily_search" "q" "status code 432")"
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+    local emitted
+    emitted="$(echo "$output" | jq -r '.hookSpecificOutput.hookEventName' 2>/dev/null)"
+    [ "$emitted" = "PostToolUseFailure" ]
+}
+
+@test "event name: replay success echoes PostToolUse" {
+    create_curl_mock
+    export TAVILY_MOCK_STATUS=success
+    export AUTO_ROTATE_DISABLE_REPLAY=""
+    unset AUTO_ROTATE_DISABLE_REPLAY
+    export AUTO_ROTATE_REPLAY_KEY_OVERRIDE="fake-new-key-for-test"
+    create_rotate_mock
+
+    local input
+    input="$(make_input_real "mcp__tavily__tavily_search" "test-query" "status code 432")"
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+    local emitted has_updated
+    emitted="$(echo "$output" | jq -r '.hookSpecificOutput.hookEventName' 2>/dev/null)"
+    [ "$emitted" = "PostToolUse" ]
+    has_updated="$(echo "$output" | jq -r '.hookSpecificOutput.updatedMCPToolOutput | length' 2>/dev/null)"
+    [ "$has_updated" -ge 1 ]
+}
+
+@test "event name: replay success on PostToolUseFailure embeds content in additionalContext (not updatedMCPToolOutput)" {
+    # Claude Code's hooks contract: updatedMCPToolOutput is silently dropped
+    # on PostToolUseFailure events. Only additionalContext reaches the model.
+    # The hook must put replayed results into additionalContext for the model
+    # to actually see recovered content.
+    create_curl_mock
+    export TAVILY_MOCK_STATUS=success
+    unset AUTO_ROTATE_DISABLE_REPLAY
+    export AUTO_ROTATE_REPLAY_KEY_OVERRIDE="fake-new-key-for-test"
+    create_rotate_mock
+
+    local input
+    input="$(make_input_failure "mcp__tavily__tavily_search" "test-query" "status code 432")"
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+
+    local emitted ctx has_updated_field
+    emitted="$(echo "$output" | jq -r '.hookSpecificOutput.hookEventName' 2>/dev/null)"
+    [ "$emitted" = "PostToolUseFailure" ]
+
+    # updatedMCPToolOutput must NOT be set on the failure path (it would be
+    # dropped anyway, but emitting it wastes bytes and may confuse validators).
+    has_updated_field="$(echo "$output" | jq -r '.hookSpecificOutput | has("updatedMCPToolOutput")' 2>/dev/null)"
+    [ "$has_updated_field" = "false" ]
+
+    # additionalContext MUST contain the replayed result content. The curl
+    # mock returns results with "Mocked Result 1" as the title.
+    ctx="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null)"
+    [[ "$ctx" == *"Mocked Result 1"* ]]
+    [[ "$ctx" == *"RECOVERED RESULTS"* ]]
+}
+
+@test "event name: PostToolUseFailure additionalContext stays under 10K char cap" {
+    # Claude Code caps additionalContext at 10,000 chars (larger content is
+    # written to a file reference). This test guards against regressions
+    # where a large replayed response would push us over the cap.
+    create_curl_mock
+    export TAVILY_MOCK_STATUS=success
+    unset AUTO_ROTATE_DISABLE_REPLAY
+    export AUTO_ROTATE_REPLAY_KEY_OVERRIDE="fake-new-key-for-test"
+    create_rotate_mock
+
+    local input
+    input="$(make_input_failure "mcp__tavily__tavily_search" "test-query" "status code 432")"
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+
+    local ctx_len
+    ctx_len="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext | length' 2>/dev/null)"
+    # Budget: 10000 hard cap minus ~500 chars for safety margin
+    [ "$ctx_len" -lt 10000 ]
+}
+
+@test "event name: PostToolUseFailure replay truncates huge content with marker" {
+    # Force a mock that returns a huge response; verify the hook truncates
+    # and includes a visible truncation marker in additionalContext.
+    local huge_mock="${TEST_TMPDIR}/curl"
+    cat > "${huge_mock}" <<'MOCK_EOF'
+#!/usr/bin/env bash
+args=("$@")
+url=""
+for a in "${args[@]}"; do
+    case "$a" in https://*|http://*) url="$a" ;; esac
+done
+if [[ "$url" == *"api.tavily.com/search"* ]]; then
+    # Generate a 20KB result text (> 8500 truncation threshold)
+    big="$(printf 'LONG%.0s' {1..3000})"
+    jq -n --arg b "$big" '{query: "big", results: [{title: $b, url: "http://e.com", content: $b}]}'
+    exit 0
+fi
+exit 99
+MOCK_EOF
+    chmod +x "${huge_mock}"
+
+    unset AUTO_ROTATE_DISABLE_REPLAY
+    export AUTO_ROTATE_REPLAY_KEY_OVERRIDE="fake-key"
+    create_rotate_mock
+
+    local input
+    input="$(make_input_failure "mcp__tavily__tavily_search" "q" "status code 432")"
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+
+    local ctx_len ctx
+    ctx_len="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext | length' 2>/dev/null)"
+    [ "$ctx_len" -lt 10000 ]
+
+    ctx="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null)"
+    [[ "$ctx" == *"truncated"* ]]
+}
+
+@test "event name: brave replay on PostToolUseFailure embeds content in additionalContext" {
+    create_curl_mock
+    export BRAVE_MOCK_STATUS=success
+    unset AUTO_ROTATE_DISABLE_REPLAY
+    export AUTO_ROTATE_REPLAY_KEY_OVERRIDE="fake-new-brave-key"
+    create_rotate_mock
+
+    local input
+    input="$(make_input_failure "mcp__brave-search__brave_web_search" "test-query" "status code 429")"
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+
+    local emitted ctx
+    emitted="$(echo "$output" | jq -r '.hookSpecificOutput.hookEventName' 2>/dev/null)"
+    [ "$emitted" = "PostToolUseFailure" ]
+
+    ctx="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null)"
+    # Brave mock returns "Brave Mock 1" / "Brave Mock 2" titles
+    [[ "$ctx" == *"Brave Mock 1"* ]]
+    [[ "$ctx" == *"RECOVERED RESULTS"* ]]
+}
+
+@test "event name: cooldown path echoes correct event name" {
+    create_rotate_mock
+    # Prime cooldown so the hook takes the cooldown branch
+    mkdir -p "${AUTO_ROTATE_STATE_DIR}"
+    date +%s > "${AUTO_ROTATE_STATE_DIR}/mcp-auto-rotate-tavily.ts"
+    export AUTO_ROTATE_COOLDOWN_SEC=3600
+
+    local input
+    input="$(make_input_failure "mcp__tavily__tavily_search" "q" "status code 432")"
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+    local emitted
+    emitted="$(echo "$output" | jq -r '.hookSpecificOutput.hookEventName' 2>/dev/null)"
+    [ "$emitted" = "PostToolUseFailure" ]
+}
+
+@test "event name: no hook_event_name in input defaults to PostToolUse" {
+    # Older hook payloads may omit hook_event_name. The hook must degrade to
+    # PostToolUse so existing integrations don't break.
+    create_rotate_mock
+    local input
+    input='{"tool_name":"mcp__tavily__tavily_search","tool_input":{"query":"q"},"tool_response":{"content":[{"type":"text","text":"status code 432"}],"isError":true}}'
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+    local emitted
+    emitted="$(echo "$output" | jq -r '.hookSpecificOutput.hookEventName' 2>/dev/null)"
+    [ "$emitted" = "PostToolUse" ]
 }

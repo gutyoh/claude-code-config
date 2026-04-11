@@ -28,9 +28,11 @@
 #   AUTO_ROTATE_REPLAY_TIMEOUT     curl --max-time for replay (default: 15)
 #   AUTO_ROTATE_REPLAY_KEY_OVERRIDE  Test hook: use this key instead of reading backend
 #   AUTO_ROTATE_DISABLE_REPLAY     If set, skip replay entirely (fallback path only)
+#   AUTO_ROTATE_BAD_KEY_TTL_SEC    TTL when marking a failing key OPEN (default: 3600)
 #   KEY_ROTATE_DOPPLER_PROJECT     Doppler project name (default: claude-code-config)
 #   KEY_ROTATE_DOPPLER_CONFIG      Doppler config name (default: dev)
 #   KEY_ROTATE_DOTENV              .env file path for dotenv backend
+#   MCP_KEY_HEALTH_DIR             Health state dir (default: ~/.claude/state)
 #
 # Wired in .claude/settings.json as PostToolUse with matcher:
 #   mcp__(tavily|brave-search)__.*
@@ -44,6 +46,7 @@ set -euo pipefail
 readonly COOLDOWN_SEC="${AUTO_ROTATE_COOLDOWN_SEC:-300}"
 readonly STATE_DIR="${AUTO_ROTATE_STATE_DIR:-/tmp}"
 readonly REPLAY_TIMEOUT="${AUTO_ROTATE_REPLAY_TIMEOUT:-15}"
+readonly BAD_KEY_TTL_SEC="${AUTO_ROTATE_BAD_KEY_TTL_SEC:-3600}"
 readonly DOPPLER_PROJECT="${KEY_ROTATE_DOPPLER_PROJECT:-claude-code-config}"
 readonly DOPPLER_CONFIG="${KEY_ROTATE_DOPPLER_CONFIG:-dev}"
 
@@ -264,37 +267,89 @@ replay_brave_web_search() {
 }
 
 # --- Format results as MCP content blocks for updatedMCPToolOutput ---
+#
+# Both emit_* functions echo back the hook_event_name they were invoked with.
+# Claude Code validates that the hook's output.hookEventName matches the event
+# that fired the hook (PostToolUse vs PostToolUseFailure) and rejects the entire
+# payload on mismatch -- including discarding updatedMCPToolOutput. Hardcoding
+# "PostToolUse" breaks transparent replay on the failure path.
+#
+# PostToolUse vs PostToolUseFailure output contract:
+#   PostToolUse        -- updatedMCPToolOutput IS honored, results replace the
+#                         raw tool_response content the model sees.
+#   PostToolUseFailure -- updatedMCPToolOutput is SILENTLY DROPPED (verified
+#                         against Claude Code docs:
+#                         https://code.claude.com/docs/en/hooks). Only
+#                         additionalContext reaches the model, and it's capped
+#                         at 10,000 characters. Fall back to injecting replayed
+#                         content into additionalContext with truncation so the
+#                         model still sees real results even when the raw call
+#                         threw (e.g. Tavily 432 / Brave 429).
+
+# Maximum length of additionalContext payload. Stay well under the documented
+# 10K cap to leave headroom for our framing text and jq JSON escaping overhead.
+readonly ADDITIONAL_CONTEXT_MAX_CHARS=8500
 
 emit_updated_output() {
-    local text="$1" note="$2"
-    jq -n \
-        --arg t "${text}" \
-        --arg n "${note}" \
-        '{
-            hookSpecificOutput: {
-                hookEventName: "PostToolUse",
-                updatedMCPToolOutput: [ { type: "text", text: $t } ],
-                additionalContext: $n
-            }
-        }'
+    local hook_event_name="$1" text="$2" note="$3"
+
+    if [[ "${hook_event_name}" == "PostToolUseFailure" ]]; then
+        # Truncate the replayed content so the combined payload (framing +
+        # content + suffix) stays under the 10K additionalContext cap.
+        local truncated="${text}"
+        if [[ ${#truncated} -gt ${ADDITIONAL_CONTEXT_MAX_CHARS} ]]; then
+            truncated="${truncated:0:${ADDITIONAL_CONTEXT_MAX_CHARS}}
+
+[... truncated at ${ADDITIONAL_CONTEXT_MAX_CHARS} chars to fit Claude Code's additionalContext injection cap ...]"
+        fi
+        local combined="${note}
+
+RECOVERED RESULTS (use these as if they were the tool response; the raw call failed but the auto-rotate hook replayed it successfully against the vendor API with a rotated key):
+
+${truncated}"
+        jq -n \
+            --arg e "${hook_event_name}" \
+            --arg c "${combined}" \
+            '{
+                hookSpecificOutput: {
+                    hookEventName: $e,
+                    additionalContext: $c
+                }
+            }'
+    else
+        jq -n \
+            --arg e "${hook_event_name}" \
+            --arg t "${text}" \
+            --arg n "${note}" \
+            '{
+                hookSpecificOutput: {
+                    hookEventName: $e,
+                    updatedMCPToolOutput: [ { type: "text", text: $t } ],
+                    additionalContext: $n
+                }
+            }'
+    fi
 }
 
 emit_fallback_context() {
-    local service="$1" detail="$2"
+    local hook_event_name="$1" service="$2" detail="$3"
     local context
     context="[auto-rotate] ${service}: API quota exhausted. ${detail} ACTION REQUIRED: Restart Claude Code for the new key to take effect. IMMEDIATE FALLBACK: Use /web-search (Claude built-in, no API key needed)."
-    jq -n --arg c "${context}" '{
-        hookSpecificOutput: {
-            hookEventName: "PostToolUse",
-            additionalContext: $c
-        }
-    }'
+    jq -n \
+        --arg e "${hook_event_name}" \
+        --arg c "${context}" \
+        '{
+            hookSpecificOutput: {
+                hookEventName: $e,
+                additionalContext: $c
+            }
+        }'
 }
 
 # --- Transparent replay orchestration ---
 # Prints JSON on stdout and returns 0 on success, returns 1 on failure.
 try_replay() {
-    local service="$1" tool_name="$2" tool_input_json="$3"
+    local hook_event_name="$1" service="$2" tool_name="$3" tool_input_json="$4"
 
     if [[ -n "${AUTO_ROTATE_DISABLE_REPLAY:-}" ]]; then
         return 1
@@ -329,7 +384,7 @@ try_replay() {
                     (.content // "")
                 ) | join("\n\n---\n\n"))
             ')"
-            emit_updated_output "${text}" "[auto-rotate] tavily: Quota exhausted -- transparently replayed tavily_search via direct HTTP with rotated key. No restart needed."
+            emit_updated_output "${hook_event_name}" "${text}" "[auto-rotate] tavily: Quota exhausted -- transparently replayed tavily_search via direct HTTP with rotated key. No restart needed."
             return 0
             ;;
         mcp__brave-search__brave_web_search)
@@ -348,7 +403,7 @@ try_replay() {
                     (.description // "")
                 ) | join("\n\n---\n\n"))
             ')"
-            emit_updated_output "${text}" "[auto-rotate] brave: Quota exhausted -- transparently replayed brave_web_search via direct HTTP with rotated key. No restart needed."
+            emit_updated_output "${hook_event_name}" "${text}" "[auto-rotate] brave: Quota exhausted -- transparently replayed brave_web_search via direct HTTP with rotated key. No restart needed."
             return 0
             ;;
         *)
@@ -366,6 +421,17 @@ main() {
     # Require jq for JSON parsing
     if ! command -v jq &>/dev/null; then
         exit 0
+    fi
+
+    # Extract the hook event that fired us. Claude Code validates output
+    # hookEventName against the firing event and rejects mismatches. This hook
+    # is registered on BOTH PostToolUse and PostToolUseFailure so the value
+    # differs at runtime -- read it and echo it back unchanged.
+    # `|| true` protects against jq errors on malformed stdin.
+    local hook_event_name
+    hook_event_name=$(echo "${input}" | jq -r '.hook_event_name // "PostToolUse"' 2>/dev/null || true)
+    if [[ -z "${hook_event_name}" ]]; then
+        hook_event_name="PostToolUse"
     fi
 
     # Extract tool name
@@ -413,10 +479,10 @@ main() {
     # In cooldown: don't rotate again, but still try to replay with whatever key
     # is currently active (the previous rotation may have already advanced it).
     if is_in_cooldown "${service}"; then
-        if try_replay "${service}" "${tool_name}" "${tool_input_json}"; then
+        if try_replay "${hook_event_name}" "${service}" "${tool_name}" "${tool_input_json}"; then
             exit 0
         fi
-        emit_fallback_context "${service}" \
+        emit_fallback_context "${hook_event_name}" "${service}" \
             "Key was already rotated within the cooldown window. Replay was not possible for this tool call."
         exit 0
     fi
@@ -425,29 +491,64 @@ main() {
     local rotate_cmd
     rotate_cmd="$(find_rotate_cmd)"
     if [[ -z "${rotate_cmd}" ]]; then
-        emit_fallback_context "${service}" \
+        emit_fallback_context "${hook_event_name}" "${service}" \
             "mcp-key-rotate not found on PATH. Run manually: mcp-key-rotate ${service}"
         exit 0
     fi
 
-    # Execute rotation
-    local rotate_output
-    if ! rotate_output=$("${rotate_cmd}" "${service}" 2>&1); then
-        emit_fallback_context "${service}" \
-            "Auto-rotation failed: ${rotate_output}. Run manually: mcp-key-rotate ${service}"
+    # Resolve the inherited env var name for this service. The value in this
+    # env var is the key the MCP server ACTUALLY used to make the failing call
+    # -- Claude Code set it at launch time and the child MCP process inherited
+    # it. This may differ from the backend "current" (Doppler/dotenv) if an
+    # out-of-band rotation has happened, so we pass it explicitly into recover.
+    local env_var_name failing_key
+    case "${service}" in
+        tavily) env_var_name="TAVILY_API_KEY" ;;
+        brave) env_var_name="BRAVE_API_KEY" ;;
+        *) env_var_name="" ;;
+    esac
+    failing_key="${!env_var_name:-}"
+    # If the env var isn't set (e.g. test scenarios or Claude Code launched
+    # without keys in shell env), leave failing_key empty. cmd_recover treats
+    # an empty failed_key as "rotate unconditionally" -- same semantics as the
+    # old behavior, and avoids us guessing at a key value we don't actually know.
+
+    # Atomic recovery: marks failing_key as OPEN in the circuit breaker and
+    # advances the backend pointer to a healthy key -- ONLY if needed.
+    # If backend current is already healthy and != failing_key, this is a
+    # no-op on the backend but still flags the failing key in health state.
+    local recover_output
+    if ! recover_output=$("${rotate_cmd}" "${service}" --recover-from-failure "${failing_key}" "${BAD_KEY_TTL_SEC}" 2>&1); then
+        emit_fallback_context "${hook_event_name}" "${service}" \
+            "Auto-rotation failed: ${recover_output}. Run manually: mcp-key-rotate ${service}"
         exit 0
     fi
 
-    # Record cooldown BEFORE replay so concurrent failures don't re-rotate.
+    # Record cooldown BEFORE replay so concurrent failures don't re-recover.
     set_cooldown "${service}"
 
     # Try transparent replay with the newly-active key.
-    if try_replay "${service}" "${tool_name}" "${tool_input_json}"; then
+    if try_replay "${hook_event_name}" "${service}" "${tool_name}" "${tool_input_json}"; then
         exit 0
     fi
 
-    # Replay not possible -- fall back to informing Claude via additionalContext.
-    emit_fallback_context "${service}" "${rotate_output}"
+    # Replay failed. If recover actually ROTATED to a new key, mark that new
+    # key bad too -- it's what replay just tried and it also failed.
+    # In the no-op path (drift case: backend was already on a healthy key and
+    # we didn't rotate), don't mark anything else bad: recover already flagged
+    # the failing_key, and the backend's current key wasn't actually tested
+    # here -- the MCP server in this process still holds the old env value,
+    # so the "current" hasn't been proven to fail.
+    if [[ "${recover_output}" != *"No rotation needed"* ]]; then
+        local newly_active
+        newly_active="$(echo "${recover_output}" | awk -F': ' '/^Active: /{print $2; exit}')"
+        if [[ -n "${newly_active}" && "${newly_active}" != "${failing_key}" ]]; then
+            "${rotate_cmd}" "${service}" --mark-bad-key "${newly_active}" "${BAD_KEY_TTL_SEC}" >/dev/null 2>&1 || true
+        fi
+    fi
+
+    # Fall back to informing Claude via additionalContext.
+    emit_fallback_context "${hook_event_name}" "${service}" "${recover_output}"
     exit 0
 }
 
