@@ -52,6 +52,120 @@ make_input_error_field() {
         '{ tool_name: $tn, tool_input: {query: "test"}, error: $tr }'
 }
 
+# Build REAL Claude Code PostToolUse payload: .tool_response is an object
+# (matching PostToolUseHookInput from @anthropic-ai/claude-agent-sdk).
+# The tool_response mirrors the MCP content-array shape the Tavily/Brave
+# MCP servers return on error.
+make_input_real() {
+    local tool_name="$1" query="$2" err_text="$3"
+    jq -n \
+        --arg tn "${tool_name}" \
+        --arg q "${query}" \
+        --arg e "${err_text}" \
+        '{
+            session_id: "test-session",
+            transcript_path: "/tmp/fake-transcript.jsonl",
+            cwd: "/tmp",
+            permission_mode: "default",
+            hook_event_name: "PostToolUse",
+            tool_name: $tn,
+            tool_input: { query: $q },
+            tool_response: {
+                content: [ { type: "text", text: $e } ],
+                isError: true
+            },
+            tool_use_id: "toolu_test_01"
+        }'
+}
+
+# Create a curl mock that returns canned Tavily and Brave JSON without
+# hitting the network. Placed in TEST_TMPDIR and picked up via PATH.
+# Controlled by env vars so tests can exercise success/failure paths:
+#   TAVILY_MOCK_STATUS=success|malformed|empty|http_error
+#   BRAVE_MOCK_STATUS=success|malformed|empty|http_error
+create_curl_mock() {
+    local mock="${TEST_TMPDIR}/curl"
+    cat > "${mock}" <<'MOCK_EOF'
+#!/usr/bin/env bash
+# curl mock for auto-rotate replay tests. Pattern-matches the URL in argv
+# and returns a canned response with no network I/O.
+args=("$@")
+url=""
+for a in "${args[@]}"; do
+    case "$a" in
+        https://*|http://*) url="$a" ;;
+    esac
+done
+
+# Tavily search endpoint
+if [[ "$url" == *"api.tavily.com/search"* ]]; then
+    case "${TAVILY_MOCK_STATUS:-success}" in
+        success)
+            cat <<'JSON'
+{
+  "query": "test-query",
+  "answer": "Mocked answer for test.",
+  "results": [
+    {"title": "Mocked Result 1", "url": "https://example.com/1", "content": "First mock result content."},
+    {"title": "Mocked Result 2", "url": "https://example.com/2", "content": "Second mock result content."}
+  ]
+}
+JSON
+            exit 0
+            ;;
+        malformed)
+            echo "not valid json {"
+            exit 0
+            ;;
+        empty)
+            echo '{}'
+            exit 0
+            ;;
+        http_error)
+            echo '{"error": "unauthorized"}' >&2
+            exit 22
+            ;;
+    esac
+fi
+
+# Brave web search endpoint
+if [[ "$url" == *"api.search.brave.com"* ]]; then
+    case "${BRAVE_MOCK_STATUS:-success}" in
+        success)
+            cat <<'JSON'
+{
+  "query": {"original": "test-query"},
+  "web": {
+    "results": [
+      {"title": "Brave Mock 1", "url": "https://example.com/b1", "description": "Brave first mock description."},
+      {"title": "Brave Mock 2", "url": "https://example.com/b2", "description": "Brave second mock description."}
+    ]
+  }
+}
+JSON
+            exit 0
+            ;;
+        malformed)
+            echo "nope"
+            exit 0
+            ;;
+        empty)
+            echo '{}'
+            exit 0
+            ;;
+        http_error)
+            exit 22
+            ;;
+    esac
+fi
+
+# Fallback: unknown URL -> error so tests fail loudly instead of silently
+echo "curl mock: unexpected url: ${url}" >&2
+exit 99
+MOCK_EOF
+    chmod +x "${mock}"
+}
+
 # Create a mock mcp-key-rotate that succeeds
 create_rotate_mock() {
     local mock="${TEST_TMPDIR}/mcp-key-rotate"
@@ -85,6 +199,10 @@ setup() {
     mkdir -p "${AUTO_ROTATE_STATE_DIR}"
     # Default: no cooldown (0 seconds) for fast tests
     export AUTO_ROTATE_COOLDOWN_SEC=0
+    # Hermetic default: disable transparent replay so tests don't hit real
+    # Tavily/Brave APIs or burn credits. Replay-path tests explicitly unset
+    # this and provide curl/key mocks.
+    export AUTO_ROTATE_DISABLE_REPLAY=1
 }
 
 teardown() {
@@ -683,4 +801,434 @@ teardown() {
 
 @test "CLAUDE.md: mentions PostToolUse" {
     grep -qi "PostToolUse\|post.tool" "${REPO_ROOT}/CLAUDE.md"
+}
+
+# ==========================================================================
+# REAL CLAUDE CODE SCHEMA: tool_response as object
+#
+# Claude Code's PostToolUseHookInput sends the tool result in .tool_response
+# as an object (per @anthropic-ai/claude-agent-sdk). The previous hook read
+# .tool_result / .tool_output / .tool_error and silently ignored
+# .tool_response, so auto-rotation never fired in production. These tests
+# lock in the fix and prevent regression.
+# ==========================================================================
+
+@test "real schema: detects tavily 432 in .tool_response object content[0].text" {
+    create_rotate_mock
+    local input
+    input="$(make_input_real \
+        "mcp__tavily__tavily_search" \
+        "SOTA git clone 2026" \
+        "Tavily API error: Request failed with status code 432")"
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"[auto-rotate]"* ]]
+    [[ "$output" == *"tavily"* ]]
+    [[ "$output" == *"Rotated tavily"* ]]
+}
+
+@test "real schema: detects brave 429 in .tool_response object" {
+    create_rotate_mock
+    local input
+    input="$(make_input_real \
+        "mcp__brave-search__brave_web_search" \
+        "test query" \
+        "429 Too Many Requests")"
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"[auto-rotate]"* ]]
+    [[ "$output" == *"brave"* ]]
+}
+
+@test "real schema: successful tool_response does not trigger rotation" {
+    # Clean tool_response with real results should not match quota patterns
+    local input
+    input='{
+        "tool_name": "mcp__tavily__tavily_search",
+        "tool_input": {"query": "test"},
+        "tool_response": {
+            "content": [{"type":"text","text":"{\"results\":[{\"title\":\"Result\",\"url\":\"https://x.com\"}]}"}],
+            "isError": false
+        }
+    }'
+    run bash -c "echo '${input}' | bash '$HOOK'"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+}
+
+@test "real schema: tool_response handles deeply nested quota error text" {
+    create_rotate_mock
+    local input
+    input='{
+        "tool_name": "mcp__tavily__tavily_search",
+        "tool_input": {"query": "test"},
+        "tool_response": {
+            "content": [
+                {"type":"text","text":"Tool execution failed"},
+                {"type":"text","text":"Underlying: HTTP 432 quota exceeded"}
+            ],
+            "isError": true,
+            "_meta": {"retryable": false}
+        }
+    }'
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"[auto-rotate]"* ]]
+}
+
+@test "real schema: regression guard -- hook reads tool_response field" {
+    # Explicit regression test for the tool_result vs tool_response bug.
+    # If someone reverts the jq filter, this test fails loudly.
+    run grep -q '\.tool_response' "$HOOK"
+    [ "$status" -eq 0 ]
+}
+
+# ==========================================================================
+# FALLBACK PATH: JSON additionalContext output
+#
+# When replay is disabled or impossible, the hook must emit valid JSON on
+# stdout with hookSpecificOutput.additionalContext so Claude can surface
+# the restart instructions to the user. Plain stdout text goes to the
+# debug log only and never reaches Claude.
+# ==========================================================================
+
+@test "fallback: emits valid JSON when replay disabled" {
+    create_rotate_mock
+    local input
+    input="$(make_input "mcp__tavily__tavily_search" "status code 432")"
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+    # Output should parse as JSON
+    echo "$output" | jq -e . >/dev/null
+}
+
+@test "fallback: JSON has hookSpecificOutput.hookEventName = PostToolUse" {
+    create_rotate_mock
+    local input
+    input="$(make_input "mcp__tavily__tavily_search" "status code 432")"
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+    local name
+    name="$(echo "$output" | jq -r '.hookSpecificOutput.hookEventName')"
+    [ "$name" = "PostToolUse" ]
+}
+
+@test "fallback: JSON additionalContext contains restart instructions" {
+    create_rotate_mock
+    local input
+    input="$(make_input "mcp__tavily__tavily_search" "status code 432")"
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+    local ctx
+    ctx="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext')"
+    [[ "$ctx" == *"ACTION REQUIRED"* ]]
+    [[ "$ctx" == *"Restart Claude Code"* ]]
+    [[ "$ctx" == *"/web-search"* ]]
+}
+
+@test "fallback: JSON additionalContext embeds rotate_output" {
+    create_rotate_mock
+    local input
+    input="$(make_input "mcp__tavily__tavily_search" "status code 432")"
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+    local ctx
+    ctx="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext')"
+    # The mock's stdout ("Rotated tavily: old-key -> new-key (...)") should
+    # be embedded in the fallback context so Claude sees the rotation detail.
+    [[ "$ctx" == *"Rotated tavily"* ]]
+    [[ "$ctx" == *"new-key"* ]]
+}
+
+@test "fallback: cooldown hit emits valid JSON additionalContext" {
+    create_rotate_mock
+    export AUTO_ROTATE_COOLDOWN_SEC=300
+    local input
+    input="$(make_input "mcp__tavily__tavily_search" "status code 432")"
+
+    # First call: normal rotation path
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+
+    # Second call: cooldown hit
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+    echo "$output" | jq -e . >/dev/null
+    local ctx
+    ctx="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext')"
+    [[ "$ctx" == *"already rotated"* ]] || [[ "$ctx" == *"cooldown"* ]]
+}
+
+# ==========================================================================
+# TRANSPARENT REPLAY: updatedMCPToolOutput path
+#
+# The SOTA 2026 flow: on quota error, rotate the key, replay the original
+# request directly against the vendor HTTP API, and return the real results
+# via hookSpecificOutput.updatedMCPToolOutput so Claude never sees the 432.
+# Uses a curl mock to stay hermetic -- zero real network calls, zero credit
+# burn.
+# ==========================================================================
+
+@test "replay: tavily_search returns updatedMCPToolOutput with results" {
+    create_rotate_mock
+    create_curl_mock
+    unset AUTO_ROTATE_DISABLE_REPLAY
+    export AUTO_ROTATE_REPLAY_KEY_OVERRIDE="mock-tavily-key"
+    export TAVILY_MOCK_STATUS=success
+
+    local input
+    input="$(make_input_real \
+        "mcp__tavily__tavily_search" \
+        "SOTA git clone" \
+        "Tavily API error: Request failed with status code 432")"
+
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+
+    # Output must be valid JSON
+    echo "$output" | jq -e . >/dev/null
+
+    # Must carry updatedMCPToolOutput as an array of content blocks
+    local block_count
+    block_count="$(echo "$output" | jq '.hookSpecificOutput.updatedMCPToolOutput | length')"
+    [ "$block_count" -ge 1 ]
+
+    # First block must be text type
+    local block_type
+    block_type="$(echo "$output" | jq -r '.hookSpecificOutput.updatedMCPToolOutput[0].type')"
+    [ "$block_type" = "text" ]
+
+    # Text must contain the mocked results (proves replay actually ran)
+    local text
+    text="$(echo "$output" | jq -r '.hookSpecificOutput.updatedMCPToolOutput[0].text')"
+    [[ "$text" == *"Mocked Result 1"* ]]
+    [[ "$text" == *"Mocked Result 2"* ]]
+    [[ "$text" == *"example.com/1"* ]]
+}
+
+@test "replay: tavily_search additionalContext explains what happened" {
+    create_rotate_mock
+    create_curl_mock
+    unset AUTO_ROTATE_DISABLE_REPLAY
+    export AUTO_ROTATE_REPLAY_KEY_OVERRIDE="mock-tavily-key"
+    export TAVILY_MOCK_STATUS=success
+
+    local input
+    input="$(make_input_real "mcp__tavily__tavily_search" "q" "status code 432")"
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+
+    local ctx
+    ctx="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext')"
+    [[ "$ctx" == *"transparently replayed"* ]]
+    [[ "$ctx" == *"No restart needed"* ]]
+}
+
+@test "replay: brave_web_search returns updatedMCPToolOutput with results" {
+    create_rotate_mock
+    create_curl_mock
+    unset AUTO_ROTATE_DISABLE_REPLAY
+    export AUTO_ROTATE_REPLAY_KEY_OVERRIDE="mock-brave-key"
+    export BRAVE_MOCK_STATUS=success
+
+    local input
+    input="$(make_input_real \
+        "mcp__brave-search__brave_web_search" \
+        "claude code hooks" \
+        "HTTP 429 Too Many Requests")"
+
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+
+    echo "$output" | jq -e . >/dev/null
+    local text
+    text="$(echo "$output" | jq -r '.hookSpecificOutput.updatedMCPToolOutput[0].text')"
+    [[ "$text" == *"Brave Mock 1"* ]]
+    [[ "$text" == *"example.com/b1"* ]]
+}
+
+@test "replay: skipped for non-replayable tool (tavily_extract) -- falls back" {
+    create_rotate_mock
+    create_curl_mock
+    unset AUTO_ROTATE_DISABLE_REPLAY
+    export AUTO_ROTATE_REPLAY_KEY_OVERRIDE="mock-key"
+
+    local input
+    input="$(make_input_real "mcp__tavily__tavily_extract" "url" "status code 432")"
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+
+    # Must be JSON fallback, not updatedMCPToolOutput
+    echo "$output" | jq -e . >/dev/null
+    local has_output
+    has_output="$(echo "$output" | jq 'has("hookSpecificOutput") and (.hookSpecificOutput | has("updatedMCPToolOutput"))')"
+    [ "$has_output" = "false" ]
+
+    # Must have additionalContext with restart instructions
+    local ctx
+    ctx="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext')"
+    [[ "$ctx" == *"ACTION REQUIRED"* ]]
+}
+
+@test "replay: falls back when curl returns malformed JSON" {
+    create_rotate_mock
+    create_curl_mock
+    unset AUTO_ROTATE_DISABLE_REPLAY
+    export AUTO_ROTATE_REPLAY_KEY_OVERRIDE="mock-key"
+    export TAVILY_MOCK_STATUS=malformed
+
+    local input
+    input="$(make_input_real "mcp__tavily__tavily_search" "q" "status code 432")"
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+
+    echo "$output" | jq -e . >/dev/null
+    local has_output
+    has_output="$(echo "$output" | jq 'has("hookSpecificOutput") and (.hookSpecificOutput | has("updatedMCPToolOutput"))')"
+    [ "$has_output" = "false" ]
+    local ctx
+    ctx="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext')"
+    [[ "$ctx" == *"ACTION REQUIRED"* ]]
+}
+
+@test "replay: falls back when curl returns empty results" {
+    create_rotate_mock
+    create_curl_mock
+    unset AUTO_ROTATE_DISABLE_REPLAY
+    export AUTO_ROTATE_REPLAY_KEY_OVERRIDE="mock-key"
+    export TAVILY_MOCK_STATUS=empty
+
+    local input
+    input="$(make_input_real "mcp__tavily__tavily_search" "q" "status code 432")"
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+    local has_output
+    has_output="$(echo "$output" | jq 'has("hookSpecificOutput") and (.hookSpecificOutput | has("updatedMCPToolOutput"))')"
+    [ "$has_output" = "false" ]
+}
+
+@test "replay: falls back when curl itself exits non-zero" {
+    create_rotate_mock
+    create_curl_mock
+    unset AUTO_ROTATE_DISABLE_REPLAY
+    export AUTO_ROTATE_REPLAY_KEY_OVERRIDE="mock-key"
+    export TAVILY_MOCK_STATUS=http_error
+
+    local input
+    input="$(make_input_real "mcp__tavily__tavily_search" "q" "status code 432")"
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+    local has_output
+    has_output="$(echo "$output" | jq 'has("hookSpecificOutput") and (.hookSpecificOutput | has("updatedMCPToolOutput"))')"
+    [ "$has_output" = "false" ]
+    local ctx
+    ctx="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext')"
+    [[ "$ctx" == *"ACTION REQUIRED"* ]]
+}
+
+@test "replay: falls back when tool_input has empty query" {
+    create_rotate_mock
+    create_curl_mock
+    unset AUTO_ROTATE_DISABLE_REPLAY
+    export AUTO_ROTATE_REPLAY_KEY_OVERRIDE="mock-key"
+
+    local input
+    input='{
+        "tool_name": "mcp__tavily__tavily_search",
+        "tool_input": {},
+        "tool_response": {"content":[{"type":"text","text":"status code 432"}],"isError":true}
+    }'
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+    local has_output
+    has_output="$(echo "$output" | jq 'has("hookSpecificOutput") and (.hookSpecificOutput | has("updatedMCPToolOutput"))')"
+    [ "$has_output" = "false" ]
+}
+
+@test "replay: AUTO_ROTATE_DISABLE_REPLAY=1 forces fallback even with curl mock" {
+    create_rotate_mock
+    create_curl_mock
+    export AUTO_ROTATE_DISABLE_REPLAY=1
+    export AUTO_ROTATE_REPLAY_KEY_OVERRIDE="mock-key"
+    export TAVILY_MOCK_STATUS=success
+
+    local input
+    input="$(make_input_real "mcp__tavily__tavily_search" "q" "status code 432")"
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+    local has_output
+    has_output="$(echo "$output" | jq 'has("hookSpecificOutput") and (.hookSpecificOutput | has("updatedMCPToolOutput"))')"
+    [ "$has_output" = "false" ]
+}
+
+@test "replay: cooldown branch still attempts replay with current active key" {
+    # After a rotation, a second quota error within the cooldown window should
+    # still try to replay (the active key was already advanced, it's wasteful
+    # to just surface a fallback). The replay succeeds and Claude sees results.
+    create_rotate_mock
+    create_curl_mock
+    unset AUTO_ROTATE_DISABLE_REPLAY
+    export AUTO_ROTATE_COOLDOWN_SEC=300
+    export AUTO_ROTATE_REPLAY_KEY_OVERRIDE="mock-tavily-key"
+    export TAVILY_MOCK_STATUS=success
+
+    local input
+    input="$(make_input_real "mcp__tavily__tavily_search" "q" "status code 432")"
+
+    # First call: rotate + replay
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+
+    # Second call: cooldown hit, but replay still runs
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+    local text
+    text="$(echo "$output" | jq -r '.hookSpecificOutput.updatedMCPToolOutput[0].text // ""')"
+    [[ "$text" == *"Mocked Result 1"* ]]
+}
+
+@test "replay: cooldown branch falls back when replay fails" {
+    create_rotate_mock
+    create_curl_mock
+    unset AUTO_ROTATE_DISABLE_REPLAY
+    export AUTO_ROTATE_COOLDOWN_SEC=300
+    export AUTO_ROTATE_REPLAY_KEY_OVERRIDE="mock-key"
+
+    local input1 input2
+    input1="$(make_input_real "mcp__tavily__tavily_search" "q" "status code 432")"
+    # Second call is a non-replayable tool -> cooldown + try_replay returns 1
+    input2="$(make_input_real "mcp__tavily__tavily_extract" "url" "status code 432")"
+
+    run bash -c "echo '${input1}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+
+    run bash -c "echo '${input2}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+    echo "$output" | jq -e . >/dev/null
+    local ctx
+    ctx="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext')"
+    [[ "$ctx" == *"already rotated"* ]] || [[ "$ctx" == *"cooldown"* ]]
+}
+
+@test "replay: quota usage is NOT burned when replay is disabled" {
+    # Sanity check: hermetic default means no curl process runs and no
+    # outbound request occurs. We prove this by pointing curl at a mock
+    # that exits non-zero if called, and verifying the hook still succeeds
+    # via the fallback path.
+    create_rotate_mock
+    local burn_guard="${TEST_TMPDIR}/curl"
+    cat > "${burn_guard}" <<'MOCK_EOF'
+#!/usr/bin/env bash
+echo "CURL WAS CALLED -- REPLAY SHOULD HAVE BEEN DISABLED" >&2
+exit 42
+MOCK_EOF
+    chmod +x "${burn_guard}"
+
+    # Default setup() sets AUTO_ROTATE_DISABLE_REPLAY=1
+    local input
+    input="$(make_input_real "mcp__tavily__tavily_search" "q" "status code 432")"
+    run bash -c "echo '${input}' | PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    [ "$status" -eq 0 ]
+    # Must NOT contain the burn guard's stderr message
+    [[ "$output" != *"CURL WAS CALLED"* ]]
 }
