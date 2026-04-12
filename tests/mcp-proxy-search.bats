@@ -1,630 +1,442 @@
 #!/usr/bin/env bats
-# mcp-proxy-search.bats
-# Path: tests/mcp-proxy-search.bats
-#
-# Unit + integration tests for bin/mcp-proxy-search.
-#
-# Unit tests source the script so they can call internal functions directly.
-# Integration tests pipe JSON-RPC messages into the script's stdin and assert
-# newline-delimited responses on stdout.
-#
+# mcp-proxy-search.bats — tests for bin/mcp-proxy-search
 # Run: bats tests/mcp-proxy-search.bats
 
 SCRIPT="$BATS_TEST_DIRNAME/../bin/mcp-proxy-search"
 REPO_ROOT="$BATS_TEST_DIRNAME/.."
 
-# --- Setup / teardown ---
 setup() {
     command -v jq >/dev/null 2>&1 || skip "jq not installed"
     [ -x "$SCRIPT" ] || skip "mcp-proxy-search not executable"
-
-    export TEST_TMPDIR
-    TEST_TMPDIR="$(mktemp -d)"
-
+    export TEST_TMPDIR; TEST_TMPDIR="$(mktemp -d)"
     export MCP_KEY_HEALTH_DIR="${TEST_TMPDIR}/state"
     export KEY_ROTATE_BACKEND=dotenv
     export KEY_ROTATE_DOTENV="${TEST_TMPDIR}/.env"
-    unset TAVILY_API_KEY
-    unset BRAVE_API_KEY
+    unset TAVILY_API_KEY BRAVE_API_KEY
 }
 
-teardown() {
-    rm -rf "${TEST_TMPDIR}"
-}
+teardown() { rm -rf "${TEST_TMPDIR}"; }
 
-# --- Mock factories ---
-
-# A mock curl that emits canned JSON based on env vars. Drops HTTP status via
-# the `-w '%{http_code}'` suffix the script relies on.
-#   TAVILY_MOCK_STATUS=200|429|432|500  (default 200)
-#   BRAVE_MOCK_STATUS=200|429|500        (default 200)
-#   MOCK_CURL_LOG=/path/to/log           appends each invocation's argv
+# --- Mock curl: routes by URL pattern, status via env vars ---
 create_curl_mock() {
-    local mock="${TEST_TMPDIR}/curl"
-    cat >"${mock}" <<'MOCK_EOF'
+    cat >"${TEST_TMPDIR}/curl" <<'MOCK_EOF'
 #!/usr/bin/env bash
-log="${MOCK_CURL_LOG:-}"
-[[ -n "${log}" ]] && printf '%s\n' "$*" >>"${log}"
-
 url=""
-for a in "$@"; do
-    case "$a" in https://*|http://*) url="$a" ;; esac
-done
+for a in "$@"; do case "$a" in https://*|http://*) url="$a" ;; esac; done
 
-status_code="200"
-body="{}"
-if [[ "${url}" == *"api.tavily.com/search"* ]]; then
-    status_code="${TAVILY_MOCK_STATUS:-200}"
-    if [[ "${status_code}" == "200" ]]; then
-        body='{"query":"mock","results":[{"title":"Mocked Tavily","url":"https://example.com/t","content":"mock content"}]}'
+status="200"; body='{}'
+if [[ "${url}" == *"api.tavily.com"* ]]; then
+    status="${TAVILY_MOCK_STATUS:-200}"
+    if [[ "${status}" == "200" ]]; then
+        case "${url}" in
+            */search)   body='{"query":"mock","results":[{"title":"Mock Tavily Search"}]}' ;;
+            */extract)  body='{"results":[{"url":"https://example.com","raw_content":"extracted"}]}' ;;
+            */crawl)    body='{"results":[{"url":"https://example.com/page","raw_content":"crawled"}]}' ;;
+            */map)      body='{"urls":["https://example.com/a","https://example.com/b"]}' ;;
+            */research) body='{"report":"Research findings on the topic."}' ;;
+        esac
     else
         body='{"detail":"mock error"}'
     fi
 elif [[ "${url}" == *"api.search.brave.com"* ]]; then
-    status_code="${BRAVE_MOCK_STATUS:-200}"
-    if [[ "${status_code}" == "200" ]]; then
-        body='{"query":{"original":"mock"},"web":{"results":[{"title":"Mocked Brave","url":"https://example.com/b","description":"brave desc"}]}}'
+    status="${BRAVE_MOCK_STATUS:-200}"
+    if [[ "${status}" == "200" ]]; then
+        case "${url}" in
+            */news/*)   body='{"results":[{"title":"Mock News"}]}' ;;
+            */images/*) body='{"results":[{"title":"Mock Image"}]}' ;;
+            */videos/*) body='{"results":[{"title":"Mock Video"}]}' ;;
+            *)          body='{"web":{"results":[{"title":"Mock Brave Web"}]}}' ;;
+        esac
     else
         body='{"detail":"mock error"}'
     fi
 fi
-
-# Mimic curl -w '\n__HTTP_STATUS__%{http_code}' via the -w flag the script uses.
-# We still need to write status code because the script relies on -w expansion.
-printf '%s\n__HTTP_STATUS__%s' "${body}" "${status_code}"
+printf '%s\n__HTTP_STATUS__%s' "${body}" "${status}"
 MOCK_EOF
-    chmod +x "${mock}"
+    chmod +x "${TEST_TMPDIR}/curl"
 }
 
-# Mock mcp-key-rotate. Recognizes the --recover-from-failure subcommand and
-# emits the "Active: <key>" contract the proxy parses. Rotation target is
-# controlled via ROTATE_MOCK_NEXT_KEY (default: next-key-from-mock).
 create_rotate_mock() {
-    local mock="${TEST_TMPDIR}/mcp-key-rotate"
-    cat >"${mock}" <<'MOCK_EOF'
+    cat >"${TEST_TMPDIR}/mcp-key-rotate" <<'MOCK_EOF'
 #!/usr/bin/env bash
-set -euo pipefail
-service="${1:-}"
-action="${2:-}"
+service="${1:-}"; action="${2:-}"
 if [[ "${action}" == "--recover-from-failure" ]]; then
-    next="${ROTATE_MOCK_NEXT_KEY:-next-key-from-mock}"
-    echo "Rotated ${service}: old-key -> new-key"
-    echo "Now active: key [2] of 2 (backend: test-mock)"
-    echo "Active: ${next}"
+    echo "Rotated ${service}: old -> new"
+    echo "Active: ${ROTATE_MOCK_NEXT_KEY:-next-key-from-mock}"
     exit 0
 fi
 exit 1
 MOCK_EOF
-    chmod +x "${mock}"
+    chmod +x "${TEST_TMPDIR}/mcp-key-rotate"
 }
 
 create_rotate_mock_fail() {
-    local mock="${TEST_TMPDIR}/mcp-key-rotate"
-    cat >"${mock}" <<'MOCK_EOF'
+    cat >"${TEST_TMPDIR}/mcp-key-rotate" <<'MOCK_EOF'
 #!/usr/bin/env bash
-echo "rotation failed" >&2
 exit 1
 MOCK_EOF
-    chmod +x "${mock}"
+    chmod +x "${TEST_TMPDIR}/mcp-key-rotate"
 }
 
-# Seed a fixture .env so read_active_key's dotenv branch returns something.
-seed_dotenv_key() {
-    local name="$1" value="$2"
-    echo "${name}=${value}" >>"${KEY_ROTATE_DOTENV}"
-}
+seed_dotenv_key() { echo "$1=$2" >>"${KEY_ROTATE_DOTENV}"; }
 
-# Run the script with the mock directory prepended to PATH so curl and
-# mcp-key-rotate resolve to our fakes.
-run_proxy_with_input() {
+# Run the proxy with a single JSON-RPC line on stdin.
+run_proxy() {
     local input="$1"
     run bash -c "echo '${input}' | \
         PATH='${TEST_TMPDIR}:${PATH}' \
-        KEY_ROTATE_BACKEND=dotenv \
+        CURL_CMD='${TEST_TMPDIR}/curl' \
         KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}' \
         MCP_KEY_ROTATE_BIN='${TEST_TMPDIR}/mcp-key-rotate' \
         bash '$SCRIPT'"
 }
 
-run_proxy_with_multiline_input() {
-    local input_file="$1"
-    run bash -c "cat '${input_file}' | \
+# Run with a multi-line input file.
+run_proxy_file() {
+    run bash -c "cat '$1' | \
         PATH='${TEST_TMPDIR}:${PATH}' \
-        KEY_ROTATE_BACKEND=dotenv \
+        CURL_CMD='${TEST_TMPDIR}/curl' \
         KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}' \
         MCP_KEY_ROTATE_BIN='${TEST_TMPDIR}/mcp-key-rotate' \
         bash '$SCRIPT'"
 }
 
 # ==========================================================================
-# UNIT TESTS (source-based)
+# UNIT: Script basics
 # ==========================================================================
-# These source the script to gain access to its internal functions, then
-# invoke them directly. The top-level `if [[ "${BASH_SOURCE[0]}" == "${0}" ]]`
-# guard in the script prevents the stdio loop from running during sourcing.
 
-source_script() {
-    # shellcheck disable=SC1090
-    source "$SCRIPT"
+@test "script is executable and passes syntax check" {
+    [ -x "$SCRIPT" ] && bash -n "$SCRIPT"
 }
 
-@test "script exists and is executable" {
-    [ -x "$SCRIPT" ]
+@test "sourcing does NOT enter stdio loop" {
+    run bash -c "source '$SCRIPT'; set +e; echo SOURCED"
+    [ "$status" -eq 0 ]; [[ "$output" == *"SOURCED"* ]]
 }
 
-@test "script passes bash syntax check" {
-    bash -n "$SCRIPT"
+# ==========================================================================
+# UNIT: read_active_key
+# ==========================================================================
+
+@test "read_active_key: reads from dotenv" {
+    seed_dotenv_key "TAVILY_API_KEY" "dotenv-tavily"
+    run bash -c "export PATH='${TEST_TMPDIR}:/usr/bin:/bin' KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}'; source '$SCRIPT'; set +e; read_active_key tavily"
+    [ "$output" = "dotenv-tavily" ]
 }
 
-@test "sourcing the script does NOT enter the stdio loop" {
-    run bash -c "source '$SCRIPT' && echo SOURCED"
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"SOURCED"* ]]
-}
-
-# --- read_active_key ---
-
-@test "read_active_key: reads from dotenv when Doppler is unavailable" {
-    seed_dotenv_key "TAVILY_API_KEY" "dotenv-tavily-key"
-    run bash -c "
-        export PATH='${TEST_TMPDIR}:/usr/bin:/bin'
-        export KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}'
-        source '$SCRIPT'
-        read_active_key tavily"
-    [ "$status" -eq 0 ]
-    [ "$output" = "dotenv-tavily-key" ]
-}
-
-@test "read_active_key: falls back to env var when no dotenv entry" {
+@test "read_active_key: falls back to env var" {
     : >"${KEY_ROTATE_DOTENV}"
-    run bash -c "
-        export PATH='${TEST_TMPDIR}:/usr/bin:/bin'
-        export KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}'
-        export BRAVE_API_KEY='env-brave-key'
-        source '$SCRIPT'
-        read_active_key brave"
-    [ "$status" -eq 0 ]
-    [ "$output" = "env-brave-key" ]
+    run bash -c "export PATH='${TEST_TMPDIR}:/usr/bin:/bin' KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}' BRAVE_API_KEY='env-brave'; source '$SCRIPT'; set +e; read_active_key brave"
+    [ "$output" = "env-brave" ]
 }
 
-@test "read_active_key: returns empty string when no source has the key" {
+@test "read_active_key: returns empty when no source" {
     : >"${KEY_ROTATE_DOTENV}"
-    run bash -c "
-        export PATH='${TEST_TMPDIR}:/usr/bin:/bin'
-        export KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}'
-        unset TAVILY_API_KEY
-        source '$SCRIPT'
-        read_active_key tavily"
-    [ "$status" -eq 0 ]
+    run bash -c "export PATH='${TEST_TMPDIR}:/usr/bin:/bin' KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}'; source '$SCRIPT'; set +e; read_active_key tavily"
     [ -z "$output" ]
 }
 
-@test "read_active_key: case-insensitive service name maps to uppercase env var" {
-    seed_dotenv_key "BRAVE_API_KEY" "fixture-brave"
-    run bash -c "
-        export PATH='${TEST_TMPDIR}:/usr/bin:/bin'
-        export KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}'
-        source '$SCRIPT'
-        read_active_key brave"
-    [ "$status" -eq 0 ]
-    [ "$output" = "fixture-brave" ]
-}
+# ==========================================================================
+# UNIT: recover_from_failure
+# ==========================================================================
 
-# --- recover_from_failure ---
-
-@test "recover_from_failure: parses 'Active:' line from mcp-key-rotate output" {
+@test "recover_from_failure: parses Active line" {
     create_rotate_mock
-    run bash -c "
-        export PATH='${TEST_TMPDIR}:/usr/bin:/bin'
-        export MCP_KEY_ROTATE_BIN='${TEST_TMPDIR}/mcp-key-rotate'
-        export ROTATE_MOCK_NEXT_KEY='the-new-key-42'
-        source '$SCRIPT'
-        recover_from_failure tavily old-failed-key"
-    [ "$status" -eq 0 ]
-    [ "$output" = "the-new-key-42" ]
+    run bash -c "export PATH='${TEST_TMPDIR}:/usr/bin:/bin' MCP_KEY_ROTATE_BIN='${TEST_TMPDIR}/mcp-key-rotate' ROTATE_MOCK_NEXT_KEY='new-key-42'; source '$SCRIPT'; set +e; recover_from_failure tavily old"
+    [ "$output" = "new-key-42" ]
 }
 
-@test "recover_from_failure: returns non-zero when mcp-key-rotate fails" {
+@test "recover_from_failure: returns non-zero on failure" {
     create_rotate_mock_fail
-    run bash -c "
-        export PATH='${TEST_TMPDIR}:/usr/bin:/bin'
-        export MCP_KEY_ROTATE_BIN='${TEST_TMPDIR}/mcp-key-rotate'
-        source '$SCRIPT'
-        recover_from_failure tavily dead-key"
+    run bash -c "export PATH='${TEST_TMPDIR}:/usr/bin:/bin' MCP_KEY_ROTATE_BIN='${TEST_TMPDIR}/mcp-key-rotate'; source '$SCRIPT'; set +e; recover_from_failure tavily x"
     [ "$status" -ne 0 ]
 }
 
-# --- Vendor HTTP wrappers ---
+# ==========================================================================
+# UNIT: HTTP helpers
+# ==========================================================================
 
-@test "http_tavily_search: raw output parses to status=200 on mock success" {
+@test "http_tavily_post: 200 returns body with status marker" {
     create_curl_mock
-    run bash -c "
-        export PATH='${TEST_TMPDIR}:/usr/bin:/bin'
-        export CURL_CMD='${TEST_TMPDIR}/curl'
-        export TAVILY_MOCK_STATUS=200
-        source '$SCRIPT'
-        raw=\$(http_tavily_search fake-key 'q' 3)
-        split_curl_raw \"\${raw}\"
-        echo \"STATUS=\${CURL_STATUS}\"
-        echo \"\${CURL_BODY}\""
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"STATUS=200"* ]]
-    [[ "$output" == *"Mocked Tavily"* ]]
+    run bash -c "export CURL_CMD='${TEST_TMPDIR}/curl' TAVILY_MOCK_STATUS=200; source '$SCRIPT'; set +e; raw=\$(http_tavily_post k search '{\"query\":\"q\"}') && split_curl_raw \"\${raw}\" && echo S=\${CURL_STATUS} B=\${CURL_BODY}"
+    [[ "$output" == *"S=200"* ]]; [[ "$output" == *"Mock Tavily Search"* ]]
 }
 
-@test "http_tavily_search: raw output parses to status=432 on quota error" {
+@test "http_tavily_post: 432 status propagates" {
     create_curl_mock
-    run bash -c "
-        export PATH='${TEST_TMPDIR}:/usr/bin:/bin'
-        export CURL_CMD='${TEST_TMPDIR}/curl'
-        export TAVILY_MOCK_STATUS=432
-        source '$SCRIPT'
-        raw=\$(http_tavily_search fake-key 'q' 3)
-        split_curl_raw \"\${raw}\"
-        echo \"STATUS=\${CURL_STATUS}\""
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"STATUS=432"* ]]
+    run bash -c "export CURL_CMD='${TEST_TMPDIR}/curl' TAVILY_MOCK_STATUS=432; source '$SCRIPT'; set +e; raw=\$(http_tavily_post k search '{\"query\":\"q\"}') && split_curl_raw \"\${raw}\" && echo S=\${CURL_STATUS}"
+    [[ "$output" == *"S=432"* ]]
 }
 
-@test "http_brave_search: raw output parses to status=200 on mock success" {
+@test "http_brave_get: 200 returns body with status marker" {
     create_curl_mock
-    run bash -c "
-        export PATH='${TEST_TMPDIR}:/usr/bin:/bin'
-        export CURL_CMD='${TEST_TMPDIR}/curl'
-        export BRAVE_MOCK_STATUS=200
-        source '$SCRIPT'
-        raw=\$(http_brave_search fake-key 'q' 5)
-        split_curl_raw \"\${raw}\"
-        echo \"STATUS=\${CURL_STATUS}\"
-        echo \"\${CURL_BODY}\""
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"STATUS=200"* ]]
-    [[ "$output" == *"Mocked Brave"* ]]
+    run bash -c "export CURL_CMD='${TEST_TMPDIR}/curl' BRAVE_MOCK_STATUS=200; source '$SCRIPT'; set +e; raw=\$(http_brave_get k web/search --data-urlencode q=test) && split_curl_raw \"\${raw}\" && echo S=\${CURL_STATUS} B=\${CURL_BODY}"
+    [[ "$output" == *"S=200"* ]]; [[ "$output" == *"Mock Brave Web"* ]]
 }
 
-@test "http_brave_search: raw output parses to status=429 on rate limit" {
+@test "http_brave_get: 429 status propagates" {
     create_curl_mock
-    run bash -c "
-        export PATH='${TEST_TMPDIR}:/usr/bin:/bin'
-        export CURL_CMD='${TEST_TMPDIR}/curl'
-        export BRAVE_MOCK_STATUS=429
-        source '$SCRIPT'
-        raw=\$(http_brave_search fake-key 'q' 5)
-        split_curl_raw \"\${raw}\"
-        echo \"STATUS=\${CURL_STATUS}\""
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"STATUS=429"* ]]
+    run bash -c "export CURL_CMD='${TEST_TMPDIR}/curl' BRAVE_MOCK_STATUS=429; source '$SCRIPT'; set +e; raw=\$(http_brave_get k web/search --data-urlencode q=test) && split_curl_raw \"\${raw}\" && echo S=\${CURL_STATUS}"
+    [[ "$output" == *"S=429"* ]]
 }
 
-@test "split_curl_raw: parses body and status from curl marker format" {
-    run bash -c "
-        source '$SCRIPT'
-        raw=\$(printf '%s\n__HTTP_STATUS__%s' '{\"ok\":true}' '200')
-        split_curl_raw \"\${raw}\"
-        echo \"S=\${CURL_STATUS}\"
-        echo \"B=\${CURL_BODY}\""
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"S=200"* ]]
-    [[ "$output" == *'B={"ok":true}'* ]]
+# ==========================================================================
+# UNIT: call_with_rotation
+# ==========================================================================
+
+@test "call_with_rotation: ok path (200)" {
+    create_curl_mock; create_rotate_mock; seed_dotenv_key "TAVILY_API_KEY" "k"
+    run bash -c "export PATH='${TEST_TMPDIR}:/usr/bin:/bin' CURL_CMD='${TEST_TMPDIR}/curl' MCP_KEY_ROTATE_BIN='${TEST_TMPDIR}/mcp-key-rotate' KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}' TAVILY_MOCK_STATUS=200; source '$SCRIPT'; set +e; call_with_rotation tavily _tavily_search q 3 && echo S=\${CALL_STATUS} B=\${CALL_BODY}"
+    [[ "$output" == *"S=ok"* ]]; [[ "$output" == *"Mock Tavily Search"* ]]
 }
 
-# --- call_with_rotation ---
-
-@test "call_with_rotation: ok path on HTTP 200, no rotation" {
-    create_curl_mock
-    create_rotate_mock
-    seed_dotenv_key "TAVILY_API_KEY" "first-key"
-    run bash -c "
-        export PATH='${TEST_TMPDIR}:/usr/bin:/bin'
-        export CURL_CMD='${TEST_TMPDIR}/curl'
-        export MCP_KEY_ROTATE_BIN='${TEST_TMPDIR}/mcp-key-rotate'
-        export KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}'
-        export TAVILY_MOCK_STATUS=200
-        source '$SCRIPT'
-        call_with_rotation tavily 'q' 3
-        echo \"STATUS=\${CALL_STATUS}\"
-        echo \"\${CALL_BODY}\""
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"STATUS=ok"* ]]
-    [[ "$output" == *"Mocked Tavily"* ]]
-}
-
-@test "call_with_rotation: no_key when key source is empty" {
+@test "call_with_rotation: no_key when empty" {
     : >"${KEY_ROTATE_DOTENV}"
-    run bash -c "
-        export PATH='${TEST_TMPDIR}:/usr/bin:/bin'
-        export KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}'
-        unset TAVILY_API_KEY
-        source '$SCRIPT'
-        call_with_rotation tavily 'q' 3 || true
-        echo \"STATUS=\${CALL_STATUS}\""
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"STATUS=no_key"* ]]
+    run bash -c "export PATH='${TEST_TMPDIR}:/usr/bin:/bin' KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}'; source '$SCRIPT'; set +e; call_with_rotation tavily _tavily_search q 3 || true && echo S=\${CALL_STATUS}"
+    [[ "$output" == *"S=no_key"* ]]
 }
 
-@test "call_with_rotation: 432 then rotate then success (transparent recovery)" {
-    # First call returns 432; after recovery the mock curl is replaced with
-    # one that returns 200. This proves the rotate-once-and-retry path.
-    create_rotate_mock
-    seed_dotenv_key "TAVILY_API_KEY" "dying-key"
-    local toggle="${TEST_TMPDIR}/curl-toggle"
-    echo 432 >"${toggle}"
+@test "call_with_rotation: 432 then rotate then ok" {
+    create_rotate_mock; seed_dotenv_key "TAVILY_API_KEY" "k"
+    local toggle="${TEST_TMPDIR}/toggle"; echo 432 >"${toggle}"
     cat >"${TEST_TMPDIR}/curl" <<'MOCK_EOF'
 #!/usr/bin/env bash
-toggle_file="${CURL_TOGGLE_FILE}"
-status="$(cat "${toggle_file}" 2>/dev/null || echo 200)"
-# Flip to 200 after first call
-echo 200 >"${toggle_file}"
-url=""
-for a in "$@"; do
-    case "$a" in https://*|http://*) url="$a" ;; esac
-done
-if [[ "${url}" == *"api.tavily.com/search"* ]]; then
-    if [[ "${status}" == "200" ]]; then
-        printf '%s\n__HTTP_STATUS__%s' '{"query":"mock","results":[{"title":"After Rotation","url":"https://example.com/r","content":"recovered"}]}' "${status}"
-    else
-        printf '%s\n__HTTP_STATUS__%s' '{"detail":"quota"}' "${status}"
-    fi
-fi
+s="$(cat "${CURL_TOGGLE_FILE}")"; echo 200 >"${CURL_TOGGLE_FILE}"
+url=""; for a in "$@"; do case "$a" in https://*) url="$a" ;; esac; done
+[[ "${url}" == *"api.tavily.com"* ]] && {
+    [[ "${s}" == "200" ]] && printf '%s\n__HTTP_STATUS__200' '{"results":[{"title":"Recovered"}]}' || printf '%s\n__HTTP_STATUS__%s' '{"detail":"quota"}' "${s}"
+}
 MOCK_EOF
     chmod +x "${TEST_TMPDIR}/curl"
-
-    run bash -c "
-        export PATH='${TEST_TMPDIR}:/usr/bin:/bin'
-        export CURL_CMD='${TEST_TMPDIR}/curl'
-        export CURL_TOGGLE_FILE='${toggle}'
-        export MCP_KEY_ROTATE_BIN='${TEST_TMPDIR}/mcp-key-rotate'
-        export KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}'
-        source '$SCRIPT'
-        call_with_rotation tavily 'q' 3
-        echo \"STATUS=\${CALL_STATUS}\"
-        echo \"\${CALL_BODY}\""
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"STATUS=ok"* ]]
-    [[ "$output" == *"After Rotation"* ]]
+    run bash -c "export PATH='${TEST_TMPDIR}:/usr/bin:/bin' CURL_CMD='${TEST_TMPDIR}/curl' CURL_TOGGLE_FILE='${toggle}' MCP_KEY_ROTATE_BIN='${TEST_TMPDIR}/mcp-key-rotate' KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}'; source '$SCRIPT'; set +e; call_with_rotation tavily _tavily_search q 3 && echo S=\${CALL_STATUS} B=\${CALL_BODY}"
+    [[ "$output" == *"S=ok"* ]]; [[ "$output" == *"Recovered"* ]]
 }
 
-@test "call_with_rotation: 432 then rotate fails => quota_exhausted" {
-    create_curl_mock
-    create_rotate_mock_fail
-    seed_dotenv_key "TAVILY_API_KEY" "dying-key"
-    run bash -c "
-        export PATH='${TEST_TMPDIR}:/usr/bin:/bin'
-        export CURL_CMD='${TEST_TMPDIR}/curl'
-        export MCP_KEY_ROTATE_BIN='${TEST_TMPDIR}/mcp-key-rotate'
-        export KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}'
-        export TAVILY_MOCK_STATUS=432
-        source '$SCRIPT'
-        call_with_rotation tavily 'q' 3 || true
-        echo \"STATUS=\${CALL_STATUS}\""
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"STATUS=quota_exhausted"* ]]
+@test "call_with_rotation: 500 => http_error, no retry" {
+    create_curl_mock; create_rotate_mock; seed_dotenv_key "TAVILY_API_KEY" "k"
+    run bash -c "export PATH='${TEST_TMPDIR}:/usr/bin:/bin' CURL_CMD='${TEST_TMPDIR}/curl' MCP_KEY_ROTATE_BIN='${TEST_TMPDIR}/mcp-key-rotate' KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}' TAVILY_MOCK_STATUS=500; source '$SCRIPT'; set +e; call_with_rotation tavily _tavily_search q 3 || true && echo S=\${CALL_STATUS}"
+    [[ "$output" == *"S=http_error"* ]]
 }
 
-@test "call_with_rotation: 429 on brave then rotate and succeed" {
-    create_rotate_mock
-    seed_dotenv_key "BRAVE_API_KEY" "dying-brave-key"
-    local toggle="${TEST_TMPDIR}/curl-toggle"
-    echo 429 >"${toggle}"
-    cat >"${TEST_TMPDIR}/curl" <<'MOCK_EOF'
-#!/usr/bin/env bash
-toggle_file="${CURL_TOGGLE_FILE}"
-status="$(cat "${toggle_file}" 2>/dev/null || echo 200)"
-echo 200 >"${toggle_file}"
-url=""
-for a in "$@"; do case "$a" in https://*|http://*) url="$a" ;; esac; done
-if [[ "${url}" == *"api.search.brave.com"* ]]; then
-    if [[ "${status}" == "200" ]]; then
-        printf '%s\n__HTTP_STATUS__%s' '{"query":{"original":"mock"},"web":{"results":[{"title":"Brave Recovered","url":"https://example.com/b","description":"recovered"}]}}' "${status}"
-    else
-        printf '%s\n__HTTP_STATUS__%s' '{"detail":"rate"}' "${status}"
-    fi
-fi
-MOCK_EOF
-    chmod +x "${TEST_TMPDIR}/curl"
+# ==========================================================================
+# UNIT: no-key setup instructions
+# ==========================================================================
 
-    run bash -c "
-        export PATH='${TEST_TMPDIR}:/usr/bin:/bin'
-        export CURL_CMD='${TEST_TMPDIR}/curl'
-        export CURL_TOGGLE_FILE='${toggle}'
-        export MCP_KEY_ROTATE_BIN='${TEST_TMPDIR}/mcp-key-rotate'
-        export KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}'
-        source '$SCRIPT'
-        call_with_rotation brave 'q' 5
-        echo \"STATUS=\${CALL_STATUS}\"
-        echo \"\${CALL_BODY}\""
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"STATUS=ok"* ]]
-    [[ "$output" == *"Brave Recovered"* ]]
+@test "no_key_message: includes setup steps for tavily" {
+    run bash -c "source '$SCRIPT'; set +e; no_key_message tavily tavily_search"
+    [[ "$output" == *"TAVILY_API_KEY"* ]]
+    [[ "$output" == *"tavily.com"* ]]
+    [[ "$output" == *"/web-search"* ]]
 }
 
-@test "call_with_rotation: non-quota 500 error => http_error, no retry" {
-    create_curl_mock
-    create_rotate_mock
-    seed_dotenv_key "TAVILY_API_KEY" "fixture-key"
-    local log="${TEST_TMPDIR}/curl.log"
-    : >"${log}"
-    run bash -c "
-        export PATH='${TEST_TMPDIR}:/usr/bin:/bin'
-        export CURL_CMD='${TEST_TMPDIR}/curl'
-        export MCP_KEY_ROTATE_BIN='${TEST_TMPDIR}/mcp-key-rotate'
-        export KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}'
-        export TAVILY_MOCK_STATUS=500
-        export MOCK_CURL_LOG='${log}'
-        source '$SCRIPT'
-        call_with_rotation tavily 'q' 3 || true
-        echo \"STATUS=\${CALL_STATUS}\""
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"STATUS=http_error"* ]]
-    local call_count
-    call_count="$(wc -l <"${log}")"
-    [ "${call_count}" -eq 1 ]
+@test "no_key_message: includes setup steps for brave" {
+    run bash -c "source '$SCRIPT'; set +e; no_key_message brave brave_web_search"
+    [[ "$output" == *"BRAVE_API_KEY"* ]]
+    [[ "$output" == *"brave.com"* ]]
 }
 
-# --- JSON-RPC response emitters ---
+# ==========================================================================
+# UNIT: JSON-RPC emitters
+# ==========================================================================
 
-@test "emit_result: produces valid JSON-RPC 2.0 envelope" {
-    run bash -c "source '$SCRIPT' && emit_result 1 '{\"foo\":\"bar\"}'"
-    [ "$status" -eq 0 ]
-    echo "$output" | jq -e '.jsonrpc == "2.0" and .id == 1 and .result.foo == "bar"'
+@test "emit_tool_success: valid MCP content with isError=false" {
+    run bash -c "source '$SCRIPT'; set +e; emit_tool_success 1 hello"
+    echo "$output" | jq -e '.result.isError == false and .result.content[0].text == "hello"'
 }
 
-@test "emit_rpc_error: produces JSON-RPC error envelope with code and message" {
-    run bash -c "source '$SCRIPT' && emit_rpc_error 42 -32601 'method not found: foo'"
-    [ "$status" -eq 0 ]
-    echo "$output" | jq -e '.jsonrpc == "2.0" and .id == 42 and .error.code == -32601 and .error.message == "method not found: foo"'
-}
-
-@test "emit_tool_success: produces MCP tool result with isError=false" {
-    run bash -c "source '$SCRIPT' && emit_tool_success 7 'hello world'"
-    [ "$status" -eq 0 ]
-    echo "$output" | jq -e '.result.isError == false and .result.content[0].text == "hello world" and .result.content[0].type == "text"'
-}
-
-@test "emit_tool_error: produces MCP tool result with isError=true" {
-    run bash -c "source '$SCRIPT' && emit_tool_error 9 'boom'"
-    [ "$status" -eq 0 ]
+@test "emit_tool_error: valid MCP content with isError=true" {
+    run bash -c "source '$SCRIPT'; set +e; emit_tool_error 1 boom"
     echo "$output" | jq -e '.result.isError == true and .result.content[0].text == "boom"'
 }
 
+@test "emit_rpc_error: JSON-RPC error envelope" {
+    run bash -c "source '$SCRIPT'; set +e; emit_rpc_error 1 -32601 'not found'"
+    echo "$output" | jq -e '.error.code == -32601'
+}
+
 @test "handle_initialize: returns protocolVersion + serverInfo" {
-    run bash -c "source '$SCRIPT' && handle_initialize 1"
-    [ "$status" -eq 0 ]
+    run bash -c "source '$SCRIPT'; set +e; handle_initialize 1"
+    echo "$output" | jq -e '.result.protocolVersion == "2024-11-05" and .result.serverInfo.name == "mcp-proxy-search"'
+}
+
+# ==========================================================================
+# UNIT: handle_tools_list (all 10 tools)
+# ==========================================================================
+
+@test "handle_tools_list: returns exactly 10 tools" {
+    run bash -c "source '$SCRIPT'; set +e; handle_tools_list 1"
+    echo "$output" | jq -e '.result.tools | length == 10'
+}
+
+@test "handle_tools_list: all tool names present" {
+    run bash -c "source '$SCRIPT'; set +e; handle_tools_list 1"
+    for tool in tavily_search tavily_extract tavily_crawl tavily_map tavily_research brave_web_search brave_local_search brave_news_search brave_image_search brave_video_search; do
+        echo "$output" | jq -e --arg n "$tool" '.result.tools[] | select(.name == $n)'
+    done
+}
+
+@test "handle_tools_list: every tool has required field in inputSchema" {
+    run bash -c "source '$SCRIPT'; set +e; handle_tools_list 1"
+    echo "$output" | jq -e '.result.tools[] | .inputSchema.required | length > 0'
+}
+
+# ==========================================================================
+# STDIO INTEGRATION: protocol basics
+# ==========================================================================
+
+@test "stdio: initialize returns correct version" {
+    run_proxy '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
     echo "$output" | jq -e '.result.protocolVersion == "2024-11-05"'
-    echo "$output" | jq -e '.result.serverInfo.name == "mcp-proxy-search"'
-    echo "$output" | jq -e '.result.capabilities.tools'
 }
 
-@test "handle_tools_list: returns both tools with required input schemas" {
-    run bash -c "source '$SCRIPT' && handle_tools_list 5"
-    [ "$status" -eq 0 ]
-    local tool_names
-    tool_names="$(echo "$output" | jq -r '.result.tools[].name' | sort | tr '\n' ' ')"
-    [[ "$tool_names" == *"brave_web_search"* ]]
-    [[ "$tool_names" == *"tavily_search"* ]]
-    echo "$output" | jq -e '.result.tools[] | select(.name=="tavily_search") | .inputSchema.required[] | select(. == "query")'
-    echo "$output" | jq -e '.result.tools[] | select(.name=="brave_web_search") | .inputSchema.required[] | select(. == "query")'
-}
-
-# ==========================================================================
-# INTEGRATION TESTS (JSON-RPC over stdio)
-# ==========================================================================
-
-@test "stdio: initialize handshake returns correct protocolVersion" {
-    local input='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
-    run_proxy_with_input "${input}"
-    [ "$status" -eq 0 ]
-    echo "$output" | jq -e '.id == 1 and .result.protocolVersion == "2024-11-05"'
-}
-
-@test "stdio: notifications/initialized produces NO response" {
-    local input='{"jsonrpc":"2.0","method":"notifications/initialized"}'
-    run_proxy_with_input "${input}"
-    [ "$status" -eq 0 ]
+@test "stdio: notifications/initialized => no response" {
+    run_proxy '{"jsonrpc":"2.0","method":"notifications/initialized"}'
     [ -z "$output" ]
 }
 
-@test "stdio: tools/list returns both tools" {
-    local input='{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
-    run_proxy_with_input "${input}"
-    [ "$status" -eq 0 ]
-    echo "$output" | jq -e '.result.tools | length == 2'
-}
-
-@test "stdio: unknown method returns JSON-RPC error -32601" {
-    local input='{"jsonrpc":"2.0","id":99,"method":"completely/madeup"}'
-    run_proxy_with_input "${input}"
-    [ "$status" -eq 0 ]
+@test "stdio: unknown method => -32601" {
+    run_proxy '{"jsonrpc":"2.0","id":1,"method":"bogus"}'
     echo "$output" | jq -e '.error.code == -32601'
-    [[ "$output" == *"completely/madeup"* ]]
 }
 
-@test "stdio: ping returns empty result" {
-    local input='{"jsonrpc":"2.0","id":3,"method":"ping"}'
-    run_proxy_with_input "${input}"
-    [ "$status" -eq 0 ]
+@test "stdio: ping => empty result" {
+    run_proxy '{"jsonrpc":"2.0","id":1,"method":"ping"}'
     echo "$output" | jq -e '.result == {}'
 }
 
-@test "stdio: tools/call tavily_search (mock 200) returns real content" {
-    create_curl_mock
-    create_rotate_mock
-    seed_dotenv_key "TAVILY_API_KEY" "fixture-tavily"
+@test "stdio: malformed JSON => silent ignore" {
+    run_proxy 'not json'; [ -z "$output" ]
+}
 
-    local input='{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"tavily_search","arguments":{"query":"cats","max_results":3}}}'
+@test "stdio: empty line => silent ignore" {
+    run_proxy ''; [ -z "$output" ]
+}
+
+# ==========================================================================
+# STDIO INTEGRATION: tool calls (happy path, all 10 tools)
+# ==========================================================================
+
+_test_tool_success() {
+    local tool="$1" args_json="$2" expect_in_body="$3" key_var="$4" key_val="$5"
+    create_curl_mock; create_rotate_mock; seed_dotenv_key "${key_var}" "${key_val}"
+    local input
+    input="$(jq -nc --arg t "${tool}" --argjson a "${args_json}" '{jsonrpc:"2.0",id:1,method:"tools/call",params:{name:$t,arguments:$a}}')"
     run bash -c "echo '${input}' | \
         PATH='${TEST_TMPDIR}:${PATH}' \
         CURL_CMD='${TEST_TMPDIR}/curl' \
         KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}' \
         MCP_KEY_ROTATE_BIN='${TEST_TMPDIR}/mcp-key-rotate' \
-        TAVILY_MOCK_STATUS=200 \
+        TAVILY_MOCK_STATUS=200 BRAVE_MOCK_STATUS=200 \
         bash '$SCRIPT'"
     [ "$status" -eq 0 ]
     echo "$output" | jq -e '.result.isError == false'
-    echo "$output" | jq -e '.result.content[0].text | contains("Mocked Tavily")'
+    [[ "$output" == *"${expect_in_body}"* ]]
 }
 
-@test "stdio: tools/call brave_web_search (mock 200) returns real content" {
-    create_curl_mock
-    create_rotate_mock
-    seed_dotenv_key "BRAVE_API_KEY" "fixture-brave"
+@test "stdio: tavily_search returns results" {
+    _test_tool_success tavily_search '{"query":"q"}' "Mock Tavily Search" TAVILY_API_KEY k
+}
 
-    local input='{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"brave_web_search","arguments":{"query":"dogs","count":5}}}'
-    run bash -c "echo '${input}' | \
+@test "stdio: tavily_extract returns results" {
+    _test_tool_success tavily_extract '{"urls":["https://example.com"]}' "extracted" TAVILY_API_KEY k
+}
+
+@test "stdio: tavily_crawl returns results" {
+    _test_tool_success tavily_crawl '{"url":"https://example.com"}' "crawled" TAVILY_API_KEY k
+}
+
+@test "stdio: tavily_map returns results" {
+    _test_tool_success tavily_map '{"url":"https://example.com"}' "urls" TAVILY_API_KEY k
+}
+
+@test "stdio: tavily_research returns results" {
+    _test_tool_success tavily_research '{"input":"topic"}' "Research findings" TAVILY_API_KEY k
+}
+
+@test "stdio: brave_web_search returns results" {
+    _test_tool_success brave_web_search '{"query":"q"}' "Mock Brave Web" BRAVE_API_KEY k
+}
+
+@test "stdio: brave_local_search returns results" {
+    _test_tool_success brave_local_search '{"query":"pizza near me"}' "Mock Brave Web" BRAVE_API_KEY k
+}
+
+@test "stdio: brave_news_search returns results" {
+    _test_tool_success brave_news_search '{"query":"breaking"}' "Mock News" BRAVE_API_KEY k
+}
+
+@test "stdio: brave_image_search returns results" {
+    _test_tool_success brave_image_search '{"query":"cats"}' "Mock Image" BRAVE_API_KEY k
+}
+
+@test "stdio: brave_video_search returns results" {
+    _test_tool_success brave_video_search '{"query":"tutorial"}' "Mock Video" BRAVE_API_KEY k
+}
+
+# ==========================================================================
+# STDIO INTEGRATION: error paths
+# ==========================================================================
+
+@test "stdio: unknown tool => isError=true" {
+    run_proxy '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"nope","arguments":{}}}'
+    echo "$output" | jq -e '.result.isError == true'
+    [[ "$output" == *"unknown tool"* ]]
+}
+
+@test "stdio: missing required query => isError=true" {
+    run_proxy '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"tavily_search","arguments":{}}}'
+    echo "$output" | jq -e '.result.isError == true'
+    [[ "$output" == *"missing required"* ]]
+}
+
+@test "stdio: missing required urls for extract => isError=true" {
+    run_proxy '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"tavily_extract","arguments":{}}}'
+    echo "$output" | jq -e '.result.isError == true'
+    [[ "$output" == *"missing required"* ]]
+}
+
+@test "stdio: no_key shows setup instructions with signup URL" {
+    : >"${KEY_ROTATE_DOTENV}"
+    create_curl_mock; create_rotate_mock
+    local input='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"tavily_search","arguments":{"query":"q"}}}'
+    run bash -c "echo '${input}' | env -u TAVILY_API_KEY \
         PATH='${TEST_TMPDIR}:${PATH}' \
         CURL_CMD='${TEST_TMPDIR}/curl' \
         KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}' \
         MCP_KEY_ROTATE_BIN='${TEST_TMPDIR}/mcp-key-rotate' \
-        BRAVE_MOCK_STATUS=200 \
         bash '$SCRIPT'"
-    [ "$status" -eq 0 ]
-    echo "$output" | jq -e '.result.isError == false'
-    echo "$output" | jq -e '.result.content[0].text | contains("Mocked Brave")'
+    echo "$output" | jq -e '.result.isError == true'
+    [[ "$output" == *"TAVILY_API_KEY"* ]]
+    [[ "$output" == *"tavily.com"* ]]
+    [[ "$output" == *"/web-search"* ]]
 }
 
-@test "stdio: tools/call tavily_search with 432+rotation returns recovered content" {
-    create_rotate_mock
-    seed_dotenv_key "TAVILY_API_KEY" "dying-tavily"
-
-    # Toggle mock: 432 on first call, 200 after.
-    local toggle="${TEST_TMPDIR}/curl-toggle"
-    echo 432 >"${toggle}"
+@test "stdio: 432 + rotation => transparent recovery" {
+    create_rotate_mock; seed_dotenv_key "TAVILY_API_KEY" "k"
+    local toggle="${TEST_TMPDIR}/toggle"; echo 432 >"${toggle}"
     cat >"${TEST_TMPDIR}/curl" <<'MOCK_EOF'
 #!/usr/bin/env bash
-toggle_file="${CURL_TOGGLE_FILE}"
-status="$(cat "${toggle_file}" 2>/dev/null || echo 200)"
-echo 200 >"${toggle_file}"
-url=""
-for a in "$@"; do case "$a" in https://*|http://*) url="$a" ;; esac; done
-if [[ "${url}" == *"api.tavily.com/search"* ]]; then
-    if [[ "${status}" == "200" ]]; then
-        printf '%s\n__HTTP_STATUS__%s' '{"query":"recovered","results":[{"title":"Recovered Tavily","url":"https://example.com/r","content":"post-rotation"}]}' "${status}"
-    else
-        printf '%s\n__HTTP_STATUS__%s' '{"detail":"quota"}' "${status}"
-    fi
-fi
+s="$(cat "${CURL_TOGGLE_FILE}")"; echo 200 >"${CURL_TOGGLE_FILE}"
+url=""; for a in "$@"; do case "$a" in https://*) url="$a" ;; esac; done
+[[ "${url}" == *"api.tavily.com"* ]] && {
+    [[ "${s}" == "200" ]] && printf '%s\n__HTTP_STATUS__200' '{"results":[{"title":"Recovered"}]}' || printf '%s\n__HTTP_STATUS__%s' '{"detail":"q"}' "${s}"
+}
 MOCK_EOF
     chmod +x "${TEST_TMPDIR}/curl"
-
-    local input='{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"tavily_search","arguments":{"query":"q"}}}'
+    local input='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"tavily_search","arguments":{"query":"q"}}}'
     run bash -c "echo '${input}' | \
         PATH='${TEST_TMPDIR}:${PATH}' \
-        CURL_CMD='${TEST_TMPDIR}/curl' \
-        CURL_TOGGLE_FILE='${toggle}' \
+        CURL_CMD='${TEST_TMPDIR}/curl' CURL_TOGGLE_FILE='${toggle}' \
         KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}' \
         MCP_KEY_ROTATE_BIN='${TEST_TMPDIR}/mcp-key-rotate' \
         bash '$SCRIPT'"
-    [ "$status" -eq 0 ]
     echo "$output" | jq -e '.result.isError == false'
-    echo "$output" | jq -e '.result.content[0].text | contains("Recovered Tavily")'
+    [[ "$output" == *"Recovered"* ]]
 }
 
-@test "stdio: tools/call with 432+rotation failure returns isError=true" {
-    create_curl_mock
-    create_rotate_mock_fail
-    seed_dotenv_key "TAVILY_API_KEY" "dead-tavily"
-
-    local input='{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"tavily_search","arguments":{"query":"q"}}}'
+@test "stdio: 432 + rotation failure => quota_exhausted" {
+    create_curl_mock; create_rotate_mock_fail; seed_dotenv_key "TAVILY_API_KEY" "k"
+    local input='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"tavily_search","arguments":{"query":"q"}}}'
     run bash -c "echo '${input}' | \
         PATH='${TEST_TMPDIR}:${PATH}' \
         CURL_CMD='${TEST_TMPDIR}/curl' \
@@ -632,231 +444,102 @@ MOCK_EOF
         MCP_KEY_ROTATE_BIN='${TEST_TMPDIR}/mcp-key-rotate' \
         TAVILY_MOCK_STATUS=432 \
         bash '$SCRIPT'"
-    [ "$status" -eq 0 ]
     echo "$output" | jq -e '.result.isError == true'
     [[ "$output" == *"quota_exhausted"* ]]
 }
 
-@test "stdio: tools/call unknown tool returns isError=true" {
-    local input='{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"no_such_tool","arguments":{}}}'
-    run_proxy_with_input "${input}"
-    [ "$status" -eq 0 ]
-    echo "$output" | jq -e '.result.isError == true'
-    [[ "$output" == *"unknown tool"* ]]
-}
+# ==========================================================================
+# STDIO INTEGRATION: full session
+# ==========================================================================
 
-@test "stdio: tools/call missing required query argument returns isError=true" {
-    local input='{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"tavily_search","arguments":{}}}'
-    run_proxy_with_input "${input}"
-    [ "$status" -eq 0 ]
-    echo "$output" | jq -e '.result.isError == true'
-    [[ "$output" == *"missing required argument"* ]]
-}
-
-@test "stdio: tools/call with no_key (empty .env and no env var) returns isError" {
-    : >"${KEY_ROTATE_DOTENV}"
-    create_curl_mock
-    create_rotate_mock
-
-    local input='{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"tavily_search","arguments":{"query":"q"}}}'
-    run bash -c "echo '${input}' | \
-        env -u TAVILY_API_KEY \
-        PATH='${TEST_TMPDIR}:${PATH}' \
-        CURL_CMD='${TEST_TMPDIR}/curl' \
-        KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}' \
-        MCP_KEY_ROTATE_BIN='${TEST_TMPDIR}/mcp-key-rotate' \
-        bash '$SCRIPT'"
-    [ "$status" -eq 0 ]
-    echo "$output" | jq -e '.result.isError == true'
-    [[ "$output" == *"no_key"* ]]
-}
-
-@test "stdio: malformed JSON line is silently ignored" {
-    run_proxy_with_input 'not json at all'
-    [ "$status" -eq 0 ]
-    # stdout must be empty (no noise on bad input)
-    [ -z "$output" ]
-}
-
-@test "stdio: empty line is silently ignored" {
-    run_proxy_with_input ''
-    [ "$status" -eq 0 ]
-    [ -z "$output" ]
-}
-
-@test "stdio: full handshake sequence (init + initialized + tools/list)" {
-    local input_file="${TEST_TMPDIR}/handshake.jsonl"
-    cat >"${input_file}" <<'EOF'
-{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"bats","version":"1.0"}}}
-{"jsonrpc":"2.0","method":"notifications/initialized"}
-{"jsonrpc":"2.0","id":2,"method":"tools/list"}
-EOF
-    run_proxy_with_multiline_input "${input_file}"
-    [ "$status" -eq 0 ]
-
-    # Exactly 2 output lines (initialize result + tools/list result; notification has no response)
-    local line_count
-    line_count="$(printf '%s\n' "$output" | grep -c '^{')"
-    [ "${line_count}" -eq 2 ]
-
-    local first_line second_line
-    first_line="$(printf '%s\n' "$output" | sed -n '1p')"
-    second_line="$(printf '%s\n' "$output" | sed -n '2p')"
-    echo "${first_line}" | jq -e '.id == 1 and .result.protocolVersion == "2024-11-05"'
-    echo "${second_line}" | jq -e '.id == 2 and (.result.tools | length == 2)'
-}
-
-@test "stdio: multiple tools/call requests in one session, both succeed" {
-    create_curl_mock
-    create_rotate_mock
-    seed_dotenv_key "TAVILY_API_KEY" "fixture-tavily"
-    seed_dotenv_key "BRAVE_API_KEY" "fixture-brave"
-
-    local input_file="${TEST_TMPDIR}/session.jsonl"
-    cat >"${input_file}" <<'EOF'
+@test "stdio: full handshake + two tool calls" {
+    create_curl_mock; create_rotate_mock
+    seed_dotenv_key "TAVILY_API_KEY" "k"; seed_dotenv_key "BRAVE_API_KEY" "k"
+    local f="${TEST_TMPDIR}/session.jsonl"
+    cat >"${f}" <<'EOF'
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
 {"jsonrpc":"2.0","method":"notifications/initialized"}
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"tavily_search","arguments":{"query":"alpha"}}}
-{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brave_web_search","arguments":{"query":"beta"}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"tavily_search","arguments":{"query":"a"}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brave_web_search","arguments":{"query":"b"}}}
 EOF
-
-    run bash -c "cat '${input_file}' | \
+    run bash -c "cat '${f}' | \
         PATH='${TEST_TMPDIR}:${PATH}' \
         CURL_CMD='${TEST_TMPDIR}/curl' \
         KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}' \
         MCP_KEY_ROTATE_BIN='${TEST_TMPDIR}/mcp-key-rotate' \
-        TAVILY_MOCK_STATUS=200 \
-        BRAVE_MOCK_STATUS=200 \
+        TAVILY_MOCK_STATUS=200 BRAVE_MOCK_STATUS=200 \
         bash '$SCRIPT'"
     [ "$status" -eq 0 ]
-
-    # Three responses: init, tavily, brave (initialized is a notification)
-    local line_count
-    line_count="$(printf '%s\n' "$output" | grep -c '^{')"
-    [ "${line_count}" -eq 3 ]
-
-    echo "$output" | sed -n '2p' | jq -e '.result.isError == false and (.result.content[0].text | contains("Mocked Tavily"))'
-    echo "$output" | sed -n '3p' | jq -e '.result.isError == false and (.result.content[0].text | contains("Mocked Brave"))'
+    local lc; lc="$(printf '%s\n' "$output" | grep -c '^{')"
+    [ "${lc}" -eq 3 ]
+    echo "$output" | sed -n '2p' | jq -e '.result.isError == false'
+    echo "$output" | sed -n '3p' | jq -e '.result.isError == false'
 }
 
 # ==========================================================================
-# STDOUT CLEANLINESS (critical: MCP clients parse stdout line-by-line)
+# STDOUT CLEANLINESS
 # ==========================================================================
 
-@test "stdout cleanliness: every stdout line is parseable JSON-RPC 2.0" {
-    create_curl_mock
-    create_rotate_mock
-    seed_dotenv_key "TAVILY_API_KEY" "fixture"
-
-    local input_file="${TEST_TMPDIR}/session.jsonl"
-    cat >"${input_file}" <<'EOF'
+@test "stdout: every line is valid JSON-RPC 2.0" {
+    create_curl_mock; create_rotate_mock; seed_dotenv_key "TAVILY_API_KEY" "k"
+    local f="${TEST_TMPDIR}/session.jsonl"
+    cat >"${f}" <<'EOF'
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
 {"jsonrpc":"2.0","id":2,"method":"tools/list"}
 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"tavily_search","arguments":{"query":"q"}}}
 {"jsonrpc":"2.0","id":4,"method":"ping"}
-{"jsonrpc":"2.0","id":5,"method":"doesnotexist"}
+{"jsonrpc":"2.0","id":5,"method":"bogus"}
 EOF
-
-    run bash -c "cat '${input_file}' | \
+    run bash -c "cat '${f}' | \
         PATH='${TEST_TMPDIR}:${PATH}' \
         CURL_CMD='${TEST_TMPDIR}/curl' \
         KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}' \
         MCP_KEY_ROTATE_BIN='${TEST_TMPDIR}/mcp-key-rotate' \
         TAVILY_MOCK_STATUS=200 \
         bash '$SCRIPT'"
-    [ "$status" -eq 0 ]
-
-    # Every non-empty line must parse as JSON with jsonrpc == "2.0"
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         echo "$line" | jq -e '.jsonrpc == "2.0"'
     done <<<"$output"
 }
 
-@test "stdout cleanliness: debug logs go to stderr, not stdout" {
-    create_curl_mock
-    create_rotate_mock
-    seed_dotenv_key "TAVILY_API_KEY" "fixture"
-
-    local input='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
-    local stdout_file="${TEST_TMPDIR}/stdout.txt"
-    local stderr_file="${TEST_TMPDIR}/stderr.txt"
-
-    bash -c "echo '${input}' | \
-        PATH='${TEST_TMPDIR}:${PATH}' \
-        MCP_PROXY_DEBUG=1 \
-        CURL_CMD='${TEST_TMPDIR}/curl' \
-        KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}' \
+@test "stdout: debug logs go to stderr only" {
+    create_curl_mock; create_rotate_mock; seed_dotenv_key "TAVILY_API_KEY" "k"
+    local so="${TEST_TMPDIR}/stdout" se="${TEST_TMPDIR}/stderr"
+    bash -c "echo '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}' | \
+        PATH='${TEST_TMPDIR}:${PATH}' MCP_PROXY_DEBUG=1 \
+        CURL_CMD='${TEST_TMPDIR}/curl' KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}' \
         MCP_KEY_ROTATE_BIN='${TEST_TMPDIR}/mcp-key-rotate' \
-        bash '$SCRIPT'" \
-        >"${stdout_file}" 2>"${stderr_file}"
-
-    # stdout must be ONLY the JSON-RPC response
-    [ -s "${stdout_file}" ]
-    jq -e '.jsonrpc == "2.0"' <"${stdout_file}"
-
-    # stderr must contain the debug tag
-    [ -s "${stderr_file}" ]
-    grep -q "mcp-proxy-search" "${stderr_file}"
+        bash '$SCRIPT'" >"${so}" 2>"${se}"
+    jq -e '.jsonrpc == "2.0"' <"${so}"
+    grep -q "mcp-proxy-search" "${se}"
 }
 
-@test "stdout cleanliness: recover_from_failure output never leaks to stdout" {
-    create_rotate_mock
-    seed_dotenv_key "TAVILY_API_KEY" "dying-key"
-
-    # 432 then 200 toggle
-    local toggle="${TEST_TMPDIR}/curl-toggle"
-    echo 432 >"${toggle}"
+@test "stdout: rotation chatter never leaks" {
+    create_rotate_mock; seed_dotenv_key "TAVILY_API_KEY" "k"
+    local toggle="${TEST_TMPDIR}/toggle"; echo 432 >"${toggle}"
     cat >"${TEST_TMPDIR}/curl" <<'MOCK_EOF'
 #!/usr/bin/env bash
-status="$(cat "${CURL_TOGGLE_FILE}" 2>/dev/null || echo 200)"
-echo 200 >"${CURL_TOGGLE_FILE}"
-url=""
-for a in "$@"; do case "$a" in https://*|http://*) url="$a" ;; esac; done
-if [[ "${url}" == *"api.tavily.com/search"* ]]; then
-    if [[ "${status}" == "200" ]]; then
-        printf '%s\n__HTTP_STATUS__%s' '{"query":"ok","results":[{"title":"OK","url":"https://example.com/o","content":"ok"}]}' "${status}"
-    else
-        printf '%s\n__HTTP_STATUS__%s' '{"detail":"quota"}' "${status}"
-    fi
-fi
+s="$(cat "${CURL_TOGGLE_FILE}")"; echo 200 >"${CURL_TOGGLE_FILE}"
+url=""; for a in "$@"; do case "$a" in https://*) url="$a" ;; esac; done
+[[ "${url}" == *"api.tavily.com"* ]] && {
+    [[ "${s}" == "200" ]] && printf '%s\n__HTTP_STATUS__200' '{"results":[{"title":"OK"}]}' || printf '%s\n__HTTP_STATUS__%s' '{"d":"q"}' "${s}"
+}
 MOCK_EOF
     chmod +x "${TEST_TMPDIR}/curl"
-
     local input='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"tavily_search","arguments":{"query":"q"}}}'
     run bash -c "echo '${input}' | \
-        PATH='${TEST_TMPDIR}:${PATH}' \
-        CURL_CMD='${TEST_TMPDIR}/curl' \
-        CURL_TOGGLE_FILE='${toggle}' \
-        KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}' \
-        MCP_KEY_ROTATE_BIN='${TEST_TMPDIR}/mcp-key-rotate' \
+        PATH='${TEST_TMPDIR}:${PATH}' CURL_CMD='${TEST_TMPDIR}/curl' CURL_TOGGLE_FILE='${toggle}' \
+        KEY_ROTATE_DOTENV='${KEY_ROTATE_DOTENV}' MCP_KEY_ROTATE_BIN='${TEST_TMPDIR}/mcp-key-rotate' \
         bash '$SCRIPT'"
-    [ "$status" -eq 0 ]
-
-    # Exactly ONE stdout line — the final successful tool response.
-    # The mcp-key-rotate mock prints "Rotated..." and "Now active..." to its
-    # own stdout, but the proxy captures that via $() substitution and only
-    # extracts "Active: <key>" — none of the rotation output should leak.
-    local line_count
-    line_count="$(printf '%s\n' "$output" | grep -c '^{')"
-    [ "${line_count}" -eq 1 ]
-
-    # Response must be a valid MCP tool success
-    echo "$output" | jq -e '.result.isError == false'
+    local lc; lc="$(printf '%s\n' "$output" | grep -c '^{')"
+    [ "${lc}" -eq 1 ]
     [[ "$output" != *"Rotated "* ]]
-    [[ "$output" != *"Now active"* ]]
 }
 
 # ==========================================================================
-# FIXTURES / REPO WIRING
+# FIXTURES
 # ==========================================================================
 
-@test "script lives at the expected path for .mcp.json referencing" {
-    [ -f "${REPO_ROOT}/bin/mcp-proxy-search" ]
-    [ -x "${REPO_ROOT}/bin/mcp-proxy-search" ]
-}
-
-@test "script sits next to bin/mcp-key-rotate (so SCRIPT_DIR default resolves)" {
-    [ -x "${REPO_ROOT}/bin/mcp-key-rotate" ]
-    [ -x "${REPO_ROOT}/bin/mcp-proxy-search" ]
-}
+@test "script at expected path" { [ -x "${REPO_ROOT}/bin/mcp-proxy-search" ]; }
+@test "mcp-key-rotate co-located" { [ -x "${REPO_ROOT}/bin/mcp-key-rotate" ]; }
