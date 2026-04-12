@@ -160,6 +160,14 @@ main() {
         echo "    Run: chmod +x ${REPO_DIR}/bin/mcp-env-inject"
     fi
 
+    if [[ -x "${REPO_DIR}/bin/mcp-proxy-search" ]]; then
+        ln -sf "${REPO_DIR}/bin/mcp-proxy-search" "${bin_dir}/mcp-proxy-search"
+        echo "  ✓ ~/.local/bin/mcp-proxy-search -> ${REPO_DIR}/bin/mcp-proxy-search"
+    else
+        echo "  ⚠ bin/mcp-proxy-search not found or not executable (skipping)"
+        echo "    Run: chmod +x ${REPO_DIR}/bin/mcp-proxy-search"
+    fi
+
     if [[ "${INSTALL_AGENTS_SKILLS}" == "true" ]]; then
         create_symlink "${REPO_DIR}/.claude/skills" "${CLAUDE_DIR}/skills" "skills"
         create_symlink "${REPO_DIR}/.claude/agents" "${CLAUDE_DIR}/agents" "agents"

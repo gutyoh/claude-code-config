@@ -16,13 +16,15 @@ mcp_get() {
         brave-search:label) echo "brave-search" ;;
         brave-search:desc) echo "Web, image, video, news, local search (1,000/mo free)" ;;
         brave-search:env_var) echo "BRAVE_API_KEY" ;;
-        brave-search:package) echo "@brave/brave-search-mcp-server" ;;
+        brave-search:package) echo "mcp-proxy-search" ;;
+        brave-search:proxy_service) echo "brave" ;;
         brave-search:signup_url) echo "https://api-dashboard.search.brave.com/" ;;
         brave-search:free_limit) echo "1,000 searches/month (\$5 free credits)" ;;
         tavily:label) echo "tavily" ;;
         tavily:desc) echo "AI-native search, extract, crawl, map, research (1,000/mo free)" ;;
         tavily:env_var) echo "TAVILY_API_KEY" ;;
-        tavily:package) echo "tavily-mcp@0.2.17" ;;
+        tavily:package) echo "mcp-proxy-search" ;;
+        tavily:proxy_service) echo "tavily" ;;
         tavily:signup_url) echo "https://tavily.com" ;;
         tavily:free_limit) echo "1,000 credits/month" ;;
         *) return 1 ;;
@@ -92,15 +94,24 @@ _build_mcp_json() {
     local package
     package="$(mcp_get "${key}" package)"
 
+    # mcp-proxy-search handles its own key resolution (Doppler -> dotenv -> env)
+    # so it doesn't need a wrapper. Register it with --service to filter tools.
+    if [[ "${package}" == "mcp-proxy-search" ]]; then
+        local service_arg
+        service_arg="$(mcp_get "${key}" proxy_service)"
+        jq -n -c \
+            --arg svc "${service_arg}" \
+            '{type:"stdio",command:"mcp-proxy-search",args:["--service",$svc]}'
+        return
+    fi
+
     if [[ "${backend}" == "doppler" ]]; then
-        # Doppler wrapper: doppler run -p PROJECT -c CONFIG -- npx -y <package>
         jq -n -c \
             --arg project "${DOPPLER_PROJECT}" \
             --arg config "${DOPPLER_CONFIG}" \
             --arg package "${package}" \
             '{type:"stdio",command:"doppler",args:["run","-p",$project,"-c",$config,"--","npx","-y",$package]}'
     else
-        # Env file wrapper: mcp-env-inject npx -y <package>
         jq -n -c \
             --arg package "${package}" \
             '{type:"stdio",command:"mcp-env-inject",args:["npx","-y",$package]}'

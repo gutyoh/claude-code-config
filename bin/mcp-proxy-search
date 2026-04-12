@@ -29,7 +29,19 @@ readonly CURL_CMD="${CURL_CMD:-curl}"
 
 readonly MCP_PROTOCOL_VERSION="2024-11-05"
 readonly SERVER_NAME="mcp-proxy-search"
-readonly SERVER_VERSION="0.2.0"
+readonly SERVER_VERSION="0.3.0"
+
+# --service tavily|brave|all (default all). Lets Claude Code register two
+# separate MCP servers pointing at the same binary, preserving tool namespacing
+# (mcp__tavily__* and mcp__brave-search__*).
+PROXY_SERVICE="all"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --service) PROXY_SERVICE="${2:-all}"; shift 2 ;;
+        *) shift ;;
+    esac
+done
+readonly PROXY_SERVICE
 
 CALL_STATUS="" CALL_BODY=""
 CURL_STATUS="" CURL_BODY=""
@@ -276,21 +288,32 @@ handle_initialize() {
     emit_result "$1" "${result}"
 }
 
+TAVILY_TOOLS_JSON="$(jq -nc '[
+    {name:"tavily_search",description:"Search the web via Tavily.",inputSchema:{type:"object",properties:{query:{type:"string"},max_results:{type:"integer",default:5}},required:["query"]}},
+    {name:"tavily_extract",description:"Extract content from URLs via Tavily.",inputSchema:{type:"object",properties:{urls:{type:"array",items:{type:"string"}},format:{type:"string",enum:["markdown","text"],default:"markdown"}},required:["urls"]}},
+    {name:"tavily_crawl",description:"Crawl a website via Tavily.",inputSchema:{type:"object",properties:{url:{type:"string"},max_depth:{type:"integer",default:1},limit:{type:"integer",default:50}},required:["url"]}},
+    {name:"tavily_map",description:"Map a website structure via Tavily.",inputSchema:{type:"object",properties:{url:{type:"string"},max_depth:{type:"integer",default:1},limit:{type:"integer",default:50}},required:["url"]}},
+    {name:"tavily_research",description:"Deep research on a topic via Tavily.",inputSchema:{type:"object",properties:{input:{type:"string"},model:{type:"string",enum:["mini","pro","auto"],default:"auto"}},required:["input"]}}
+]')"
+
+BRAVE_TOOLS_JSON="$(jq -nc '[
+    {name:"brave_web_search",description:"Search the web via Brave.",inputSchema:{type:"object",properties:{query:{type:"string"},count:{type:"integer",default:10}},required:["query"]}},
+    {name:"brave_local_search",description:"Search for local businesses/places via Brave.",inputSchema:{type:"object",properties:{query:{type:"string"},count:{type:"integer",default:10}},required:["query"]}},
+    {name:"brave_news_search",description:"Search news articles via Brave.",inputSchema:{type:"object",properties:{query:{type:"string"},count:{type:"integer",default:20}},required:["query"]}},
+    {name:"brave_image_search",description:"Search images via Brave.",inputSchema:{type:"object",properties:{query:{type:"string"},count:{type:"integer",default:50}},required:["query"]}},
+    {name:"brave_video_search",description:"Search videos via Brave.",inputSchema:{type:"object",properties:{query:{type:"string"},count:{type:"integer",default:20}},required:["query"]}}
+]')"
+
+ALL_TOOLS_JSON="$(jq -nc --argjson t "${TAVILY_TOOLS_JSON}" --argjson b "${BRAVE_TOOLS_JSON}" '$t + $b')"
+
 handle_tools_list() {
-    local result
-    result="$(jq -nc '{tools:[
-        {name:"tavily_search",description:"Search the web via Tavily.",inputSchema:{type:"object",properties:{query:{type:"string"},max_results:{type:"integer",default:5}},required:["query"]}},
-        {name:"tavily_extract",description:"Extract content from URLs via Tavily.",inputSchema:{type:"object",properties:{urls:{type:"array",items:{type:"string"}},format:{type:"string",enum:["markdown","text"],default:"markdown"}},required:["urls"]}},
-        {name:"tavily_crawl",description:"Crawl a website via Tavily.",inputSchema:{type:"object",properties:{url:{type:"string"},max_depth:{type:"integer",default:1},limit:{type:"integer",default:50}},required:["url"]}},
-        {name:"tavily_map",description:"Map a website structure via Tavily.",inputSchema:{type:"object",properties:{url:{type:"string"},max_depth:{type:"integer",default:1},limit:{type:"integer",default:50}},required:["url"]}},
-        {name:"tavily_research",description:"Deep research on a topic via Tavily.",inputSchema:{type:"object",properties:{input:{type:"string"},model:{type:"string",enum:["mini","pro","auto"],default:"auto"}},required:["input"]}},
-        {name:"brave_web_search",description:"Search the web via Brave.",inputSchema:{type:"object",properties:{query:{type:"string"},count:{type:"integer",default:10}},required:["query"]}},
-        {name:"brave_local_search",description:"Search for local businesses/places via Brave.",inputSchema:{type:"object",properties:{query:{type:"string"},count:{type:"integer",default:10}},required:["query"]}},
-        {name:"brave_news_search",description:"Search news articles via Brave.",inputSchema:{type:"object",properties:{query:{type:"string"},count:{type:"integer",default:20}},required:["query"]}},
-        {name:"brave_image_search",description:"Search images via Brave.",inputSchema:{type:"object",properties:{query:{type:"string"},count:{type:"integer",default:50}},required:["query"]}},
-        {name:"brave_video_search",description:"Search videos via Brave.",inputSchema:{type:"object",properties:{query:{type:"string"},count:{type:"integer",default:20}},required:["query"]}}
-    ]}')"
-    emit_result "$1" "${result}"
+    local tools
+    case "${PROXY_SERVICE}" in
+        tavily) tools="${TAVILY_TOOLS_JSON}" ;;
+        brave)  tools="${BRAVE_TOOLS_JSON}" ;;
+        *)      tools="${ALL_TOOLS_JSON}" ;;
+    esac
+    emit_result "$1" "$(jq -nc --argjson t "${tools}" '{tools:$t}')"
 }
 
 # Parse a required arg from JSON. Prints value on stdout; returns 1 if empty.

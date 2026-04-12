@@ -263,9 +263,23 @@ MOCK_EOF
 # UNIT: handle_tools_list (all 10 tools)
 # ==========================================================================
 
-@test "handle_tools_list: returns exactly 10 tools" {
+@test "handle_tools_list: default (all) returns exactly 10 tools" {
     run bash -c "source '$SCRIPT'; set +e; handle_tools_list 1"
     echo "$output" | jq -e '.result.tools | length == 10'
+}
+
+@test "handle_tools_list: --service tavily returns only 5 tavily tools via stdio" {
+    local input='{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+    run bash -c "echo '${input}' | bash '$SCRIPT' --service tavily"
+    echo "$output" | jq -e '.result.tools | length == 5'
+    echo "$output" | jq -e '.result.tools | all(.name | startswith("tavily_"))'
+}
+
+@test "handle_tools_list: --service brave returns only 5 brave tools via stdio" {
+    local input='{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+    run bash -c "echo '${input}' | bash '$SCRIPT' --service brave"
+    echo "$output" | jq -e '.result.tools | length == 5'
+    echo "$output" | jq -e '.result.tools | all(.name | startswith("brave_"))'
 }
 
 @test "handle_tools_list: all tool names present" {

@@ -461,8 +461,9 @@ REPO_ROOT="$BATS_TEST_DIRNAME/.."
     grep -q "detect_mcp_backend" "${REPO_ROOT}/lib/setup/mcp.sh"
 }
 
-@test "repo: lib/setup/mcp.sh references doppler run wrapper" {
-    grep -q "doppler run" "${REPO_ROOT}/lib/setup/mcp.sh"
+@test "repo: lib/setup/mcp.sh references doppler wrapper and proxy" {
+    grep -q 'command:"doppler"' "${REPO_ROOT}/lib/setup/mcp.sh"
+    grep -q 'mcp-proxy-search' "${REPO_ROOT}/lib/setup/mcp.sh"
 }
 
 @test "repo: lib/setup/mcp.sh references mcp-env-inject wrapper" {

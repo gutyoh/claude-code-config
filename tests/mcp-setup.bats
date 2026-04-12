@@ -37,86 +37,62 @@ teardown() {
 # UNIT TESTS: _build_mcp_json — JSON generation
 # ==========================================================================
 
-@test "_build_mcp_json: doppler backend produces correct JSON for brave-search" {
+@test "_build_mcp_json: proxy-backed brave-search produces correct JSON (any backend)" {
     local result
     result="$(_build_mcp_json "brave-search" "doppler")"
-
-    # Validate it's valid JSON
-    echo "${result}" | python3 -m json.tool > /dev/null
-
-    # Check structure
-    local cmd args_len
-    cmd="$(echo "${result}" | python3 -c "import sys,json; print(json.load(sys.stdin)['command'])")"
-    [ "$cmd" = "doppler" ]
-
-    local type_val
-    type_val="$(echo "${result}" | python3 -c "import sys,json; print(json.load(sys.stdin)['type'])")"
-    [ "$type_val" = "stdio" ]
-}
-
-@test "_build_mcp_json: doppler backend includes -p and -c flags in args" {
-    local result
-    result="$(_build_mcp_json "brave-search" "doppler")"
-
-    # Extract args as a comma-separated string for easy matching
-    local args
-    args="$(echo "${result}" | python3 -c "import sys,json; print(','.join(json.load(sys.stdin)['args']))")"
-
-    [[ "$args" == *"-p"* ]]
-    [[ "$args" == *"-c"* ]]
-    [[ "$args" == *"claude-code-config"* ]]
-    [[ "$args" == *"dev"* ]]
-    [[ "$args" == *"--"* ]]
-    [[ "$args" == *"npx"* ]]
-    [[ "$args" == *"-y"* ]]
-    [[ "$args" == *"@brave/brave-search-mcp-server"* ]]
-}
-
-@test "_build_mcp_json: doppler backend args are in correct order" {
-    local result
-    result="$(_build_mcp_json "brave-search" "doppler")"
-
-    # Verify exact args array
-    local args_json
-    args_json="$(echo "${result}" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin)['args']))")"
-    [ "$args_json" = '["run", "-p", "claude-code-config", "-c", "dev", "--", "npx", "-y", "@brave/brave-search-mcp-server"]' ]
-}
-
-@test "_build_mcp_json: doppler backend produces correct JSON for tavily" {
-    local result
-    result="$(_build_mcp_json "tavily" "doppler")"
-
-    echo "${result}" | python3 -m json.tool > /dev/null
-
-    local args_json
-    args_json="$(echo "${result}" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin)['args']))")"
-    [ "$args_json" = '["run", "-p", "claude-code-config", "-c", "dev", "--", "npx", "-y", "tavily-mcp@0.2.17"]' ]
-}
-
-@test "_build_mcp_json: envfile backend produces correct JSON for brave-search" {
-    local result
-    result="$(_build_mcp_json "brave-search" "envfile")"
-
     echo "${result}" | python3 -m json.tool > /dev/null
 
     local cmd
     cmd="$(echo "${result}" | python3 -c "import sys,json; print(json.load(sys.stdin)['command'])")"
-    [ "$cmd" = "mcp-env-inject" ]
+    [ "$cmd" = "mcp-proxy-search" ]
+
+    local type_val
+    type_val="$(echo "${result}" | python3 -c "import sys,json; print(json.load(sys.stdin)['type'])")"
+    [ "$type_val" = "stdio" ]
 
     local args_json
     args_json="$(echo "${result}" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin)['args']))")"
-    [ "$args_json" = '["npx", "-y", "@brave/brave-search-mcp-server"]' ]
+    [ "$args_json" = '["--service", "brave"]' ]
 }
 
-@test "_build_mcp_json: envfile backend produces correct JSON for tavily" {
-    local result
-    result="$(_build_mcp_json "tavily" "envfile")"
+@test "_build_mcp_json: proxy-backed brave-search same JSON regardless of backend" {
+    local d e
+    d="$(_build_mcp_json "brave-search" "doppler")"
+    e="$(_build_mcp_json "brave-search" "envfile")"
+    [ "$d" = "$e" ]
+}
 
+@test "_build_mcp_json: proxy-backed tavily produces --service tavily" {
+    local result
+    result="$(_build_mcp_json "tavily" "doppler")"
     echo "${result}" | python3 -m json.tool > /dev/null
 
     local args_json
     args_json="$(echo "${result}" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin)['args']))")"
-    [ "$args_json" = '["npx", "-y", "tavily-mcp@0.2.17"]' ]
+    [ "$args_json" = '["--service", "tavily"]' ]
+}
+
+@test "_build_mcp_json: proxy JSON has command=mcp-proxy-search for tavily" {
+    local result
+    result="$(_build_mcp_json "tavily" "envfile")"
+    local cmd
+    cmd="$(echo "${result}" | python3 -c "import sys,json; print(json.load(sys.stdin)['command'])")"
+    [ "$cmd" = "mcp-proxy-search" ]
+}
+
+@test "_build_mcp_json: proxy JSON has no env field (proxy reads keys itself)" {
+    local result
+    result="$(_build_mcp_json "brave-search" "doppler")"
+    local has_env
+    has_env="$(echo "${result}" | python3 -c "import sys,json; d=json.load(sys.stdin); print('env' in d)")"
+    [ "$has_env" = "False" ]
+}
+
+@test "_build_mcp_json: proxy JSON has no doppler/npx args" {
+    local result
+    result="$(_build_mcp_json "brave-search" "doppler")"
+    [[ "$result" != *"doppler"* ]]
+    [[ "$result" != *"npx"* ]]
 }
 
 @test "_build_mcp_json: envfile backend has type stdio" {
@@ -132,26 +108,17 @@ teardown() {
 # UNIT TESTS: _build_mcp_json — custom Doppler project/config
 # ==========================================================================
 
-@test "_build_mcp_json: respects MCP_DOPPLER_PROJECT override" {
-    # DOPPLER_PROJECT is readonly in the sourced script, so we override
-    # by sourcing again with the env var set in a subshell
+@test "_build_mcp_json: proxy-backed servers ignore Doppler project/config overrides" {
+    # Proxy handles its own key resolution — the JSON should not contain
+    # any Doppler project/config references regardless of env.
     local result
-    result="$(MCP_DOPPLER_PROJECT=my-custom-proj bash -c '
+    result="$(MCP_DOPPLER_PROJECT=my-custom-proj MCP_DOPPLER_CONFIG=staging bash -c '
         source "'"${MCP_SH}"'"
         _build_mcp_json "brave-search" "doppler"
     ')"
-
-    [[ "$result" == *"my-custom-proj"* ]]
-}
-
-@test "_build_mcp_json: respects MCP_DOPPLER_CONFIG override" {
-    local result
-    result="$(MCP_DOPPLER_CONFIG=staging bash -c '
-        source "'"${MCP_SH}"'"
-        _build_mcp_json "brave-search" "doppler"
-    ')"
-
-    [[ "$result" == *"staging"* ]]
+    [[ "$result" != *"my-custom-proj"* ]]
+    [[ "$result" != *"staging"* ]]
+    [[ "$result" == *"mcp-proxy-search"* ]]
 }
 
 # ==========================================================================
@@ -182,16 +149,28 @@ teardown() {
 # UNIT TESTS: mcp_get — registry lookups
 # ==========================================================================
 
-@test "mcp_get: returns correct package for brave-search" {
+@test "mcp_get: returns mcp-proxy-search as package for brave-search" {
     local pkg
     pkg="$(mcp_get "brave-search" "package")"
-    [ "$pkg" = "@brave/brave-search-mcp-server" ]
+    [ "$pkg" = "mcp-proxy-search" ]
 }
 
-@test "mcp_get: returns correct package for tavily" {
+@test "mcp_get: returns mcp-proxy-search as package for tavily" {
     local pkg
     pkg="$(mcp_get "tavily" "package")"
-    [ "$pkg" = "tavily-mcp@0.2.17" ]
+    [ "$pkg" = "mcp-proxy-search" ]
+}
+
+@test "mcp_get: returns correct proxy_service for brave-search" {
+    local svc
+    svc="$(mcp_get "brave-search" "proxy_service")"
+    [ "$svc" = "brave" ]
+}
+
+@test "mcp_get: returns correct proxy_service for tavily" {
+    local svc
+    svc="$(mcp_get "tavily" "proxy_service")"
+    [ "$svc" = "tavily" ]
 }
 
 @test "mcp_get: returns correct env_var for brave-search" {
@@ -420,31 +399,23 @@ MOCK
 # REGRESSION TEST: the original bug — short flags after -- are not consumed
 # ==========================================================================
 
-@test "regression: JSON args contain -p and -c without CLI parser conflict" {
-    # This is the core regression test. The old `claude mcp add` approach
-    # failed because `-p` and `-c` after `--` were consumed by the CLI parser.
-    # With `claude mcp add-json`, flags are inside a JSON string argument,
-    # so the CLI parser never sees them.
-
+@test "regression: proxy JSON args don't contain CLI-parseable flags" {
+    # Proxy servers use simple --service args, no -p/-c that could be
+    # consumed by the claude CLI parser.
     local result
     result="$(_build_mcp_json "brave-search" "doppler")"
 
-    # The JSON must contain -p and -c as args elements
-    local has_p has_c
-    has_p="$(echo "${result}" | python3 -c "import sys,json; print('-p' in json.load(sys.stdin)['args'])")"
-    has_c="$(echo "${result}" | python3 -c "import sys,json; print('-c' in json.load(sys.stdin)['args'])")"
-    [ "$has_p" = "True" ]
-    [ "$has_c" = "True" ]
+    local args_json
+    args_json="$(echo "${result}" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin)['args']))")"
+    [ "$args_json" = '["--service", "brave"]' ]
+    [[ "$result" != *'"-p"'* ]]
+    [[ "$result" != *'"-c"'* ]]
 
-    # But they're inside a JSON string, not as CLI flags
-    # The mock claude should receive them as part of one JSON argument
+    # Mock claude receives the JSON as one argument (no flag leakage)
     local mock_log="${TEST_TMPDIR}/claude-calls.log"
     cat > "${TEST_TMPDIR}/claude" <<'MOCK'
 #!/usr/bin/env bash
-# Log each argument on its own line for inspection
-for arg in "$@"; do
-    echo "ARG:${arg}"
-done >> "$(dirname "$0")/claude-calls.log"
+for arg in "$@"; do echo "ARG:${arg}"; done >> "$(dirname "$0")/claude-calls.log"
 exit 0
 MOCK
     chmod +x "${TEST_TMPDIR}/claude"
@@ -452,17 +423,14 @@ MOCK
 
     _configure_single_mcp "brave-search" "doppler"
 
-    # -p and -c should NOT appear as standalone arguments
-    # They should only appear inside the JSON string argument
-    local standalone_p standalone_c
-    standalone_p="$(grep -c '^ARG:-p$' "${mock_log}" || true)"
-    standalone_c="$(grep -c '^ARG:-c$' "${mock_log}" || true)"
-    [ "$standalone_p" -eq 0 ]
-    [ "$standalone_c" -eq 0 ]
+    # --service should be INSIDE the JSON string, not a standalone CLI flag
+    local standalone_service
+    standalone_service="$(grep -c '^ARG:--service$' "${mock_log}" || true)"
+    [ "$standalone_service" -eq 0 ]
 
-    # The JSON argument should contain them
+    # The JSON argument should contain --service
     local json_arg
     json_arg="$(grep 'ARG:{' "${mock_log}")"
-    [[ "$json_arg" == *'"-p"'* ]]
-    [[ "$json_arg" == *'"-c"'* ]]
+    [[ "$json_arg" == *'"--service"'* ]]
+    [[ "$json_arg" == *'"brave"'* ]]
 }
