@@ -284,7 +284,7 @@ if (-not (Test-Path $binDir)) {
     New-Item -ItemType Directory -Path $binDir -Force | Out-Null
 }
 
-foreach ($util in @("mcp-key-rotate", "mcp-env-inject")) {
+foreach ($util in @("mcp-key-rotate", "mcp-env-inject", "mcp-proxy-search")) {
     $source = "$($script:RepoDir)\bin\${util}"
     if (Test-Path $source) {
         Copy-Item $source "$binDir\${util}" -Force

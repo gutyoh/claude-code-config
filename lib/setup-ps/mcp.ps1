@@ -9,20 +9,22 @@
 
 $script:McpServers = @{
     "brave-search" = @{
-        label      = "brave-search"
-        desc       = "Web, image, video, news, local search (1,000/mo free)"
-        env_var    = "BRAVE_API_KEY"
-        package    = "@brave/brave-search-mcp-server"
-        signup_url = "https://api-dashboard.search.brave.com/"
-        free_limit = "1,000 searches/month (`$5 free credits)"
+        label         = "brave-search"
+        desc          = "Web, image, video, news, local search (1,000/mo free)"
+        env_var       = "BRAVE_API_KEY"
+        package       = "mcp-proxy-search"
+        proxy_service = "brave"
+        signup_url    = "https://api-dashboard.search.brave.com/"
+        free_limit    = "1,000 searches/month (`$5 free credits)"
     }
     "tavily"       = @{
-        label      = "tavily"
-        desc       = "AI-native search, extract, crawl, map, research (1,000/mo free)"
-        env_var    = "TAVILY_API_KEY"
-        package    = "tavily-mcp@0.2.17"
-        signup_url = "https://tavily.com"
-        free_limit = "1,000 credits/month"
+        label         = "tavily"
+        desc          = "AI-native search, extract, crawl, map, research (1,000/mo free)"
+        env_var       = "TAVILY_API_KEY"
+        package       = "mcp-proxy-search"
+        proxy_service = "tavily"
+        signup_url    = "https://tavily.com"
+        free_limit    = "1,000 credits/month"
     }
 }
 
@@ -106,7 +108,15 @@ function Get-McpJson {
     $server = $script:McpServers[$Key]
     $package = $server.package
 
-    if ($Backend -eq "doppler") {
+    # mcp-proxy-search handles its own key resolution — no wrapper needed.
+    if ($package -eq "mcp-proxy-search") {
+        $config = @{
+            type    = "stdio"
+            command = "mcp-proxy-search"
+            args    = @("--service", $server.proxy_service)
+        }
+    }
+    elseif ($Backend -eq "doppler") {
         $config = @{
             type    = "stdio"
             command = "doppler"

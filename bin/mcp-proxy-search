@@ -1,0 +1,443 @@
+#!/usr/bin/env bash
+# mcp-proxy-search
+# Path: claude-code-config/bin/mcp-proxy-search
+#
+# Bash MCP server proxying Tavily + Brave Search with transparent key rotation.
+# JSON-RPC 2.0 over stdio. Reads keys fresh per call (Doppler -> dotenv -> env).
+# On 429/432, shells out to mcp-key-rotate --recover-from-failure and retries once.
+#
+# Tools: tavily_search, tavily_extract, tavily_crawl, tavily_map, tavily_research,
+#        brave_web_search, brave_local_search, brave_news_search, brave_image_search,
+#        brave_video_search
+#
+# Requires: bash, jq, curl, mcp-key-rotate (on PATH or next to this script).
+
+set -euo pipefail
+
+# --- Config ---
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
+
+_default_rotate="${SCRIPT_DIR}/mcp-key-rotate"
+[[ ! -x "${_default_rotate}" ]] && _default_rotate="mcp-key-rotate"
+readonly MCP_KEY_ROTATE="${MCP_KEY_ROTATE_BIN:-${_default_rotate}}"
+readonly BAD_KEY_TTL_SEC="${PROXY_BAD_KEY_TTL_SEC:-3600}"
+readonly HTTP_TIMEOUT_SEC="${PROXY_HTTP_TIMEOUT_SEC:-30}"
+readonly DOPPLER_PROJECT="${KEY_ROTATE_DOPPLER_PROJECT:-claude-code-config}"
+readonly DOPPLER_CONFIG="${KEY_ROTATE_DOPPLER_CONFIG:-dev}"
+readonly CURL_CMD="${CURL_CMD:-curl}"
+
+readonly MCP_PROTOCOL_VERSION="2024-11-05"
+readonly SERVER_NAME="mcp-proxy-search"
+readonly SERVER_VERSION="0.3.0"
+
+# --service tavily|brave|all (default all). Lets Claude Code register two
+# separate MCP servers pointing at the same binary, preserving tool namespacing
+# (mcp__tavily__* and mcp__brave-search__*).
+PROXY_SERVICE="all"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --service) PROXY_SERVICE="${2:-all}"; shift 2 ;;
+        *) shift ;;
+    esac
+done
+readonly PROXY_SERVICE
+
+CALL_STATUS="" CALL_BODY=""
+CURL_STATUS="" CURL_BODY=""
+
+log() {
+    [[ -n "${MCP_PROXY_DEBUG:-}" ]] && printf '[mcp-proxy-search] %s\n' "$*" >&2
+    return 0
+}
+
+# --- Key resolution: Doppler -> dotenv -> env. Honors KEY_ROTATE_BACKEND. ---
+read_active_key() {
+    local service="$1"
+    local upper var backend
+    upper="$(printf '%s' "${service}" | tr '[:lower:]' '[:upper:]')"
+    var="${upper}_API_KEY"
+    backend="${KEY_ROTATE_BACKEND:-auto}"
+
+    if [[ "${backend}" == "doppler" || "${backend}" == "auto" ]]; then
+        if command -v doppler &>/dev/null; then
+            local val=""
+            val="$(doppler secrets get "${var}" --plain \
+                -p "${DOPPLER_PROJECT}" -c "${DOPPLER_CONFIG}" 2>/dev/null || echo "")"
+            [[ -n "${val}" ]] && { printf '%s' "${val}"; return 0; }
+        fi
+        [[ "${backend}" == "doppler" ]] && { printf '%s' "${!var:-}"; return 0; }
+    fi
+
+    if [[ "${backend}" == "dotenv" || "${backend}" == "auto" ]]; then
+        local dotenv="${KEY_ROTATE_DOTENV:-${SCRIPT_DIR}/../.env}"
+        if [[ -f "${dotenv}" ]]; then
+            local val=""
+            val="$(grep "^${var}=" "${dotenv}" 2>/dev/null | head -1 | cut -d'=' -f2- | sed 's/^"//;s/"$//' || true)"
+            [[ -n "${val}" ]] && { printf '%s' "${val}"; return 0; }
+        fi
+    fi
+
+    printf '%s' "${!var:-}"
+}
+
+# --- Recovery via mcp-key-rotate ---
+recover_from_failure() {
+    local service="$1" failed_key="$2"
+    if ! command -v "${MCP_KEY_ROTATE}" &>/dev/null && [[ ! -x "${MCP_KEY_ROTATE}" ]]; then
+        return 1
+    fi
+    local output
+    output=$("${MCP_KEY_ROTATE}" "${service}" \
+        --recover-from-failure "${failed_key}" "${BAD_KEY_TTL_SEC}" 2>&1) || return 1
+    local new_key
+    new_key="$(printf '%s\n' "${output}" | awk -F': ' '/^Active: /{print $2; exit}')"
+    [[ -z "${new_key}" ]] && return 1
+    printf '%s' "${new_key}"
+}
+
+# --- Generic HTTP helpers ---
+# All Tavily endpoints: POST to api.tavily.com/<endpoint> with api_key in body.
+http_tavily_post() {
+    local key="$1" endpoint="$2" extra_body="$3"
+    local body
+    body="$(printf '%s' "${extra_body}" | jq -c --arg k "${key}" '. + {api_key: $k}')"
+    "${CURL_CMD}" -sS --max-time "${HTTP_TIMEOUT_SEC}" \
+        -w '\n__HTTP_STATUS__%{http_code}' \
+        -X POST "https://api.tavily.com/${endpoint}" \
+        -H "Content-Type: application/json" \
+        -d "${body}" 2>/dev/null
+}
+
+# All Brave endpoints: GET to api.search.brave.com/res/v1/<path> with key in header.
+# $3+ are --data-urlencode args.
+http_brave_get() {
+    local key="$1" path="$2"
+    shift 2
+    "${CURL_CMD}" -sS --max-time "${HTTP_TIMEOUT_SEC}" \
+        -w '\n__HTTP_STATUS__%{http_code}' \
+        --get "https://api.search.brave.com/res/v1/${path}" \
+        "$@" \
+        -H "X-Subscription-Token: ${key}" \
+        -H "Accept: application/json" 2>/dev/null
+}
+
+# --- Per-tool HTTP wrappers (thin: build body/params, delegate to generic) ---
+
+_tavily_search() {
+    local key="$1" query="$2" max_results="${3:-5}"
+    http_tavily_post "${key}" "search" \
+        "$(jq -nc --arg q "${query}" --argjson m "${max_results}" '{query:$q, max_results:$m}')"
+}
+
+_tavily_extract() {
+    local key="$1" urls_json="$2" format="${3:-markdown}"
+    http_tavily_post "${key}" "extract" \
+        "$(jq -nc --argjson u "${urls_json}" --arg f "${format}" '{urls:$u, format:$f}')"
+}
+
+_tavily_crawl() {
+    local key="$1" url="$2" max_depth="${3:-1}" limit="${4:-50}"
+    http_tavily_post "${key}" "crawl" \
+        "$(jq -nc --arg u "${url}" --argjson d "${max_depth}" --argjson l "${limit}" '{url:$u, max_depth:$d, limit:$l}')"
+}
+
+_tavily_map() {
+    local key="$1" url="$2" max_depth="${3:-1}" limit="${4:-50}"
+    http_tavily_post "${key}" "map" \
+        "$(jq -nc --arg u "${url}" --argjson d "${max_depth}" --argjson l "${limit}" '{url:$u, max_depth:$d, limit:$l}')"
+}
+
+_tavily_research() {
+    local key="$1" input="$2" model="${3:-auto}"
+    http_tavily_post "${key}" "research" \
+        "$(jq -nc --arg i "${input}" --arg m "${model}" '{input:$i, model:$m}')"
+}
+
+_brave_web_search() {
+    local key="$1" query="$2" count="${3:-10}"
+    http_brave_get "${key}" "web/search" \
+        --data-urlencode "q=${query}" --data-urlencode "count=${count}"
+}
+
+_brave_local_search() {
+    local key="$1" query="$2" count="${3:-10}"
+    http_brave_get "${key}" "web/search" \
+        --data-urlencode "q=${query}" --data-urlencode "count=${count}" \
+        --data-urlencode "result_filter=locations"
+}
+
+_brave_news_search() {
+    local key="$1" query="$2" count="${3:-20}"
+    http_brave_get "${key}" "news/search" \
+        --data-urlencode "q=${query}" --data-urlencode "count=${count}"
+}
+
+_brave_image_search() {
+    local key="$1" query="$2" count="${3:-50}"
+    http_brave_get "${key}" "images/search" \
+        --data-urlencode "q=${query}" --data-urlencode "count=${count}"
+}
+
+_brave_video_search() {
+    local key="$1" query="$2" count="${3:-20}"
+    http_brave_get "${key}" "videos/search" \
+        --data-urlencode "q=${query}" --data-urlencode "count=${count}"
+}
+
+# --- Curl output parsing ---
+split_curl_raw() {
+    local raw="$1"
+    CURL_STATUS="${raw##*__HTTP_STATUS__}"
+    CURL_BODY="${raw%$'\n'__HTTP_STATUS__*}"
+}
+
+# --- Orchestration: call a vendor via $caller func, rotate on 429/432 ---
+# $1=service, $2=caller function name, $3+=args passed to caller after key.
+# Sets CALL_STATUS + CALL_BODY. Invoke without $( ).
+call_with_rotation() {
+    local service="$1" caller="$2"
+    shift 2
+
+    CALL_STATUS="" CALL_BODY=""
+
+    local attempt
+    for attempt in 1 2; do
+        local key
+        key="$(read_active_key "${service}")"
+        if [[ -z "${key}" ]]; then
+            CALL_STATUS="no_key"
+            return 1
+        fi
+
+        local raw
+        if ! raw="$("${caller}" "${key}" "$@")"; then
+            CALL_STATUS="network_error"
+            return 1
+        fi
+
+        split_curl_raw "${raw}"
+
+        if [[ "${CURL_STATUS}" == "200" ]]; then
+            CALL_STATUS="ok"
+            CALL_BODY="${CURL_BODY}"
+            return 0
+        fi
+
+        if [[ "${attempt}" -eq 1 ]] && { [[ "${CURL_STATUS}" == "429" ]] || [[ "${CURL_STATUS}" == "432" ]]; }; then
+            local new_key
+            if new_key="$(recover_from_failure "${service}" "${key}")" && [[ -n "${new_key}" ]]; then
+                log "rotated ${service} after HTTP ${CURL_STATUS}; retrying"
+                continue
+            fi
+            CALL_STATUS="quota_exhausted"
+            return 1
+        fi
+
+        CALL_STATUS="http_error"
+        return 1
+    done
+
+    CALL_STATUS="quota_exhausted"
+    return 1
+}
+
+# --- No-key setup instructions ---
+no_key_message() {
+    local service="$1" tool="$2"
+    local upper var signup
+    upper="$(printf '%s' "${service}" | tr '[:lower:]' '[:upper:]')"
+    var="${upper}_API_KEY"
+    case "${service}" in
+        tavily) signup="https://tavily.com" ;;
+        brave)  signup="https://brave.com/search/api" ;;
+        *)      signup="" ;;
+    esac
+    printf '%s failed: %s not configured. Setup: (1) Get a free key at %s (2) Add %s=your-key to .env (3) Or: doppler secrets set %s=your-key -- Use /web-search as a zero-config fallback.' \
+        "${tool}" "${var}" "${signup}" "${var}" "${var}"
+}
+
+# --- JSON-RPC emitters ---
+
+emit_result() {
+    jq -nc --argjson id "$1" --argjson r "$2" '{jsonrpc:"2.0",id:$id,result:$r}'
+}
+
+emit_rpc_error() {
+    jq -nc --argjson id "$1" --argjson code "$2" --arg m "$3" \
+        '{jsonrpc:"2.0",id:$id,error:{code:$code,message:$m}}'
+}
+
+emit_tool_success() {
+    jq -nc --argjson id "$1" --arg t "$2" \
+        '{jsonrpc:"2.0",id:$id,result:{content:[{type:"text",text:$t}],isError:false}}'
+}
+
+emit_tool_error() {
+    jq -nc --argjson id "$1" --arg t "$2" \
+        '{jsonrpc:"2.0",id:$id,result:{content:[{type:"text",text:$t}],isError:true}}'
+}
+
+# --- MCP method handlers ---
+
+handle_initialize() {
+    local result
+    result="$(jq -nc \
+        --arg pv "${MCP_PROTOCOL_VERSION}" --arg n "${SERVER_NAME}" --arg v "${SERVER_VERSION}" \
+        '{protocolVersion:$pv,capabilities:{tools:{}},serverInfo:{name:$n,version:$v}}')"
+    emit_result "$1" "${result}"
+}
+
+TAVILY_TOOLS_JSON="$(jq -nc '[
+    {name:"tavily_search",description:"Search the web via Tavily.",inputSchema:{type:"object",properties:{query:{type:"string"},max_results:{type:"integer",default:5}},required:["query"]}},
+    {name:"tavily_extract",description:"Extract content from URLs via Tavily.",inputSchema:{type:"object",properties:{urls:{type:"array",items:{type:"string"}},format:{type:"string",enum:["markdown","text"],default:"markdown"}},required:["urls"]}},
+    {name:"tavily_crawl",description:"Crawl a website via Tavily.",inputSchema:{type:"object",properties:{url:{type:"string"},max_depth:{type:"integer",default:1},limit:{type:"integer",default:50}},required:["url"]}},
+    {name:"tavily_map",description:"Map a website structure via Tavily.",inputSchema:{type:"object",properties:{url:{type:"string"},max_depth:{type:"integer",default:1},limit:{type:"integer",default:50}},required:["url"]}},
+    {name:"tavily_research",description:"Deep research on a topic via Tavily.",inputSchema:{type:"object",properties:{input:{type:"string"},model:{type:"string",enum:["mini","pro","auto"],default:"auto"}},required:["input"]}}
+]')"
+
+BRAVE_TOOLS_JSON="$(jq -nc '[
+    {name:"brave_web_search",description:"Search the web via Brave.",inputSchema:{type:"object",properties:{query:{type:"string"},count:{type:"integer",default:10}},required:["query"]}},
+    {name:"brave_local_search",description:"Search for local businesses/places via Brave.",inputSchema:{type:"object",properties:{query:{type:"string"},count:{type:"integer",default:10}},required:["query"]}},
+    {name:"brave_news_search",description:"Search news articles via Brave.",inputSchema:{type:"object",properties:{query:{type:"string"},count:{type:"integer",default:20}},required:["query"]}},
+    {name:"brave_image_search",description:"Search images via Brave.",inputSchema:{type:"object",properties:{query:{type:"string"},count:{type:"integer",default:50}},required:["query"]}},
+    {name:"brave_video_search",description:"Search videos via Brave.",inputSchema:{type:"object",properties:{query:{type:"string"},count:{type:"integer",default:20}},required:["query"]}}
+]')"
+
+ALL_TOOLS_JSON="$(jq -nc --argjson t "${TAVILY_TOOLS_JSON}" --argjson b "${BRAVE_TOOLS_JSON}" '$t + $b')"
+
+handle_tools_list() {
+    local tools
+    case "${PROXY_SERVICE}" in
+        tavily) tools="${TAVILY_TOOLS_JSON}" ;;
+        brave)  tools="${BRAVE_TOOLS_JSON}" ;;
+        *)      tools="${ALL_TOOLS_JSON}" ;;
+    esac
+    emit_result "$1" "$(jq -nc --argjson t "${tools}" '{tools:$t}')"
+}
+
+# Parse a required arg from JSON. Prints value on stdout; returns 1 if empty.
+_require_arg() {
+    local args_json="$1" field="$2"
+    local val
+    val="$(printf '%s' "${args_json}" | jq -r ".${field} // empty")"
+    [[ -z "${val}" ]] && return 1
+    printf '%s' "${val}"
+}
+
+# Helper: dispatch a tool call and emit the result.
+_dispatch_tool() {
+    local id_json="$1" service="$2" caller="$3" tool="$4"
+    shift 4
+    if call_with_rotation "${service}" "${caller}" "$@"; then
+        emit_tool_success "${id_json}" "${CALL_BODY}"
+    else
+        if [[ "${CALL_STATUS}" == "no_key" ]]; then
+            emit_tool_error "${id_json}" "$(no_key_message "${service}" "${tool}")"
+        else
+            emit_tool_error "${id_json}" "${tool} failed: ${CALL_STATUS}"
+        fi
+    fi
+}
+
+handle_tool_call() {
+    local id="$1" name="$2" args="$3"
+
+    case "${name}" in
+        tavily_search)
+            local q; q="$(_require_arg "${args}" query)" || { emit_tool_error "${id}" "missing required argument: query"; return; }
+            local mr; mr="$(printf '%s' "${args}" | jq -r '(.max_results // 5) | tonumber? // 5')"
+            _dispatch_tool "${id}" tavily _tavily_search "${name}" "${q}" "${mr}"
+            ;;
+        tavily_extract)
+            local urls; urls="$(printf '%s' "${args}" | jq -c '.urls // null')"
+            if [[ -z "${urls}" || "${urls}" == "null" ]]; then
+                emit_tool_error "${id}" "missing required argument: urls"; return; fi
+            local fmt; fmt="$(printf '%s' "${args}" | jq -r '.format // "markdown"')"
+            _dispatch_tool "${id}" tavily _tavily_extract "${name}" "${urls}" "${fmt}"
+            ;;
+        tavily_crawl)
+            local u; u="$(_require_arg "${args}" url)" || { emit_tool_error "${id}" "missing required argument: url"; return; }
+            local d; d="$(printf '%s' "${args}" | jq -r '(.max_depth // 1) | tonumber? // 1')"
+            local l; l="$(printf '%s' "${args}" | jq -r '(.limit // 50) | tonumber? // 50')"
+            _dispatch_tool "${id}" tavily _tavily_crawl "${name}" "${u}" "${d}" "${l}"
+            ;;
+        tavily_map)
+            local u; u="$(_require_arg "${args}" url)" || { emit_tool_error "${id}" "missing required argument: url"; return; }
+            local d; d="$(printf '%s' "${args}" | jq -r '(.max_depth // 1) | tonumber? // 1')"
+            local l; l="$(printf '%s' "${args}" | jq -r '(.limit // 50) | tonumber? // 50')"
+            _dispatch_tool "${id}" tavily _tavily_map "${name}" "${u}" "${d}" "${l}"
+            ;;
+        tavily_research)
+            local inp; inp="$(_require_arg "${args}" input)" || { emit_tool_error "${id}" "missing required argument: input"; return; }
+            local m; m="$(printf '%s' "${args}" | jq -r '.model // "auto"')"
+            _dispatch_tool "${id}" tavily _tavily_research "${name}" "${inp}" "${m}"
+            ;;
+        brave_web_search)
+            local q; q="$(_require_arg "${args}" query)" || { emit_tool_error "${id}" "missing required argument: query"; return; }
+            local c; c="$(printf '%s' "${args}" | jq -r '(.count // 10) | tonumber? // 10')"
+            _dispatch_tool "${id}" brave _brave_web_search "${name}" "${q}" "${c}"
+            ;;
+        brave_local_search)
+            local q; q="$(_require_arg "${args}" query)" || { emit_tool_error "${id}" "missing required argument: query"; return; }
+            local c; c="$(printf '%s' "${args}" | jq -r '(.count // 10) | tonumber? // 10')"
+            _dispatch_tool "${id}" brave _brave_local_search "${name}" "${q}" "${c}"
+            ;;
+        brave_news_search)
+            local q; q="$(_require_arg "${args}" query)" || { emit_tool_error "${id}" "missing required argument: query"; return; }
+            local c; c="$(printf '%s' "${args}" | jq -r '(.count // 20) | tonumber? // 20')"
+            _dispatch_tool "${id}" brave _brave_news_search "${name}" "${q}" "${c}"
+            ;;
+        brave_image_search)
+            local q; q="$(_require_arg "${args}" query)" || { emit_tool_error "${id}" "missing required argument: query"; return; }
+            local c; c="$(printf '%s' "${args}" | jq -r '(.count // 50) | tonumber? // 50')"
+            _dispatch_tool "${id}" brave _brave_image_search "${name}" "${q}" "${c}"
+            ;;
+        brave_video_search)
+            local q; q="$(_require_arg "${args}" query)" || { emit_tool_error "${id}" "missing required argument: query"; return; }
+            local c; c="$(printf '%s' "${args}" | jq -r '(.count // 20) | tonumber? // 20')"
+            _dispatch_tool "${id}" brave _brave_video_search "${name}" "${q}" "${c}"
+            ;;
+        *)
+            emit_tool_error "${id}" "unknown tool: ${name}"
+            ;;
+    esac
+}
+
+# --- JSON-RPC dispatch ---
+dispatch_line() {
+    local line="$1"
+    [[ -z "${line}" ]] && return 0
+
+    local method id_json
+    method="$(printf '%s' "${line}" | jq -r '.method // empty' 2>/dev/null || true)"
+    id_json="$(printf '%s' "${line}" | jq -c '.id // null' 2>/dev/null || echo "null")"
+
+    log "method=${method} id=${id_json}"
+
+    case "${method}" in
+        "")                      ;;
+        initialize)              handle_initialize "${id_json}" ;;
+        notifications/*)         ;;
+        tools/list)              handle_tools_list "${id_json}" ;;
+        tools/call)
+            local n a
+            n="$(printf '%s' "${line}" | jq -r '.params.name // empty' 2>/dev/null || true)"
+            a="$(printf '%s' "${line}" | jq -c '.params.arguments // {}' 2>/dev/null || echo '{}')"
+            handle_tool_call "${id_json}" "${n}" "${a}"
+            ;;
+        ping|shutdown)           emit_result "${id_json}" '{}' ;;
+        *)                       emit_rpc_error "${id_json}" -32601 "method not found: ${method}" ;;
+    esac
+}
+
+main() {
+    local line
+    while IFS= read -r line; do
+        dispatch_line "${line}"
+    done
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main
+fi
