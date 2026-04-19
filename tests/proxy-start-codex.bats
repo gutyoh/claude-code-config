@@ -42,6 +42,11 @@ setup() {
     SANDBOX="$(mktemp -d)"
     export SANDBOX
 
+    # File the port-preflight test writes its listener PID to, so teardown
+    # can kill it even if the test body crashes.
+    LISTENER_PID_FILE="${SANDBOX}/listener.pid"
+    export LISTENER_PID_FILE
+
     # Fake CLIProxyAPI repo dir (just needs to exist and be `cd`-able)
     export CLI_PROXY_DIR="${SANDBOX}/cli-proxy-api-repo"
     mkdir -p "$CLI_PROXY_DIR"
@@ -67,6 +72,15 @@ setup() {
 }
 
 teardown() {
+    # Force-kill any listener leaked by the port-preflight test so bats can
+    # exit cleanly even if a test body crashed before its inline cleanup ran.
+    if [[ -f "${LISTENER_PID_FILE:-}" ]]; then
+        local lpid
+        lpid=$(cat "$LISTENER_PID_FILE" 2>/dev/null || true)
+        if [[ -n "$lpid" ]]; then
+            kill -KILL "$lpid" 2>/dev/null || true
+        fi
+    fi
     rm -rf "$SANDBOX"
 }
 
@@ -240,26 +254,37 @@ import_file() {
     # for the duration of the test. We use python's http.server as a reliable
     # cross-platform listener.
     local busy_port=28801
-    # Find a free one if 28801 is taken
     while lsof -iTCP:"$busy_port" -sTCP:LISTEN -Pn 2>/dev/null | grep -q LISTEN; do
         busy_port=$((busy_port + 1))
     done
 
-    # Start a listener in the background
+    # Start a listener in the background, record its PID where teardown()
+    # can find it and force-kill even on test-body failure.
     "${_PY}" -m http.server "$busy_port" --bind 127.0.0.1 >/dev/null 2>&1 &
     local listener_pid=$!
-    # Cleanup on exit
-    trap 'kill '"$listener_pid"' 2>/dev/null; wait '"$listener_pid"' 2>/dev/null' EXIT
-    # Give it a moment to bind
-    sleep 0.5
+    echo "$listener_pid" >"$LISTENER_PID_FILE"
 
-    # Verify the listener is up
+    # Poll briefly for the listener to bind (faster than a fixed sleep)
+    local tries=0
+    while [ "$tries" -lt 20 ]; do
+        if lsof -iTCP:"$busy_port" -sTCP:LISTEN -Pn 2>/dev/null | grep -q LISTEN; then
+            break
+        fi
+        sleep 0.1
+        tries=$((tries + 1))
+    done
+
     if ! lsof -iTCP:"$busy_port" -sTCP:LISTEN -Pn 2>/dev/null | grep -q LISTEN; then
+        kill -KILL "$listener_pid" 2>/dev/null || true
         skip "could not start test listener on $busy_port"
     fi
 
     # Run script targeting the busy port
     PORT="$busy_port" run bash "$SCRIPT"
+
+    # Kill the listener NOW (teardown is a safety net)
+    kill -KILL "$listener_pid" 2>/dev/null || true
+
     [ "$status" -eq 1 ]
     [[ "$output" == *"port ${busy_port} is already in use"* ]]
 }
