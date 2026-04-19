@@ -11,9 +11,17 @@
 #   3. Enters cooldown to prevent rotation storms (MCP server still holds old key)
 #
 # Configuration:
-#   AUTO_ROTATE_COOLDOWN_SEC  - Seconds between rotations (default: 300)
-#                               Prevents repeated rotations before restart.
-#   AUTO_ROTATE_STATE_DIR     - Override state directory (default: /tmp)
+#   AUTO_ROTATE_COOLDOWN_SEC   - Seconds between rotations (default: 300)
+#                                Prevents repeated rotations before restart.
+#   AUTO_ROTATE_STATE_DIR      - Override state directory (default: /tmp)
+#   AUTO_ROTATE_CMD_TIMEOUT_SEC - Max seconds the mcp-key-rotate subprocess
+#                                may run before being killed (default: 30).
+#                                Guards against e.g. a macOS Keychain prompt
+#                                hanging the PostToolUse hook indefinitely.
+#                                Requires GNU `timeout` (install via
+#                                `brew install coreutils` on macOS). When
+#                                unavailable the subprocess runs without
+#                                a timeout.
 #
 # Usage:     Configured in .claude/settings.json as a PostToolUse hook
 #            with matcher "mcp__(tavily|brave-search)__.*"
@@ -25,6 +33,7 @@ set -euo pipefail
 
 readonly COOLDOWN_SEC="${AUTO_ROTATE_COOLDOWN_SEC:-300}"
 readonly STATE_DIR="${AUTO_ROTATE_STATE_DIR:-/tmp}"
+readonly CMD_TIMEOUT_SEC="${AUTO_ROTATE_CMD_TIMEOUT_SEC:-30}"
 
 # --- Helpers ---
 
@@ -142,6 +151,23 @@ is_quota_error() {
     return 1
 }
 
+# --- Bounded subprocess execution ---
+
+# Run "$@" with a wall-clock timeout if GNU `timeout` is available. Returns
+# the command's exit status on success, 124 if the timeout fires, or runs
+# without bound if no timeout binary is present.
+run_with_timeout() {
+    local seconds="$1"
+    shift
+    if command -v timeout &>/dev/null; then
+        timeout --foreground --kill-after=5s "${seconds}s" "$@"
+    elif command -v gtimeout &>/dev/null; then
+        gtimeout --foreground --kill-after=5s "${seconds}s" "$@"
+    else
+        "$@"
+    fi
+}
+
 # --- Locate mcp-key-rotate ---
 
 find_rotate_cmd() {
@@ -237,9 +263,17 @@ main() {
         exit 0
     fi
 
-    # Execute rotation
-    local rotate_output
-    if ! rotate_output=$("${rotate_cmd}" "${service}" 2>&1); then
+    # Execute rotation (bounded by CMD_TIMEOUT_SEC so a hung subprocess —
+    # e.g. a macOS Keychain prompt — can never freeze the PostToolUse chain)
+    local rotate_output rotate_status
+    rotate_output=$(run_with_timeout "${CMD_TIMEOUT_SEC}" "${rotate_cmd}" "${service}" 2>&1) || rotate_status=$?
+    rotate_status="${rotate_status:-0}"
+    if [[ "${rotate_status}" -eq 124 ]]; then
+        echo "[auto-rotate] ${service}: API quota exhausted. Auto-rotation timed out after ${CMD_TIMEOUT_SEC}s (subprocess may be stuck on a prompt)."
+        echo "Run manually: mcp-key-rotate ${service}"
+        exit 0
+    fi
+    if [[ "${rotate_status}" -ne 0 ]]; then
         echo "[auto-rotate] ${service}: API quota exhausted. Auto-rotation failed: ${rotate_output}"
         echo "Run manually: mcp-key-rotate ${service}"
         exit 0

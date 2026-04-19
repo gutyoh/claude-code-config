@@ -433,6 +433,45 @@ teardown() {
     [[ "$output" == *"Run manually"* ]]
 }
 
+@test "integration: subprocess timeout kills a hung mcp-key-rotate" {
+    # Regression test: a hung rotate subprocess (e.g. macOS Keychain prompt
+    # blocking for user input) must not freeze the PostToolUse chain.
+    # We install a mock that sleeps much longer than the configured timeout,
+    # and assert the hook returns within the timeout + small slack, emitting
+    # a clear timeout message.
+    if ! command -v timeout &>/dev/null && ! command -v gtimeout &>/dev/null; then
+        skip "GNU timeout not available (brew install coreutils on macOS)"
+    fi
+
+    # Mock that sleeps far beyond the 2s timeout. The exec closes inherited
+    # stdout/stderr FDs so that when `timeout` SIGKILLs the sleep subprocess
+    # after the grace period, the pipe between the hook and `run` closes
+    # promptly. Without this, the orphaned sleep keeps the stdout pipe open
+    # until it exits naturally, and `run` would wait the full 30s.
+    local mock="${TEST_TMPDIR}/mcp-key-rotate"
+    cat >"${mock}" <<'MOCK_EOF'
+#!/usr/bin/env bash
+exec >/dev/null 2>&1 </dev/null
+sleep 30
+MOCK_EOF
+    chmod +x "${mock}"
+
+    local input
+    input="$(make_input "mcp__tavily__tavily_search" "status code 432")"
+
+    local start end elapsed
+    start=$(date +%s)
+    run bash -c "echo '${input}' | AUTO_ROTATE_CMD_TIMEOUT_SEC=2 PATH='${TEST_TMPDIR}:${PATH}' bash '$HOOK'"
+    end=$(date +%s)
+    elapsed=$((end - start))
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"timed out after 2s"* ]]
+    [[ "$output" == *"Run manually"* ]]
+    # 2s timeout + 5s kill grace + slack for process spawn/jq parse
+    [ "$elapsed" -lt 15 ]
+}
+
 @test "integration: handles mcp-key-rotate not found" {
     # Copy hook to an isolated temp dir so BASH_SOURCE relative path
     # won't find the repo's bin/mcp-key-rotate
