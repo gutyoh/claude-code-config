@@ -1,16 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Start CLIProxyAPI (~/Documents/dev/CLIProxyAPI) using your existing Codex/ChatGPT
-# subscription tokens from ~/.codex/auth.json, then print the env vars to use with Claude Code.
+# Start CLIProxyAPI (~/Documents/dev/CLIProxyAPI) using your existing Codex /
+# ChatGPT subscription tokens from ~/.codex/auth.json, then print the env vars
+# to use with Claude Code.
 #
 # Default Claude Code model: gpt-5.3-codex(high)
 #
 # Usage:
 #   ./bin/proxy-start-codex.sh
 #
-# Optional overrides:
-#   CLI_PROXY_DIR=~/Documents/dev/CLIProxyAPI PORT=8317 HOST=127.0.0.1 API_KEY=sk-dummy MODEL='gpt-5.3-codex(high)' ./bin/proxy-start-codex.sh
+# Optional overrides (all env vars):
+#   CLI_PROXY_DIR=~/Documents/dev/CLIProxyAPI
+#   PORT=8317
+#   HOST=127.0.0.1
+#   API_KEY=sk-dummy
+#   MODEL='gpt-5.3-codex(high)'
+#   CODEX_AUTH_JSON=~/.codex/auth.json           # Codex CLI's token file
+#   CLI_PROXY_AUTH_DIR=~/.cli-proxy-api          # where CLIProxyAPI loads auths
+#   CODEX_FORCE_REIMPORT=1                       # overwrite existing import
+#
+# Testing hooks (do not use in normal operation):
+#   PROXY_START_CODEX_DRY_RUN=1                  # skip the final exec
+#   PROXY_START_CODEX_SKIP_BINARY_CHECK=1        # skip ensure_binary_current
 
 need_cmd() {
     command -v "$1" >/dev/null 2>&1 || {
@@ -20,7 +32,6 @@ need_cmd() {
 }
 
 need_cmd jq
-need_cmd go
 
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${_SCRIPT_DIR}/lib/proxy/preflight.sh"
@@ -30,6 +41,11 @@ HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8317}"
 API_KEY="${API_KEY:-sk-dummy}"
 MODEL="${MODEL:-gpt-5.3-codex(high)}"
+CODEX_AUTH_JSON="${CODEX_AUTH_JSON:-$HOME/.codex/auth.json}"
+AUTH_DIR="${CLI_PROXY_AUTH_DIR:-$HOME/.cli-proxy-api}"
+
+DRY_RUN="${PROXY_START_CODEX_DRY_RUN:-0}"
+SKIP_BINARY_CHECK="${PROXY_START_CODEX_SKIP_BINARY_CHECK:-0}"
 
 if [[ ! -d "$CLI_PROXY_DIR" ]]; then
     echo "Not found: $CLI_PROXY_DIR" >&2
@@ -38,33 +54,80 @@ if [[ ! -d "$CLI_PROXY_DIR" ]]; then
     exit 1
 fi
 
-CODEX_AUTH_JSON="$HOME/.codex/auth.json"
 if [[ ! -f "$CODEX_AUTH_JSON" ]]; then
     echo "Not found: $CODEX_AUTH_JSON" >&2
     echo "Sign in with the Codex CLI first so this file exists, then re-run." >&2
     exit 1
 fi
 
-AUTH_DIR="$HOME/.cli-proxy-api"
+# --- Port collision preflight ---
+#
+# CLIProxyAPI binds to $PORT on startup. If another service is already bound,
+# the proxy would silently fail inside a nohup log — fail fast here instead.
+if command -v lsof &>/dev/null; then
+    if lsof -iTCP:"$PORT" -sTCP:LISTEN -Pn 2>/dev/null | grep -q LISTEN; then
+        echo "Error: port $PORT is already in use." >&2
+        echo "Stop the other service first, or export PORT=<free-port> to use a different port." >&2
+        lsof -iTCP:"$PORT" -sTCP:LISTEN -Pn 2>/dev/null | head -5 >&2
+        exit 1
+    fi
+fi
+
+# --- Codex auth import (idempotent bootstrap) ---
+#
+# OpenAI's official Codex CI/CD guidance:
+#   "seed auth.json only if it is missing. If you rewrite the file from the
+#    original secret on every run, you throw away the refreshed tokens
+#    that Codex just wrote."
+#
+# We seed $AUTH_FILE once from the Codex CLI's token file. After that, CLI-
+# ProxyAPI's auto-refresh loop (sdk/cliproxy/auth/auto_refresh_loop.go) owns
+# the file — rewriting from a potentially-stale $CODEX_AUTH_JSON on every run
+# would regress refreshed tokens.
+#
+# To force a fresh import (e.g. after a fresh `codex login` on a new account),
+# export CODEX_FORCE_REIMPORT=1 or delete $AUTH_FILE.
 AUTH_FILE="$AUTH_DIR/codex-import.json"
 mkdir -p "$AUTH_DIR"
 
-# Create an auth file that CLIProxyAPI loads from auth-dir on startup.
-tmp="$(mktemp)"
-jq '{type:"codex",access_token:.tokens.access_token,refresh_token:.tokens.refresh_token,id_token:.tokens.id_token,account_id:.tokens.account_id,last_refresh:.last_refresh,email:"chatgpt"}' \
-    "$CODEX_AUTH_JSON" >"$tmp"
-mv "$tmp" "$AUTH_FILE"
-chmod 600 "$AUTH_FILE" || true
+if [[ ! -f "$AUTH_FILE" ]] || [[ "${CODEX_FORCE_REIMPORT:-0}" == "1" ]]; then
+    if [[ -f "$AUTH_FILE" ]]; then
+        echo "CODEX_FORCE_REIMPORT=1 set — overwriting existing $AUTH_FILE" >&2
+    fi
+    tmp="$(mktemp)"
+    trap 'rm -f "$tmp"' EXIT
+    jq '{type:"codex",access_token:.tokens.access_token,refresh_token:.tokens.refresh_token,id_token:.tokens.id_token,account_id:.tokens.account_id,last_refresh:.last_refresh,email:"chatgpt"}' \
+        "$CODEX_AUTH_JSON" >"$tmp"
+    mv "$tmp" "$AUTH_FILE"
+    trap - EXIT
+    chmod 600 "$AUTH_FILE" || true
+fi
+
+if [[ "$SKIP_BINARY_CHECK" != "1" && "$DRY_RUN" != "1" ]]; then
+    need_cmd go
+fi
 
 cd "$CLI_PROXY_DIR"
 
-ensure_binary_current \
-    "./cli-proxy-api" \
-    "$CLI_PROXY_DIR" \
-    "go build -o cli-proxy-api ./cmd/server"
+if [[ "$SKIP_BINARY_CHECK" != "1" ]]; then
+    ensure_binary_current \
+        "./cli-proxy-api" \
+        "$CLI_PROXY_DIR" \
+        "go build -o cli-proxy-api ./cmd/server"
+fi
 
+# --- config.local.yaml (write only if missing) ---
+#
+# Preserved across runs so hand-edits and Management-API updates
+# (PUT /v0/management/config.yaml) survive. Delete the file to regenerate
+# with the current HOST/PORT/API_KEY env values.
 CONFIG_FILE="./config.local.yaml"
-cat >"$CONFIG_FILE" <<EOF
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    cat >"$CONFIG_FILE" <<EOF
+# auto-generated by bin/proxy-start-codex.sh on first run.
+# Preserved across runs — edit freely, or delete to regenerate from env vars.
+# For live config changes, prefer:
+#   PUT /v0/management/config.yaml (CLIProxyAPI Management API)
 host: "$HOST"
 port: $PORT
 auth-dir: "~/.cli-proxy-api"
@@ -73,6 +136,7 @@ api-keys:
 remote-management:
   disable-control-panel: true
 EOF
+fi
 
 cat <<EOF
 
@@ -87,5 +151,10 @@ In a second terminal, run:
   claude
 
 EOF
+
+if [[ "$DRY_RUN" == "1" ]]; then
+    echo "[dry-run] skipping exec of cli-proxy-api" >&2
+    exit 0
+fi
 
 exec ./cli-proxy-api --config "$CONFIG_FILE"
