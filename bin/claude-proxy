@@ -274,7 +274,23 @@ need_cmd claude
 need_cmd curl
 need_cmd nohup
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Resolve this script's real path through any chain of symlinks so that
+# $ROOT_DIR always points at the claude-code-config repo, even when the
+# script is invoked via ~/.local/bin/claude-proxy (Unix symlink) or via a
+# Windows shim that re-execs this file. Portable: does not require
+# `readlink -f` (absent from BSD readlink on older macOS and Git Bash).
+_resolve_self() {
+    local src="${BASH_SOURCE[0]}"
+    while [[ -L "$src" ]]; do
+        local dir
+        dir="$(cd -P "$(dirname "$src")" && pwd)"
+        src="$(readlink "$src")"
+        [[ "$src" != /* ]] && src="$dir/$src"
+    done
+    (cd -P "$(dirname "$src")" && pwd)
+}
+_SCRIPT_DIR="$(_resolve_self)"
+ROOT_DIR="$(cd -P "${_SCRIPT_DIR}/.." && pwd)"
 readonly ROOT_DIR
 
 source "${ROOT_DIR}/lib/proxy/preflight.sh"
