@@ -7,10 +7,10 @@ set -euo pipefail
 # Default Claude Code model: gpt-5.3-codex(high)
 #
 # Usage:
-#   ./bin/cliproxy_chatgpt_claude_code.sh
+#   ./bin/proxy-start-codex.sh
 #
 # Optional overrides:
-#   CLI_PROXY_DIR=~/Documents/dev/CLIProxyAPI PORT=8317 HOST=127.0.0.1 API_KEY=sk-dummy MODEL='gpt-5.3-codex(high)' ./bin/cliproxy_chatgpt_claude_code.sh
+#   CLI_PROXY_DIR=~/Documents/dev/CLIProxyAPI PORT=8317 HOST=127.0.0.1 API_KEY=sk-dummy MODEL='gpt-5.3-codex(high)' ./bin/proxy-start-codex.sh
 
 need_cmd() {
     command -v "$1" >/dev/null 2>&1 || {

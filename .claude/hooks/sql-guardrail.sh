@@ -3,8 +3,7 @@
 # Path: .claude/hooks/sql-guardrail.sh
 #
 # Unified database guardrail for ALL database CLI commands (SQL + NoSQL).
-# Replaces validate-readonly-sql.sh with a single, unified hook
-# that detects the CLI tool and applies the correct safety level.
+# Detects the CLI tool and applies the correct safety level.
 #
 # Safety Levels:
 #   STRICT   — Databricks: read-only, blocks ALL mutations (INSERT/UPDATE/DELETE/MERGE)
