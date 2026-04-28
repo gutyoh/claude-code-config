@@ -37,7 +37,20 @@ main() {
     fi
 
     # Check if this is a git pull command without --rebase
-    if [[ "${cmd}" =~ git[[:space:]]+pull ]] && [[ ! "${cmd}" =~ --rebase ]]; then
+    #
+    # Skip rewriting when the user has explicitly requested a conflicting
+    # or non-rebase strategy:
+    #   --ff-only      : conflicts with --rebase (git rejects the combo)
+    #   --rebase       : already enabled (covers --rebase, --rebase=true,
+    #                    --rebase=false, --rebase=merges, etc. — the "--rebase"
+    #                    substring appears in all of these)
+    #   --no-rebase    : explicit opt-out (does NOT contain "--rebase" as a
+    #                    substring because of the "--no-" prefix, so it needs
+    #                    its own check)
+    if [[ "${cmd}" =~ git[[:space:]]+pull ]] \
+       && [[ ! "${cmd}" =~ --rebase ]] \
+       && [[ ! "${cmd}" =~ --no-rebase ]] \
+       && [[ ! "${cmd}" =~ --ff-only ]]; then
         # Add --rebase after "git pull"
         # Handles: git pull -> git pull --rebase
         #          git pull origin main -> git pull --rebase origin main

@@ -543,12 +543,16 @@ STUB
     [[ "$output" == *"live-model-1"* ]]
 }
 
-@test "list_models: falls back to static when proxy down" {
+@test "list_models: falls back to offline registry when proxy down" {
+    # Proxy is down (curl exits 22). The fallback reads CLIProxyAPI's own
+    # models.json from the user's $CLI_PROXY_DIR clone — always current.
     _run_proxy_cmd \
         'exit 22' \
         -p antigravity --models
     [ "$status" -eq 0 ]
-    [[ "$output" == *"static"* ]]
+    [[ "$output" == *"offline"* ]]
+    # Registry should contain at least one well-known antigravity model id
+    [[ "$output" == *"claude-opus-4-6-thinking"* ]]
 }
 
 @test "validate_model: accepts live model not in static list" {

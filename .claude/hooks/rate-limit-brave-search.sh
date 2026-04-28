@@ -7,9 +7,14 @@
 # requests and enforcing a minimum delay between calls.
 #
 # Configuration:
-#   BRAVE_API_RATE_LIMIT_MS  - Minimum milliseconds between calls (default: 1100)
-#                              Free tier: 1100 (1 req/sec + safety margin)
-#                              Paid tier:  50  (20 req/sec)
+#   BRAVE_API_RATE_LIMIT_MS       - Minimum milliseconds between calls (default: 1100)
+#                                   Free tier: 1100 (1 req/sec + safety margin)
+#                                   Paid tier:  50  (20 req/sec)
+#   BRAVE_RATE_LIMIT_STATE_DIR    - Directory for lock + timestamp files
+#                                   (default: /tmp). Overridable mainly so the
+#                                   bats suite can isolate test state without
+#                                   clobbering the user's real rate-limit
+#                                   timestamp.
 #
 # Usage:     Configured in .claude/settings.json as a PreToolUse hook
 #            with matcher "mcp__brave-search__.*"
@@ -20,8 +25,10 @@ set -euo pipefail
 # --- Configuration ---
 
 readonly RATE_LIMIT_MS="${BRAVE_API_RATE_LIMIT_MS:-1100}"
-readonly LOCK_DIR="/tmp/brave-search-rate-limit.lock"
-readonly TIMESTAMP_FILE="/tmp/brave-search-last-call"
+readonly STATE_DIR="${BRAVE_RATE_LIMIT_STATE_DIR:-/tmp}"
+readonly LOCK_DIR="${STATE_DIR}/brave-search-rate-limit.lock"
+readonly TIMESTAMP_FILE="${STATE_DIR}/brave-search-last-call"
+mkdir -p "${STATE_DIR}" 2>/dev/null || true
 
 # --- Portable Python (PEP 394) ---
 # python3 on Unix/macOS, python on Windows Git Bash

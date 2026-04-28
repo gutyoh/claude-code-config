@@ -38,32 +38,17 @@ set -euo pipefail
 
 # --- Model Registry ---
 
-readonly ANTIGRAVITY_MODELS=(
-    "claude-opus-4-6-thinking"
-    "claude-sonnet-4-6"
-    "claude-sonnet-4-5-thinking"
-    "claude-sonnet-4-5"
-    "gemini-3-pro-high"
-    "gemini-3-pro-low"
-    "gemini-3-pro-image"
-    "gemini-3-flash"
-    "gemini-2.5-pro"
-    "gemini-2.5-flash"
-    "gemini-2.5-flash-thinking"
-    "gemini-2.5-flash-lite"
-)
-readonly ANTIGRAVITY_DEFAULT="claude-opus-4-6-thinking"
+# Model discovery order:
+#   1. Live /v1/models from a running proxy (fetch_proxy_models, lib/proxy)
+#   2. Offline: read ${CLI_PROXY_DIR}/internal/registry/models/models.json
+#      directly. This is CLIProxyAPI's own registry and is always current
+#      with whatever version you have checked out.
+# No static fallback — the repo clone is the source of truth offline.
 
-readonly CODEX_MODELS=(
-    "gpt-5.3-codex"
-    "gpt-5.2-codex"
-    "gpt-5.2"
-    "gpt-5.1-codex-max"
-    "gpt-5.1-codex-mini"
-)
-readonly CODEX_EFFORTS=("low" "medium" "high")
-readonly CODEX_XHIGH_MODELS=("gpt-5.3-codex" "gpt-5.2-codex" "gpt-5.2")
+readonly ANTIGRAVITY_DEFAULT="claude-opus-4-6-thinking"
 readonly CODEX_DEFAULT="gpt-5.3-codex(high)"
+# Effort levels accepted by CLIProxyAPI's thinking suffix parser.
+readonly CODEX_EFFORTS=("minimal" "low" "medium" "high" "xhigh")
 
 # --- Helpers ---
 
@@ -115,11 +100,44 @@ _in_array() {
     return 1
 }
 
+# Read the list of model IDs for a profile directly from CLIProxyAPI's
+# registry file. Prints one ID per line on success; returns 1 if the file
+# is missing, unreadable, or contains an unknown profile.
+#
+# Args: $1 = profile (codex|antigravity)
+#       $2 = CLIProxyAPI repo root (defaults to $CLI_PROXY_DIR)
+fetch_offline_models() {
+    local profile="$1"
+    local repo="${2:-${CLI_PROXY_DIR:-}}"
+    [[ -n "${repo}" ]] || return 1
+    local models_json="${repo}/internal/registry/models/models.json"
+    [[ -r "${models_json}" ]] || return 1
+
+    local jq_filter
+    case "${profile}" in
+        codex)
+            # Union across all Codex plan tiers so the user's plan doesn't matter
+            jq_filter='[.["codex-free"]?, .["codex-plus"]?, .["codex-pro"]?, .["codex-team"]?] | map(.[]? | .id) | unique | .[]'
+            ;;
+        antigravity)
+            jq_filter='.antigravity[]? | .id'
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    local out
+    out=$(jq -r "${jq_filter}" "${models_json}" 2>/dev/null) || return 1
+    [[ -n "${out}" ]] || return 1
+    echo "${out}"
+}
+
 list_models() {
     local profile="$1"
     local proxy_url="${2:-}"
 
-    # Try live discovery first
+    # Tier 1: live discovery from running proxy
     if [[ -n "${proxy_url}" ]]; then
         local live_models
         if live_models=$(fetch_proxy_models "${proxy_url}"); then
@@ -143,45 +161,60 @@ list_models() {
         fi
     fi
 
-    # Fall back to static lists
-    case "${profile}" in
-        antigravity)
-            echo "Available models for profile 'antigravity' (static — proxy not reachable):"
-            echo ""
-            echo "  Claude"
-            printf "    %-30s %s\n" "claude-opus-4-6-thinking" "(default)"
-            printf "    %-30s\n" "claude-sonnet-4-6"
-            printf "    %-30s\n" "claude-sonnet-4-5-thinking"
-            printf "    %-30s\n" "claude-sonnet-4-5"
-            echo ""
-            echo "  Gemini"
-            printf "    %-30s %s\n" "gemini-3-pro-high" "gemini-2.5-pro"
-            printf "    %-30s %s\n" "gemini-3-pro-low" "gemini-2.5-flash"
-            printf "    %-30s %s\n" "gemini-3-pro-image" "gemini-2.5-flash-thinking"
-            printf "    %-30s %s\n" "gemini-3-flash" "gemini-2.5-flash-lite"
-            echo ""
-            echo "  Gemini models accept an optional context window suffix: model[1m]"
-            echo "  Default: ${ANTIGRAVITY_DEFAULT}"
-            ;;
-        codex)
-            echo "Available models for profile 'codex' (static — proxy not reachable):"
-            echo ""
-            printf "  %-25s %s\n" "MODEL" "EFFORT LEVELS"
-            printf "  %-25s %s\n" "-----" "-------------"
-            printf "  %-25s %s\n" "gpt-5.3-codex" "low  medium  high  xhigh    (default: high)"
-            printf "  %-25s %s\n" "gpt-5.2-codex" "low  medium  high  xhigh"
-            printf "  %-25s %s\n" "gpt-5.2" "low  medium  high  xhigh"
-            printf "  %-25s %s\n" "gpt-5.1-codex-max" "low  medium  high"
-            printf "  %-25s %s\n" "gpt-5.1-codex-mini" "low  medium  high"
-            echo ""
-            echo "  Format: model(effort)  e.g. gpt-5.3-codex(high)"
-            echo "  Default: ${CODEX_DEFAULT}"
-            ;;
-        *)
-            echo "No model registry for profile '${profile}'."
-            echo "Use any model string supported by the backend."
-            ;;
-    esac
+    # Tier 2: offline — read CLIProxyAPI's registry file directly
+    local offline_models
+    if offline_models=$(fetch_offline_models "${profile}"); then
+        echo "Available models for profile '${profile}' (offline — from CLIProxyAPI registry):"
+        echo ""
+        while IFS= read -r model_id; do
+            echo "  ${model_id}"
+        done <<<"${offline_models}"
+        echo ""
+        case "${profile}" in
+            antigravity)
+                echo "  Gemini models accept an optional context window suffix: model[1m]"
+                echo "  Default: ${ANTIGRAVITY_DEFAULT}"
+                ;;
+            codex)
+                echo "  Format: model(effort)  e.g. gpt-5.3-codex(high)"
+                echo "  Valid efforts: ${CODEX_EFFORTS[*]}"
+                echo "  Default: ${CODEX_DEFAULT}"
+                ;;
+        esac
+        return 0
+    fi
+
+    # Tier 3: nothing works — tell the user what to do
+    echo "Cannot list models for profile '${profile}':"
+    echo "  Proxy not reachable at ${proxy_url:-<no proxy>}"
+    echo "  CLIProxyAPI registry not found at \${CLI_PROXY_DIR}/internal/registry/models/models.json"
+    echo ""
+    echo "  Start the proxy (./bin/claude-proxy without --no-start), or"
+    echo "  clone CLIProxyAPI to \$CLI_PROXY_DIR (default: ~/Documents/dev/CLIProxyAPI)."
+}
+
+# Check if a base model name appears in either the live or the offline
+# registry. Returns 0 if found, 1 if not found in ANY source.
+_model_in_registry() {
+    local base="$1" profile="$2" proxy_url="$3"
+
+    # Live source wins if reachable
+    if [[ -n "${proxy_url}" ]]; then
+        local live
+        if live=$(fetch_proxy_models "${proxy_url}" 2>/dev/null); then
+            echo "${live}" | grep -qx "${base}" && return 0
+            return 1
+        fi
+    fi
+
+    # Offline fallback
+    local offline
+    if offline=$(fetch_offline_models "${profile}" 2>/dev/null); then
+        echo "${offline}" | grep -qx "${base}" && return 0
+        return 1
+    fi
+
+    return 1
 }
 
 validate_model() {
@@ -193,24 +226,7 @@ validate_model() {
         antigravity)
             # Strip optional [context] suffix: gemini-3-pro-high[1m] → gemini-3-pro-high
             local base="${model%%\[*}"
-
-            # Try live validation first
-            if [[ -n "${proxy_url}" ]]; then
-                local live_models
-                if live_models=$(fetch_proxy_models "${proxy_url}"); then
-                    if echo "${live_models}" | grep -qx "${base}"; then
-                        return 0
-                    fi
-                    echo "Error: unknown model '${model}' for profile '${profile}'." >&2
-                    echo "  Use --no-validate to bypass (e.g. for newly added models)." >&2
-                    echo "" >&2
-                    list_models "${profile}" "${proxy_url}" >&2
-                    return 1
-                fi
-            fi
-
-            # Fall back to static validation
-            if ! _in_array "${base}" "${ANTIGRAVITY_MODELS[@]}"; then
+            if ! _model_in_registry "${base}" "${profile}" "${proxy_url}"; then
                 echo "Error: unknown model '${model}' for profile '${profile}'." >&2
                 echo "  Use --no-validate to bypass (e.g. for newly added models)." >&2
                 echo "" >&2
@@ -227,44 +243,21 @@ validate_model() {
                 base="${model}"
             fi
 
-            # Try live validation for base model (effort is always validated statically)
-            local live_validated="false"
-            if [[ -n "${proxy_url}" ]]; then
-                local live_models
-                if live_models=$(fetch_proxy_models "${proxy_url}"); then
-                    if ! echo "${live_models}" | grep -qx "${base}"; then
-                        echo "Error: unknown model '${base}' for profile '${profile}'." >&2
-                        echo "  Use --no-validate to bypass (e.g. for newly added models)." >&2
-                        echo "" >&2
-                        list_models "${profile}" "${proxy_url}" >&2
-                        return 1
-                    fi
-                    live_validated="true"
-                fi
+            if ! _model_in_registry "${base}" "${profile}" "${proxy_url}"; then
+                echo "Error: unknown model '${base}' for profile '${profile}'." >&2
+                echo "  Use --no-validate to bypass (e.g. for newly added models)." >&2
+                echo "" >&2
+                list_models "${profile}" "${proxy_url}" >&2
+                return 1
             fi
 
-            # Fall back to static base-model validation
-            if [[ "${live_validated}" == "false" ]]; then
-                if ! _in_array "${base}" "${CODEX_MODELS[@]}"; then
-                    echo "Error: unknown model '${base}' for profile '${profile}'." >&2
-                    echo "  Use --no-validate to bypass (e.g. for newly added models)." >&2
-                    echo "" >&2
-                    list_models "${profile}" "${proxy_url}" >&2
-                    return 1
-                fi
-            fi
-
-            # Effort validation is always static (proxy doesn't know about effort levels)
+            # Effort validation — the registry exposes per-model levels but
+            # CLIProxyAPI's thinking suffix parser also accepts minimal.
+            # Validating against CODEX_EFFORTS (the superset) is safe.
             if [[ -n "${effort}" ]]; then
-                if [[ "${effort}" == "xhigh" ]]; then
-                    if ! _in_array "${base}" "${CODEX_XHIGH_MODELS[@]}"; then
-                        echo "Error: effort 'xhigh' is not supported for '${base}'." >&2
-                        echo "  xhigh is available for: ${CODEX_XHIGH_MODELS[*]}" >&2
-                        return 1
-                    fi
-                elif ! _in_array "${effort}" "${CODEX_EFFORTS[@]}"; then
+                if ! _in_array "${effort}" "${CODEX_EFFORTS[@]}"; then
                     echo "Error: unknown effort level '${effort}'." >&2
-                    echo "  Valid levels: ${CODEX_EFFORTS[*]}, xhigh (select models only)" >&2
+                    echo "  Valid levels: ${CODEX_EFFORTS[*]}" >&2
                     return 1
                 fi
             fi
@@ -281,7 +274,23 @@ need_cmd claude
 need_cmd curl
 need_cmd nohup
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Resolve this script's real path through any chain of symlinks so that
+# $ROOT_DIR always points at the claude-code-config repo, even when the
+# script is invoked via ~/.local/bin/claude-proxy (Unix symlink) or via a
+# Windows shim that re-execs this file. Portable: does not require
+# `readlink -f` (absent from BSD readlink on older macOS and Git Bash).
+_resolve_self() {
+    local src="${BASH_SOURCE[0]}"
+    while [[ -L "$src" ]]; do
+        local dir
+        dir="$(cd -P "$(dirname "$src")" && pwd)"
+        src="$(readlink "$src")"
+        [[ "$src" != /* ]] && src="$dir/$src"
+    done
+    (cd -P "$(dirname "$src")" && pwd)
+}
+_SCRIPT_DIR="$(_resolve_self)"
+ROOT_DIR="$(cd -P "${_SCRIPT_DIR}/.." && pwd)"
 readonly ROOT_DIR
 
 source "${ROOT_DIR}/lib/proxy/preflight.sh"
@@ -295,6 +304,11 @@ PROFILE="codex"
 NO_START="false"
 SHOW_MODELS="false"
 NO_VALIDATE="false"
+
+# CLIProxyAPI repo location — used for offline model registry lookup and
+# inherited by profile scripts (proxy-start-*.sh) that need to build or
+# exec the binary. Override via env: `CLI_PROXY_DIR=/path/to/repo ...`
+export CLI_PROXY_DIR="${CLI_PROXY_DIR:-$HOME/Documents/dev/CLIProxyAPI}"
 
 # --- Args ---
 while [[ $# -gt 0 ]]; do
