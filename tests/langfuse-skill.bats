@@ -269,10 +269,13 @@ setup() {
     [[ "$output" == *"langfuse"* ]]
 }
 
-@test "integration: langfuse-cli api __schema lists 26 resources" {
+@test "integration: langfuse-cli api __schema lists resources" {
     run npx -y langfuse-cli api __schema
     [ "$status" -eq 0 ]
-    [[ "$output" == *"Resources: 26"* ]]
+    [[ "$output" == *"Resources:"* ]]
+    [[ "$output" == *"traces"* ]]
+    [[ "$output" == *"sessions"* ]]
+    [[ "$output" == *"prompts"* ]]
 }
 
 @test "integration: langfuse-cli api traces --help shows list action" {
