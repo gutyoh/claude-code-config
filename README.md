@@ -132,6 +132,7 @@ The setup script creates symlinks and **automatically configures MCP servers** i
 The script will:
 - Create `~/.claude/` if it doesn't exist
 - Symlink `skills/`, `agents/`, `hooks/` to your global config
+- Add `bin/` to PATH and install `claude` / `clp` shell shortcuts
 - **Add Brave Search MCP server to user scope** (available in all projects)
 - Check for required environment variables
  
@@ -673,14 +674,29 @@ Route Claude Code through alternative model providers (OpenAI Codex, Google Gemi
 
 > **Key design principle:** Profiles only control *how to start the proxy*. Model selection is decoupled — you can use any model string the backend supports.
 
-**PATH setup:** The `setup.sh` script automatically adds `bin/` to your shell PATH, so you can run `claude-proxy` from any directory. If you skipped this during setup, add it manually:
+**PATH and shortcuts setup:** The `setup.sh` script automatically adds `bin/` to your shell PATH and installs shell functions in `~/.zshrc`, `~/.bashrc`, or `~/.profile`:
+
+```bash
+claude        # normal Claude Code, with bypassPermissions available in Shift+Tab cycle
+claude -a     # start Claude Code directly in bypassPermissions mode
+clp           # claude-proxy with gpt-5.5(high), bypassPermissions available in Shift+Tab cycle
+clp -a        # claude-proxy with gpt-5.5(high), directly in bypassPermissions mode
+```
+
+The proxy shortcut default model can be overridden per shell:
+
+```bash
+export CLAUDE_PROXY_MODEL="gpt-5.5(high)"
+```
+
+If you skipped this during setup, add PATH manually:
 
 ```bash
 # Add to ~/.zshrc or ~/.bashrc (use the actual path to your clone):
 export PATH="/path/to/claude-code-config/bin:$PATH"
 ```
 
-Or re-run `./setup.sh` to configure it automatically.
+Or re-run `./setup.sh` to configure PATH and shortcuts automatically.
 
 ### Proxy Quick Start
 
@@ -788,6 +804,12 @@ Options:
 
 # Pass extra arguments to Claude Code (after --)
 ./bin/claude-proxy -p antigravity -- --verbose
+
+# Installed shell shortcut: proxy + allow switching to bypassPermissions
+clp
+
+# Installed shell shortcut: proxy + start directly in bypassPermissions
+clp -a
 ```
 
 ### Creating Custom Profiles
