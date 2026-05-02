@@ -223,10 +223,64 @@ configure_proxy_path() {
         echo "  ✓ Proxy launcher PATH added to ${shell_profile}"
     fi
 
+    configure_claude_shortcuts "${shell_profile}"
+
     echo ""
     echo "  Run 'source ${shell_profile}' or open a new terminal, then:"
-    echo "    claude-proxy --help"
+    echo "    claude --help"
+    echo "    claude -a"
+    echo "    clp -a"
     echo "    claude-proxy -p antigravity --models"
+}
+
+configure_claude_shortcuts() {
+    local shell_profile="$1"
+    local begin_marker="# claude-code-config: claude launch shortcuts"
+    local end_marker="# claude-code-config: end claude launch shortcuts"
+    local tmp
+
+    if grep -qF "${begin_marker}" "${shell_profile}" 2>/dev/null; then
+        tmp="$(mktemp)"
+        awk -v begin="${begin_marker}" -v end="${end_marker}" '
+            $0 == begin { skip=1; next }
+            $0 == end { skip=0; next }
+            !skip { print }
+        ' "${shell_profile}" >"${tmp}"
+        mv "${tmp}" "${shell_profile}"
+    fi
+
+    cat >>"${shell_profile}" <<'EOF'
+
+# claude-code-config: claude launch shortcuts
+claude() {
+  case "${1:-}" in
+    -a|--unsafe|--bypass|-adskp)
+      shift
+      command claude --dangerously-skip-permissions "$@"
+      ;;
+    *)
+      command claude --allow-dangerously-skip-permissions "$@"
+      ;;
+  esac
+}
+
+clp() {
+  local model="${CLAUDE_PROXY_MODEL:-gpt-5.5(high)}"
+
+  case "${1:-}" in
+    -a|--unsafe|--bypass|-adskp)
+      shift
+      claude-proxy --no-validate -m "$model" -- --dangerously-skip-permissions "$@"
+      ;;
+    *)
+      claude-proxy --no-validate -m "$model" -- --allow-dangerously-skip-permissions "$@"
+      ;;
+  esac
+}
+# claude-code-config: end claude launch shortcuts
+EOF
+
+    echo "  ✓ Claude launch shortcuts configured in ${shell_profile}"
 }
 
 configure_statusline() {
