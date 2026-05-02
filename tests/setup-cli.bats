@@ -201,6 +201,65 @@ setup() {
     [ "$INSTALL_PROXY_PATH" = "false" ]
 }
 
+@test "configure_claude_shortcuts: installs claude and clp functions" {
+    local profile="${BATS_TEST_TMPDIR}/.zshrc"
+    touch "$profile"
+
+    configure_claude_shortcuts "$profile"
+
+    grep -Fq 'claude-code-config: claude launch shortcuts' "$profile"
+    grep -Fq 'command claude --allow-dangerously-skip-permissions "$@"' "$profile"
+    grep -Fq 'command claude --dangerously-skip-permissions "$@"' "$profile"
+    grep -Fq 'claude-proxy --no-validate -m "$model" -- --allow-dangerously-skip-permissions "$@"' "$profile"
+    grep -Fq 'claude-proxy --no-validate -m "$model" -- --dangerously-skip-permissions "$@"' "$profile"
+}
+
+@test "configure_claude_shortcuts: replaces existing managed block" {
+    local profile="${BATS_TEST_TMPDIR}/.zshrc"
+    cat >"$profile" <<'EOF'
+keep-before
+# claude-code-config: claude launch shortcuts
+old body
+# claude-code-config: end claude launch shortcuts
+keep-after
+EOF
+
+    configure_claude_shortcuts "$profile"
+    configure_claude_shortcuts "$profile"
+
+    [ "$(grep -Fc 'claude-code-config: claude launch shortcuts' "$profile")" -eq 1 ]
+    [ "$(grep -Fc 'claude-code-config: end claude launch shortcuts' "$profile")" -eq 1 ]
+    grep -Fq 'keep-before' "$profile"
+    grep -Fq 'keep-after' "$profile"
+    ! grep -Fq 'old body' "$profile"
+}
+
+@test "configure_claude_shortcuts: generated functions forward arguments correctly" {
+    local profile="${BATS_TEST_TMPDIR}/.zshrc"
+    local stub_dir="${BATS_TEST_TMPDIR}/stubs"
+    local log="${BATS_TEST_TMPDIR}/calls.log"
+    mkdir -p "$stub_dir"
+
+    cat >"${stub_dir}/claude" <<'EOF'
+#!/usr/bin/env bash
+printf 'claude:%s\n' "$*" >>"$CALL_LOG"
+EOF
+    cat >"${stub_dir}/claude-proxy" <<'EOF'
+#!/usr/bin/env bash
+printf 'claude-proxy:%s\n' "$*" >>"$CALL_LOG"
+EOF
+    chmod +x "${stub_dir}/claude" "${stub_dir}/claude-proxy"
+
+    configure_claude_shortcuts "$profile"
+
+    run env PATH="${stub_dir}:$PATH" CALL_LOG="$log" bash -c "source '$profile' && claude --resume && claude -a --resume && clp --continue && clp -a --resume"
+    [ "$status" -eq 0 ]
+    grep -Fq 'claude:--allow-dangerously-skip-permissions --resume' "$log"
+    grep -Fq 'claude:--dangerously-skip-permissions --resume' "$log"
+    grep -Fq 'claude-proxy:--no-validate -m gpt-5.5(high) -- --allow-dangerously-skip-permissions --continue' "$log"
+    grep -Fq 'claude-proxy:--no-validate -m gpt-5.5(high) -- --dangerously-skip-permissions --resume' "$log"
+}
+
 # --- Unknown option ---
 
 @test "parse_arguments: unknown option exits with error" {
