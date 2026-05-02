@@ -33,7 +33,14 @@ show_install_menu() {
     [[ "${INSTALL_PROXY_PATH}" == "false" ]] && proxy_path_label="no"
 
     echo "  agent teams (experimental):       ${teams_label}"
-    echo "  proxy launcher PATH:              ${proxy_path_label}"
+    echo "  proxy PATH + claude/clp shortcuts: ${proxy_path_label}"
+    local opencode_label
+    case "${INSTALL_OPENCODE}" in
+        yes) opencode_label="yes" ;;
+        no) opencode_label="no" ;;
+        *) opencode_label="auto ($(opencode_detect_label))" ;;
+    esac
+    echo "  OpenCode parallel install:        ${opencode_label}"
     echo "  settings.json:                    ${settings_label}"
     echo "  statusline color theme:           ${STATUSLINE_THEME}"
     echo "  statusline components:            ${comp_display}"
@@ -122,13 +129,37 @@ customize_installation() {
         INSTALL_AGENT_TEAMS="false"
     fi
 
-    # --- Proxy Launcher PATH ---
+    # --- Proxy Launcher PATH and shell shortcuts ---
     local proxy_default="yes"
     [[ "${INSTALL_PROXY_PATH}" == "false" ]] && proxy_default="no"
-    if tui_confirm "Add proxy launcher (bin/) to PATH? (enables 'claude-proxy' from anywhere)" "${proxy_default}"; then
+    if tui_confirm "Add proxy PATH + shortcuts? (claude: bypass available, claude -a/clp -a: bypass now)" "${proxy_default}"; then
         INSTALL_PROXY_PATH="true"
     else
         INSTALL_PROXY_PATH="false"
+    fi
+
+    # --- OpenCode parallel install ---
+    local opencode_default="no"
+    case "${INSTALL_OPENCODE}" in
+        yes)
+            opencode_default="yes"
+            ;;
+        no)
+            opencode_default="no"
+            ;;
+        auto)
+            if detect_opencode; then
+                opencode_default="yes"
+            else
+                opencode_default="no"
+            fi
+            ;;
+    esac
+    local opencode_prompt="Set up OpenCode? (mirrors skills/agents/MCP — $(opencode_detect_label))"
+    if tui_confirm "${opencode_prompt}" "${opencode_default}"; then
+        INSTALL_OPENCODE="yes"
+    else
+        INSTALL_OPENCODE="no"
     fi
 
     # --- Settings mode ---

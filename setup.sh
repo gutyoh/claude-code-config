@@ -12,8 +12,8 @@
 #   --no-agents            Skip agents & skills installation
 #   --agent-teams          Enable agent teams (experimental)
 #   --no-agent-teams       Disable agent teams
-#   --no-proxy-path        Skip proxy launcher PATH setup
-#   --minimal              Core only (no agents, skills, MCP, agent teams, or proxy PATH)
+#   --no-proxy-path        Skip proxy launcher PATH and shell shortcut setup
+#   --minimal              Core only (no agents, skills, MCP, agent teams, proxy PATH, or shell shortcuts)
 #   --overwrite-settings   Replace settings.json with repo defaults
 #   --skip-settings        Don't modify settings.json
 #   --theme THEME          Statusline color theme (dark|light|colorblind|none)
@@ -58,6 +58,7 @@ STATUSLINE_CC_STATUS_VISIBILITY="always" # always | problem_only
 STATUSLINE_CC_STATUS_COLOR="full"        # none | full | status_only
 INSTALL_AGENT_TEAMS="true"
 INSTALL_PROXY_PATH="true"
+INSTALL_OPENCODE="auto"            # "auto" | "yes" | "no" — auto = detect_opencode result
 ACCEPT_DEFAULTS="false"
 USER_CUSTOMIZED_STATUSLINE="false" # Set to true when user goes through TUI statusline customization
 
@@ -97,6 +98,7 @@ source "${_SETUP_DIR}/lib/setup/filesystem.sh"
 source "${_SETUP_DIR}/lib/setup/settings.sh"
 source "${_SETUP_DIR}/lib/setup/statusline-conf.sh"
 source "${_SETUP_DIR}/lib/setup/mcp.sh"
+source "${_SETUP_DIR}/lib/setup/opencode.sh"
 source "${_SETUP_DIR}/lib/setup/cli.sh"
 source "${_SETUP_DIR}/lib/setup/menu.sh"
 
@@ -296,16 +298,16 @@ EOF
 
     echo ""
 
-    # --- Configure proxy launcher PATH ---
+    # --- Configure proxy launcher PATH and shell shortcuts ---
     if [[ "${INSTALL_PROXY_PATH}" == "true" ]]; then
         step=$((step + 1))
-        echo "Step ${step}: Configuring proxy launcher PATH..."
+        echo "Step ${step}: Configuring proxy launcher PATH and shell shortcuts..."
         echo ""
 
         configure_proxy_path
     else
         step=$((step + 1))
-        echo "Step ${step}: Skipping proxy launcher PATH (not selected)"
+        echo "Step ${step}: Skipping proxy launcher PATH and shell shortcuts (not selected)"
     fi
 
     echo ""
@@ -331,6 +333,36 @@ EOF
     fi
 
     echo ""
+
+    # --- Configure OpenCode parallel install ---
+    local _opencode_resolved="no"
+    case "${INSTALL_OPENCODE}" in
+        yes)
+            _opencode_resolved="yes"
+            ;;
+        no)
+            _opencode_resolved="no"
+            ;;
+        auto)
+            if detect_opencode; then
+                _opencode_resolved="yes"
+            else
+                _opencode_resolved="no"
+            fi
+            ;;
+    esac
+
+    if [[ "${_opencode_resolved}" == "yes" ]]; then
+        step=$((step + 1))
+        echo "Step ${step}: Configuring OpenCode (parallel install)..."
+        echo ""
+        configure_opencode
+    else
+        step=$((step + 1))
+        echo "Step ${step}: Skipping OpenCode setup ($(opencode_detect_label))"
+    fi
+
+    echo ""
     echo "========================================"
     echo "Setup complete!"
     echo "========================================"
@@ -351,6 +383,15 @@ EOF
         echo ""
         echo "To check MCP server status:"
         echo "  claude mcp list"
+    fi
+
+    if [[ "${_opencode_resolved}" == "yes" ]]; then
+        echo ""
+        echo "OpenCode verify:"
+        echo "  cd ~/some-project"
+        echo "  opencode"
+        echo "  Tab to switch agents — translated subagents available via @"
+        echo "  Config: ${OPENCODE_JSON}"
     fi
 }
 
