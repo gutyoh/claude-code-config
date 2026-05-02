@@ -14,7 +14,7 @@ show_usage() {
     echo "  --no-agents            Skip agents & skills installation"
     echo "  --agent-teams          Enable agent teams (experimental)"
     echo "  --no-agent-teams       Disable agent teams"
-    echo "  --minimal              Core only (no agents, skills, MCP, agent teams, or proxy PATH)"
+    echo "  --minimal              Core only (no agents, skills, MCP, agent teams, proxy PATH, or OpenCode)"
     echo "  --overwrite-settings   Replace settings.json with repo defaults"
     echo "  --skip-settings        Don't modify settings.json"
     echo "  --theme THEME          Statusline color theme (dark|light|colorblind|none)"
@@ -28,8 +28,10 @@ show_usage() {
     echo "  --icon-style STYLE     Icon style (plain|bold|bracketed|rounded|reverse|bold-color|angle|double-bracket)"
     echo "  --weekly-show-reset    Show weekly reset countdown inline"
     echo "  --no-weekly-show-reset Hide weekly reset countdown (default)"
-    echo "  --proxy-path           Add bin/ to PATH in shell profile (default)"
-    echo "  --no-proxy-path        Skip proxy launcher PATH setup"
+    echo "  --proxy-path           Add bin/ to PATH and install Claude shell shortcuts (default)"
+    echo "  --no-proxy-path        Skip proxy launcher PATH and shell shortcut setup"
+    echo "  --with-opencode        Force OpenCode parallel install (default: auto-detect)"
+    echo "  --no-opencode          Skip OpenCode setup (default: auto-detect)"
     echo "  -h, --help             Show this help message"
     echo ""
     echo "Available components:"
@@ -49,6 +51,8 @@ show_usage() {
     echo "  ./setup.sh -y --theme colorblind  # Full install with colorblind theme"
     echo "  ./setup.sh -y --bar-style block --bar-pct-inside --components model,usage,cost"
     echo "  ./setup.sh --overwrite-settings # Interactive, but force-overwrite settings.json"
+    echo "  ./setup.sh -y --with-opencode  # Also set up OpenCode (skills/agents/MCP)"
+    echo "  ./setup.sh -y --no-opencode    # Skip OpenCode even if detected"
 }
 
 parse_arguments() {
@@ -104,6 +108,7 @@ parse_arguments() {
                 INSTALL_MCP_SERVERS=()
                 INSTALL_AGENT_TEAMS="false"
                 INSTALL_PROXY_PATH="false"
+                INSTALL_OPENCODE="no"
                 shift
                 ;;
             --overwrite-settings)
@@ -211,6 +216,14 @@ parse_arguments() {
                 ;;
             --no-proxy-path)
                 INSTALL_PROXY_PATH="false"
+                shift
+                ;;
+            --with-opencode)
+                INSTALL_OPENCODE="yes"
+                shift
+                ;;
+            --no-opencode)
+                INSTALL_OPENCODE="no"
                 shift
                 ;;
             --icon-style)
