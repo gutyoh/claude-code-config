@@ -8,9 +8,9 @@
 status is-interactive; or exit 0
 
 # ── ls family (eza) ──────────────────────────────────────────────────
-abbr -a ls   eza
+abbr -a ls   'eza --icons'
 abbr -a ll   'eza -la --git --icons'
-abbr -a la   'eza -la --git'
+abbr -a la   'eza -la --git --icons'
 abbr -a lt   'eza --tree --level=2 --git --icons'
 
 # ── core file/text tools ─────────────────────────────────────────────
