@@ -128,22 +128,22 @@ is_quota_error() {
             # Tavily returns HTTP 432 for quota exhaustion
             # Anchored patterns: require context words to avoid false positives
             # (e.g. "found 432 results" won't match)
-            if [[ "${result_text}" =~ status[[:space:]]*code[[:space:]]*432 ]] ||
-               [[ "${result_text}" =~ [Ee]rror[[:space:]:.]*432 ]] ||
-               [[ "${result_text}" =~ HTTP[[:space:]]*432 ]] ||
-               [[ "${result_text}" =~ [Qq]uota[[:space:]]*(exceeded|exhausted|reached|limit) ]] ||
-               [[ "${result_text}" =~ [Rr]ate[[:space:]]*[Ll]imit ]]; then
+            if [[ "${result_text}" =~ status[[:space:]]*code[[:space:]]*432 ]] \
+                || [[ "${result_text}" =~ [Ee]rror[[:space:]:.]*432 ]] \
+                || [[ "${result_text}" =~ HTTP[[:space:]]*432 ]] \
+                || [[ "${result_text}" =~ [Qq]uota[[:space:]]*(exceeded|exhausted|reached|limit) ]] \
+                || [[ "${result_text}" =~ [Rr]ate[[:space:]]*[Ll]imit ]]; then
                 return 0
             fi
             ;;
         brave)
             # Brave returns HTTP 429 for rate limit / quota
-            if [[ "${result_text}" =~ status[[:space:]]*code[[:space:]]*429 ]] ||
-               [[ "${result_text}" =~ [Ee]rror[[:space:]:.]*429 ]] ||
-               [[ "${result_text}" =~ HTTP[[:space:]]*429 ]] ||
-               [[ "${result_text}" =~ [Tt]oo[[:space:]]*[Mm]any[[:space:]]*[Rr]equests ]] ||
-               [[ "${result_text}" =~ [Rr]ate[[:space:]]*[Ll]imit ]] ||
-               [[ "${result_text}" =~ [Qq]uota[[:space:]]*(exceeded|exhausted|reached|limit) ]]; then
+            if [[ "${result_text}" =~ status[[:space:]]*code[[:space:]]*429 ]] \
+                || [[ "${result_text}" =~ [Ee]rror[[:space:]:.]*429 ]] \
+                || [[ "${result_text}" =~ HTTP[[:space:]]*429 ]] \
+                || [[ "${result_text}" =~ [Tt]oo[[:space:]]*[Mm]any[[:space:]]*[Rr]equests ]] \
+                || [[ "${result_text}" =~ [Rr]ate[[:space:]]*[Ll]imit ]] \
+                || [[ "${result_text}" =~ [Qq]uota[[:space:]]*(exceeded|exhausted|reached|limit) ]]; then
                 return 0
             fi
             ;;
