@@ -326,3 +326,154 @@ except Exception as e:
 PYTHON_SCRIPT
     fi
 }
+
+configure_claude_sync_hooks() {
+    # Resolves INSTALL_CLAUDE_SYNC=auto by detecting `claude-sync` on PATH.
+    # Idempotently adds SessionStart (cc-sync-pull) and SessionEnd
+    # (cc-sync-push) hook entries to ${SETTINGS_JSON}, or removes them
+    # when INSTALL_CLAUDE_SYNC=no.
+    local mode="${INSTALL_CLAUDE_SYNC:-auto}"
+
+    if [[ "${mode}" == "auto" ]]; then
+        if command -v claude-sync >/dev/null 2>&1; then
+            mode="yes"
+        else
+            mode="no"
+        fi
+    fi
+
+    if [[ "${mode}" == "yes" ]]; then
+        if python3 - "${SETTINGS_JSON}" <<'PYTHON_CHECK' 2>/dev/null; then
+import json
+import sys
+try:
+    with open(sys.argv[1]) as f:
+        data = json.load(f)
+    hooks = data.get('hooks', {})
+    start = hooks.get('SessionStart', [])
+    end = hooks.get('SessionEnd', [])
+    pull_present = any(
+        h.get('command') == '~/.claude/hooks/cc-sync-pull.sh'
+        for entry in start for h in entry.get('hooks', [])
+    )
+    push_present = any(
+        h.get('command') == '~/.claude/hooks/cc-sync-push.sh'
+        for entry in end for h in entry.get('hooks', [])
+    )
+    sys.exit(0 if pull_present and push_present else 1)
+except Exception:
+    sys.exit(1)
+PYTHON_CHECK
+            echo "  ✓ Claude-sync session hooks already configured"
+        else
+            echo "  Adding claude-sync session hooks to settings..."
+            python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
+import json
+import sys
+
+settings_file = sys.argv[1]
+
+try:
+    with open(settings_file) as f:
+        data = json.load(f)
+
+    data.setdefault('hooks', {})
+
+    pull_entry = {
+        "hooks": [
+            {
+                "type": "command",
+                "command": "~/.claude/hooks/cc-sync-pull.sh"
+            }
+        ]
+    }
+    push_entry = {
+        "hooks": [
+            {
+                "type": "command",
+                "command": "~/.claude/hooks/cc-sync-push.sh"
+            }
+        ]
+    }
+
+    start = data['hooks'].setdefault('SessionStart', [])
+    if not any(
+        h.get('command') == '~/.claude/hooks/cc-sync-pull.sh'
+        for entry in start for h in entry.get('hooks', [])
+    ):
+        start.append(pull_entry)
+
+    end = data['hooks'].setdefault('SessionEnd', [])
+    if not any(
+        h.get('command') == '~/.claude/hooks/cc-sync-push.sh'
+        for entry in end for h in entry.get('hooks', [])
+    ):
+        end.append(push_entry)
+
+    with open(settings_file, 'w') as f:
+        json.dump(data, f, indent=2)
+
+    print("  ✓ Claude-sync session hooks configured")
+    sys.exit(0)
+except Exception as e:
+    print(f"  ⚠ Failed to add claude-sync hooks: {e}", file=sys.stderr)
+    sys.exit(1)
+PYTHON_SCRIPT
+        fi
+
+        if ! command -v claude-sync >/dev/null 2>&1; then
+            echo "  ⚠ claude-sync not found on PATH — hooks will no-op until installed"
+            echo "    Install with: npm install -g @tawandotorg/claude-sync"
+            echo "    Then run: claude-sync init"
+        fi
+    else
+        python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
+import json
+import sys
+
+settings_file = sys.argv[1]
+
+try:
+    with open(settings_file) as f:
+        data = json.load(f)
+
+    hooks = data.get('hooks', {})
+    changed = False
+
+    for event, target in (
+        ('SessionStart', '~/.claude/hooks/cc-sync-pull.sh'),
+        ('SessionEnd', '~/.claude/hooks/cc-sync-push.sh'),
+    ):
+        entries = hooks.get(event, [])
+        kept = []
+        for entry in entries:
+            sub = [h for h in entry.get('hooks', []) if h.get('command') != target]
+            if sub:
+                entry['hooks'] = sub
+                kept.append(entry)
+            else:
+                changed = True
+        if kept != entries:
+            changed = True
+            if kept:
+                hooks[event] = kept
+            else:
+                hooks.pop(event, None)
+
+    if changed:
+        if hooks:
+            data['hooks'] = hooks
+        else:
+            data.pop('hooks', None)
+        with open(settings_file, 'w') as f:
+            json.dump(data, f, indent=2)
+        print("  ✓ Claude-sync session hooks removed")
+    else:
+        print("  ⊘ Claude-sync session hooks not present (nothing to remove)")
+    sys.exit(0)
+except Exception as e:
+    print(f"  ⚠ Failed to remove claude-sync hooks: {e}", file=sys.stderr)
+    sys.exit(1)
+PYTHON_SCRIPT
+    fi
+}

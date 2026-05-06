@@ -41,6 +41,19 @@ show_install_menu() {
         *) opencode_label="auto ($(opencode_detect_label))" ;;
     esac
     echo "  OpenCode parallel install:        ${opencode_label}"
+    local claude_sync_label
+    case "${INSTALL_CLAUDE_SYNC}" in
+        yes) claude_sync_label="yes" ;;
+        no) claude_sync_label="no" ;;
+        *)
+            if command -v claude-sync >/dev/null 2>&1; then
+                claude_sync_label="auto (claude-sync detected)"
+            else
+                claude_sync_label="auto (claude-sync not installed — skip)"
+            fi
+            ;;
+    esac
+    echo "  claude-sync session hooks:        ${claude_sync_label}"
     echo "  settings.json:                    ${settings_label}"
     echo "  statusline color theme:           ${STATUSLINE_THEME}"
     echo "  statusline components:            ${comp_display}"
@@ -155,7 +168,8 @@ customize_installation() {
             fi
             ;;
     esac
-    local opencode_prompt="Set up OpenCode? (mirrors skills/agents/MCP — $(opencode_detect_label))"
+    local opencode_prompt
+    opencode_prompt="Set up OpenCode? (mirrors skills/agents/MCP — $(opencode_detect_label))"
     if tui_confirm "${opencode_prompt}" "${opencode_default}"; then
         INSTALL_OPENCODE="yes"
     else

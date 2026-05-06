@@ -13,7 +13,9 @@
 #   --agent-teams          Enable agent teams (experimental)
 #   --no-agent-teams       Disable agent teams
 #   --no-proxy-path        Skip proxy launcher PATH and shell shortcut setup
-#   --minimal              Core only (no agents, skills, MCP, agent teams, proxy PATH, or shell shortcuts)
+#   --with-claude-sync     Force-install SessionStart/SessionEnd hooks for cross-machine sync
+#   --no-claude-sync       Skip claude-sync session hooks (auto-detected by default)
+#   --minimal              Core only (no agents, skills, MCP, agent teams, proxy PATH, shell shortcuts, or claude-sync hooks)
 #   --overwrite-settings   Replace settings.json with repo defaults
 #   --skip-settings        Don't modify settings.json
 #   --theme THEME          Statusline color theme (dark|light|colorblind|none)
@@ -58,7 +60,8 @@ STATUSLINE_CC_STATUS_VISIBILITY="always" # always | problem_only
 STATUSLINE_CC_STATUS_COLOR="full"        # none | full | status_only
 INSTALL_AGENT_TEAMS="true"
 INSTALL_PROXY_PATH="true"
-INSTALL_OPENCODE="auto"            # "auto" | "yes" | "no" — auto = detect_opencode result
+INSTALL_OPENCODE="auto"    # "auto" | "yes" | "no" — auto = detect_opencode result
+INSTALL_CLAUDE_SYNC="auto" # "auto" | "yes" | "no" — auto = enable when claude-sync is on PATH
 ACCEPT_DEFAULTS="false"
 USER_CUSTOMIZED_STATUSLINE="false" # Set to true when user goes through TUI statusline customization
 
@@ -218,6 +221,16 @@ main() {
 
         configure_agent_teams
 
+        echo ""
+
+        step=$((step + 1))
+        echo "Step ${step}: Configuring claude-sync session hooks..."
+        echo ""
+
+        configure_claude_sync_hooks
+
+        echo ""
+
     elif [[ "${SETTINGS_MODE}" == "merge" ]]; then
         step=$((step + 1))
         echo "Step ${step}: Configuring hooks (user scope)..."
@@ -290,6 +303,14 @@ EOF
         echo ""
 
         configure_agent_teams
+
+        echo ""
+
+        step=$((step + 1))
+        echo "Step ${step}: Configuring claude-sync session hooks..."
+        echo ""
+
+        configure_claude_sync_hooks
 
     else
         step=$((step + 1))
