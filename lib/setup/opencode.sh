@@ -36,8 +36,14 @@ detect_opencode() {
 opencode_detect_label() {
     if [[ -n "${OPENCODE_FORCE:-}" ]]; then
         case "${OPENCODE_FORCE}" in
-            1 | true | yes | on | TRUE | YES | ON) echo "yes (forced)"; return ;;
-            0 | false | no | off | FALSE | NO | OFF) echo "no (forced)"; return ;;
+            1 | true | yes | on | TRUE | YES | ON)
+                echo "yes (forced)"
+                return
+                ;;
+            0 | false | no | off | FALSE | NO | OFF)
+                echo "no (forced)"
+                return
+                ;;
         esac
     fi
     if command -v opencode &>/dev/null && opencode --version &>/dev/null; then
@@ -296,7 +302,7 @@ _opencode_generate_json() {
         --argjson mcp "${mcp_section}" \
         '. + {"$schema": "https://opencode.ai/config.json"} + {mcp: ((.mcp // {}) + $mcp)}')"
 
-    printf '%s\n' "${merged}" | jq '.' > "${OPENCODE_JSON}"
+    printf '%s\n' "${merged}" | jq '.' >"${OPENCODE_JSON}"
     echo "  ✓ ${OPENCODE_JSON} (${backend} backend)"
 }
 
