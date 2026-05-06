@@ -63,6 +63,26 @@
         ]
       }
     ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/cc-sync-pull.sh"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/cc-sync-push.sh"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "matcher": "",
