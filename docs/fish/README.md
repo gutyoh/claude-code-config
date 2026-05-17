@@ -110,7 +110,7 @@ rm ~/.config/fish/conf.d/{00-paths,10-env,15-mise,20-tools,30-abbreviations,40-b
 rm ~/.config/fish/functions/{claude,clp}.fish
 
 # Symlink instead
-set repo $HOME/Documents/dev/claude-code-config
+set repo $HOME/Documents/dev/claude-code-config   # wherever you cloned it
 ln -sf $repo/docs/fish/config-power-user/config.fish ~/.config/fish/config.fish
 for f in $repo/docs/fish/config-power-user/conf.d/*.fish
     ln -sf $f ~/.config/fish/conf.d/(basename $f)
