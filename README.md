@@ -134,6 +134,7 @@ The script will:
 - Symlink `skills/`, `agents/`, `hooks/` to your global config
 - Add `bin/` to PATH and install `claude` / `clp` shell shortcuts
 - **Add Brave Search MCP server to user scope** (available in all projects)
+- **Install in parallel for OpenCode** if `opencode` is detected on PATH (translates agents, generates `~/.config/opencode/opencode.json`, symlinks `AGENTS.md`)
 - Check for required environment variables
  
 > **Note:** Symlinks keep everything in sync. When you `git pull` updates, your global config updates automatically.
@@ -639,6 +640,53 @@ Add this to `~/.claude/settings.json`:
 - You want to track billing window usage
 - You want visibility into token consumption
 - You want to pace your usage throughout the day
+
+### 6. Cross-Machine Session Sync (claude-sync)
+
+Syncs your `~/.claude/` (sessions, projects, settings) across machines via encrypted cloud storage. Optional — requires the [claude-sync](https://github.com/sammcj/claude-sync) tool installed on every machine you want synced.
+
+**Locations:** `.claude/hooks/cc-sync-pull.sh` (SessionStart) and `.claude/hooks/cc-sync-push.sh` (SessionEnd)
+
+**How it works:**
+
+1. **SessionStart** → `cc-sync-pull.sh` runs `claude-sync pull -q --force`, then optionally `~/.claude/cc-sync-remap.sh` for per-machine path rewrites (e.g., `/Users/<user>` → `/home/<user>` when crossing macOS↔Linux)
+2. **SessionEnd** → `cc-sync-push.sh` runs `claude-sync push` to upload changes for the next machine
+3. **Fail-safe** — both hooks `set +e` and always `exit 0`; SessionStart can't block startup and SessionEnd can't block termination. Errors land in `~/.claude/cc-sync-pull.log` / `cc-sync-push.log`
+
+**No-op when `claude-sync` isn't installed.** Safe to ship enabled by default. To opt in, install `claude-sync` via its repo instructions on each machine.
+
+## Shell + Terminal Configuration
+
+Optional opinionated presets for the **fish shell** and the **Ghostty terminal** — paired daily-driver setup for macOS and Linux. Copy-install one preset of each, customize as needed.
+
+### Fish Shell ([docs/fish/](./docs/fish/))
+
+Three preset tiers, all modular (`conf.d/` + `functions/`):
+
+| Preset | Use case |
+|---|---|
+| `config-minimal/` | Servers, throwaway boxes |
+| `config-recommended/` | Most users — sensible defaults, modern CLI tool init |
+| `config-power-user/` | Daily driver — Claude Code, mise, bun, dbt, Tide prompt, cross-platform brew detection, SSH socket auto-detection, OS-aware Tide badge, zellij auto-attach on SSH |
+
+See [`docs/how-to-configure-fish.md`](./docs/how-to-configure-fish.md) for the full guide.
+
+### Ghostty Terminal ([docs/ghostty/](./docs/ghostty/))
+
+Five presets covering the spectrum:
+
+| Preset | Philosophy |
+|---|---|
+| `config-minimal.ini` | Clean macOS-native feel, fewest overrides |
+| `config-recommended.ini` | SOTA daily-driver — productivity-focused, no visual noise |
+| `config-power-user.ini` | tmux + Neovim workflow, max screen real estate |
+| `config-aesthetic.ini` | Transparent + blurred, riced |
+| `config-maximalist.ini` | Every popular option enabled (good starting point to trim from) |
+| `config-tip.ini` | Tip-channel preset with Ghostty 1.3+ features (click-to-move cursor, command-finish notifications, P3 colorspace, OSC 52) |
+
+See [`docs/how-to-configure-ghostty.md`](./docs/how-to-configure-ghostty.md) for the full guide.
+
+All presets target macOS + Linux. Ghostty silently ignores `macos-*` keys on Linux, and `super+` keybinds work as Cmd (macOS) or Super/Win (Linux) automatically.
 
 ## Proxy Launcher
 
