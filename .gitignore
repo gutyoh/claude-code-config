@@ -45,6 +45,10 @@ CLAUDE.local.md
 .claude/skills/skills
 .claude/hooks/hooks
 
+# Personal Tailscale/UpSnap utility — operator-specific, not part of the
+# portable Claude Code config. Kept locally for the maintainer.
+bin/upsnap-import-tailnet.sh
+
 # ----------------------------------------------------------------------------
 # MCP SERVERS - SENSITIVE DATA (API keys, tokens, secrets)
 # ----------------------------------------------------------------------------

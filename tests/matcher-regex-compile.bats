@@ -269,10 +269,17 @@ hooks_for_event() {
 # Structural — every entry has required fields
 # ============================================================================
 
-@test "every hook entry has a matcher field (may be empty string)" {
+@test "every tool-hook entry has a matcher field (may be empty string)" {
+    # SessionStart and SessionEnd are lifecycle events — they filter via the
+    # `source` / `reason` fields, not a tool matcher, and the official Claude
+    # Code docs omit matcher on them. Exclude lifecycle events from this check.
     local missing
     missing=$(jq -r '
-        [.hooks | to_entries[] | .value[] | select(.matcher == null)]
+        [.hooks
+         | to_entries[]
+         | select(.key | IN("SessionStart", "SessionEnd") | not)
+         | .value[]
+         | select(.matcher == null)]
         | length
     ' "$SETTINGS")
     [ "$missing" -eq 0 ]
