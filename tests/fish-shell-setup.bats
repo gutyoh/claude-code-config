@@ -18,6 +18,12 @@ setup() {
     REPO_DIR="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
     export REPO_DIR
     SETTINGS_SH="${REPO_DIR}/lib/setup/settings.sh"
+
+    # Stand-in for "the user's login shell is fish". The path itself is
+    # irrelevant — routing keys off the */fish glob — and the
+    # prefix-independence test below covers every real install location.
+    FISH_SHELL="/usr/bin/fish"
+    export FISH_SHELL
 }
 
 fish_config_dir() {
@@ -30,7 +36,7 @@ fish_config_dir() {
 @test "configure_proxy_path routes fish to the fish installer" {
     run bash -c "
         REPO_DIR='$REPO_DIR'
-        SHELL=/opt/homebrew/bin/fish
+        SHELL="$FISH_SHELL"
         source '$SETTINGS_SH'
         configure_proxy_path
     "
@@ -44,7 +50,7 @@ fish_config_dir() {
     # appended bash syntax to a file fish never reads.
     run bash -c "
         REPO_DIR='$REPO_DIR'
-        SHELL=/opt/homebrew/bin/fish
+        SHELL="$FISH_SHELL"
         source '$SETTINGS_SH'
         configure_proxy_path
     "
@@ -58,7 +64,7 @@ fish_config_dir() {
 @test "fish install creates claude and clp functions" {
     run bash -c "
         REPO_DIR='$REPO_DIR'
-        SHELL=/opt/homebrew/bin/fish
+        SHELL="$FISH_SHELL"
         source '$SETTINGS_SH'
         configure_proxy_path
     "
@@ -71,7 +77,7 @@ fish_config_dir() {
 @test "fish install adds bin/ to PATH via conf.d" {
     run bash -c "
         REPO_DIR='$REPO_DIR'
-        SHELL=/opt/homebrew/bin/fish
+        SHELL="$FISH_SHELL"
         source '$SETTINGS_SH'
         configure_proxy_path
     "
@@ -87,7 +93,7 @@ fish_config_dir() {
     export XDG_CONFIG_HOME="${BATS_TEST_TMPDIR}/custom-xdg"
     run bash -c "
         REPO_DIR='$REPO_DIR'
-        SHELL=/opt/homebrew/bin/fish
+        SHELL="$FISH_SHELL"
         XDG_CONFIG_HOME='$XDG_CONFIG_HOME'
         source '$SETTINGS_SH'
         configure_proxy_path
@@ -101,7 +107,7 @@ fish_config_dir() {
     for _ in 1 2; do
         run bash -c "
             REPO_DIR='$REPO_DIR'
-            SHELL=/opt/homebrew/bin/fish
+            SHELL="$FISH_SHELL"
             source '$SETTINGS_SH'
             configure_proxy_path
         "
@@ -120,7 +126,7 @@ fish_config_dir() {
     require_cmd fish
     run bash -c "
         REPO_DIR='$REPO_DIR'
-        SHELL=/opt/homebrew/bin/fish
+        SHELL="$FISH_SHELL"
         source '$SETTINGS_SH'
         configure_proxy_path
     "
@@ -139,7 +145,7 @@ fish_config_dir() {
     require_cmd fish
     run bash -c "
         REPO_DIR='$REPO_DIR'
-        SHELL=/opt/homebrew/bin/fish
+        SHELL="$FISH_SHELL"
         source '$SETTINGS_SH'
         configure_proxy_path
     "
@@ -156,4 +162,32 @@ fish_config_dir() {
     [ "$status" -eq 0 ]
     grep -Fq 'claude:--allow-dangerously-skip-permissions --resume' "$log"
     grep -Fq 'claude:--dangerously-skip-permissions --resume' "$log"
+}
+
+# bats test_tags=unit,fish
+@test "fish routing is independent of the install prefix" {
+    # fish lives at a different path on Apple Silicon, Intel macOS, Linux brew
+    # and distro packages. Routing must key off the */fish glob, not one prefix.
+    local candidate
+    for candidate in \
+        /opt/homebrew/bin/fish \
+        /usr/local/bin/fish \
+        /home/linuxbrew/.linuxbrew/bin/fish \
+        /usr/bin/fish; do
+        rm -rf "${XDG_CONFIG_HOME:?}/fish"
+        run bash -c "
+            REPO_DIR='$REPO_DIR'
+            SHELL='$candidate'
+            source '$SETTINGS_SH'
+            configure_proxy_path
+        "
+        [ "$status" -eq 0 ] || {
+            echo "routing failed for $candidate"
+            false
+        }
+        [ -f "${XDG_CONFIG_HOME}/fish/functions/claude.fish" ] || {
+            echo "no fish function written for $candidate"
+            false
+        }
+    done
 }

@@ -16,10 +16,14 @@ setup() {
 
 # Files we ship and therefore must keep portable. Docs prose may legitimately
 # name absolute paths as examples, so only executable/config content is scanned.
+#
+# `--others --exclude-standard` includes new-but-uncommitted files: without it
+# a violation stays invisible until the commit that introduces it, which is
+# exactly when it is most expensive to notice.
 shipped_scripts() {
-    git -C "$REPO_ROOT" ls-files -z \
+    git -C "$REPO_ROOT" ls-files -z --cached --others --exclude-standard \
         -- '*.sh' 'bin/*' '.claude/hooks/*' '*.bats' '*.fish' 2>/dev/null |
-        tr '\0' '\n' | grep -v '^docs/' || true
+        tr '\0' '\n' | grep -v '^docs/' | sort -u || true
 }
 
 # --- Hardcoded home directories -------------------------------------------
