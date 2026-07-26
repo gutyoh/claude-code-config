@@ -15,6 +15,7 @@
 SETTINGS="$BATS_TEST_DIRNAME/../.claude/settings.json"
 
 setup() {
+    source "$BATS_TEST_DIRNAME/helpers.bash"
     # Ensure jq is available (required by these tests)
     command -v jq >/dev/null 2>&1 || skip "jq not installed"
 }
@@ -100,8 +101,8 @@ _skip_unless_installed_checkout() {
 
     while IFS= read -r cmd; do
         [ -z "$cmd" ] && continue
-        # Expand ~ to $HOME
-        local expanded="${cmd/#\~/$HOME}"
+        local expanded
+        expanded="$(repo_hook_path "$cmd")"
         if [ ! -f "$expanded" ]; then
             echo "MISSING: $cmd (expanded: $expanded)"
             false
@@ -123,7 +124,8 @@ _skip_unless_installed_checkout() {
 
     while IFS= read -r cmd; do
         [ -z "$cmd" ] && continue
-        local expanded="${cmd/#\~/$HOME}"
+        local expanded
+        expanded="$(repo_hook_path "$cmd")"
         if [ ! -f "$expanded" ]; then
             echo "MISSING: $cmd (expanded: $expanded)"
             false
@@ -150,7 +152,8 @@ _skip_unless_installed_checkout() {
     local failures=0
     while IFS= read -r cmd; do
         [ -z "$cmd" ] && continue
-        local expanded="${cmd/#\~/$HOME}"
+        local expanded
+        expanded="$(repo_hook_path "$cmd")"
         # Test from the temp directory — this is what fails with ./ paths
         if ! (cd "$tmpdir" && [ -x "$expanded" ]); then
             echo "FAILS FROM TMPDIR: $cmd"
@@ -175,7 +178,8 @@ _skip_unless_installed_checkout() {
     cmd=$(jq -r '.statusLine.command // empty' "$SETTINGS")
     [ -n "$cmd" ]
     [[ "$cmd" == "~/"* ]]
-    local expanded="${cmd/#\~/$HOME}"
+    local expanded
+    expanded="$(repo_hook_path "$cmd")"
     [ -x "$expanded" ]
 }
 

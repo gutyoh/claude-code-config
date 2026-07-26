@@ -78,3 +78,40 @@ require_cmd() {
     local cmd="$1" reason="${2:-}"
     command -v "${cmd}" >/dev/null 2>&1 || skip "${reason:-${cmd} not installed}"
 }
+
+# file_mode <path> -- octal permission bits, portably.
+#
+# `stat -f '%Lp' file 2>/dev/null || stat -c '%a' file` looks like a BSD-then-GNU
+# fallback but is not: on GNU coreutils `-f` means --file-system, so it SUCCEEDS
+# and prints filesystem info. The || never fires and the caller silently compares
+# against the wrong string. Branch on the platform instead of on exit status.
+file_mode() {
+    local path="$1"
+    case "$(uname -s)" in
+        Darwin | *BSD) stat -f '%Lp' "${path}" ;;
+        *) stat -c '%a' "${path}" ;;
+    esac
+}
+
+# repo_hook_path <settings-command> -- resolve a `~/.claude/...` hook command to
+# a real file.
+#
+# Hook commands are written as ~/.claude/hooks/foo.sh because that is where
+# Claude Code loads them from, and setup.sh symlinks ~/.claude/hooks to this
+# repo. On a machine where setup.sh has never run — every CI runner — that path
+# does not exist, so tests asserting the script is present must fall back to the
+# repo copy the symlink would point at.
+repo_hook_path() {
+    local cmd="$1"
+    local repo_root="${2:-$(cd "${BATS_TEST_DIRNAME}/.." && pwd)}"
+    local expanded="${cmd/#\~/${HOME}}"
+
+    if [[ -e "${expanded}" ]]; then
+        printf '%s\n' "${expanded}"
+        return
+    fi
+    case "${cmd}" in
+        '~/.claude/'*) printf '%s/.claude/%s\n' "${repo_root}" "${cmd#\~/.claude/}" ;;
+        *) printf '%s\n' "${expanded}" ;;
+    esac
+}

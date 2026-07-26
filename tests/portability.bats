@@ -154,6 +154,55 @@ shipped_scripts() {
     }
 }
 
+# bats test_tags=unit,portability
+@test "no shipped script uses the stat -f || stat -c idiom" {
+    # This reads like a BSD-then-GNU fallback but is not. On GNU coreutils `-f`
+    # means --file-system, so `stat -f '%Lp' file` SUCCEEDS and prints
+    # filesystem info — the `||` never fires and the caller compares against
+    # the wrong string. It passes on macOS and fails on Linux for a reason the
+    # error message does not reveal. Branch on `uname` instead; tests/helpers.bash
+    # provides file_mode() for exactly this.
+    local hits
+    hits="$(cd "$REPO_ROOT" && shipped_scripts | while read -r f; do
+        [[ -n "$f" ]] || continue
+        # Drop comments and @test titles: this guard has to name the bad idiom
+        # in prose to be readable.
+        grep -Hn -E "stat -f.*\|\|.*stat -c" "$f" 2>/dev/null |
+            grep -v -E '^[^:]+:[0-9]+:[[:space:]]*(#|@test )' || true
+    done)"
+    [ -z "$hits" ] || {
+        echo "Broken stat fallback (GNU stat -f succeeds, so || never fires):"
+        echo "$hits"
+        false
+    }
+}
+
+# bats test_tags=unit,portability
+@test "file_mode helper reports octal permissions on this platform" {
+    local f="${BATS_TEST_TMPDIR}/perm"
+    touch "$f"
+    chmod 600 "$f"
+    [ "$(file_mode "$f")" = "600" ]
+    chmod 644 "$f"
+    [ "$(file_mode "$f")" = "644" ]
+}
+
+# --- Installed-vs-repo paths ------------------------------------------------
+
+# bats test_tags=unit,portability
+@test "repo_hook_path resolves ~/.claude commands without an install" {
+    # Hook commands are written as ~/.claude/... because that is where Claude
+    # Code loads them. On a machine where setup.sh has never run — every CI
+    # runner — that path does not exist, so tests must fall back to the repo
+    # copy the symlink would point at.
+    HOME="${BATS_TEST_TMPDIR}/empty-home"
+    mkdir -p "$HOME"
+    local resolved
+    resolved="$(repo_hook_path '~/.claude/hooks/enforce-git-pull-rebase.sh' "$REPO_ROOT")"
+    [ -f "$resolved" ]
+    [ -x "$resolved" ]
+}
+
 # --- Shebangs ---------------------------------------------------------------
 
 # bats test_tags=unit,portability

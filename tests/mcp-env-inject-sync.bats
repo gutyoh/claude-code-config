@@ -19,6 +19,7 @@ KEY_C="test-key-CCCC-3333"
 # --- Setup / Teardown ---
 
 setup() {
+    source "$BATS_TEST_DIRNAME/helpers.bash"
     export TEST_TMPDIR
     TEST_TMPDIR="$(mktemp -d)"
     export TEST_DOTENV="${TEST_TMPDIR}/.env"
@@ -142,7 +143,7 @@ EOF
     [ "$status" -eq 0 ]
 
     local perms
-    perms="$(stat -f '%Lp' "${MCP_KEYS_ENV_FILE}" 2>/dev/null || stat -c '%a' "${MCP_KEYS_ENV_FILE}" 2>/dev/null)"
+    perms="$(file_mode "${MCP_KEYS_ENV_FILE}")"
     [ "$perms" = "600" ]
 }
 
