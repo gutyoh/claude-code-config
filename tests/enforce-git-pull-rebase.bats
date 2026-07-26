@@ -34,6 +34,8 @@ rewritten() {
 # Basic functionality
 # ============================================================================
 
+# bats file_tags=unit
+
 @test "hook script exists and is executable" {
     [ -x "$HOOK" ]
 }

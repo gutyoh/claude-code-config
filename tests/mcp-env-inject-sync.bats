@@ -73,6 +73,8 @@ dotenv_seed() {
 # UNIT TESTS: --sync command
 # ==========================================================================
 
+# bats file_tags=integration
+
 @test "sync: creates entry in mcp-keys.env" {
     dotenv_seed "BRAVE_API_KEY" "${KEY_A}"
     dotenv_seed "BRAVE_API_KEY_POOL" "${KEY_A}"

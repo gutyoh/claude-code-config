@@ -100,6 +100,8 @@ import_file() {
 # Codex auth import behavior (OpenAI CI/CD guidance: seed only if missing)
 # ============================================================================
 
+# bats file_tags=integration
+
 @test "first run: creates codex-import.json from source auth.json" {
     run bash "$SCRIPT"
     [ "$status" -eq 0 ]

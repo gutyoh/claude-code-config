@@ -17,6 +17,8 @@ setup() {
     command -v fish >/dev/null 2>&1 || skip "fish not installed"
 }
 
+# bats file_tags=unit
+
 @test "config.fish parses without errors" {
     fish --no-execute "$FISH_DIR/config.fish"
 }

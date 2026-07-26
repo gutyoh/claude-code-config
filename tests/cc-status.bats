@@ -64,6 +64,8 @@ set_file_mtime() {
 # (Atlassian Statuspage has exactly 5 component statuses)
 # ============================================================
 
+# bats file_tags=integration
+
 @test "label: operational → on" {
     [[ "$(_map_status_label "operational")" == "on" ]]
 }

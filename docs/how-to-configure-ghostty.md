@@ -134,7 +134,7 @@ This repository includes ready-to-use config presets in [`docs/ghostty/`](./ghos
 
 | File | Description | Use Case |
 |------|-------------|----------|
-| [`config-recommended.ini`](./ghostty/config-recommended.ini) | Opinionated SOTA recommendation | Daily driver, best engineering default |
+| [`config-recommended.ini`](./ghostty/config-recommended.ini) | Opinionated default recommendation | Daily driver, best engineering default |
 | [`config-minimal.ini`](./ghostty/config-minimal.ini) | Clean, native macOS feel | Want minimal overrides |
 | [`config-aesthetic.ini`](./ghostty/config-aesthetic.ini) | Transparent, blurred, riced | Want it to look beautiful |
 | [`config-power-user.ini`](./ghostty/config-power-user.ini) | Optimized for tmux + Neovim | Live in tmux, want zero chrome |

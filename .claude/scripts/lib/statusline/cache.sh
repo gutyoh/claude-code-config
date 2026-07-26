@@ -2,7 +2,7 @@
 # Path: .claude/scripts/lib/statusline/cache.sh
 # Sourced by statusline.sh — do not execute directly.
 #
-# Design (SOTA 2026):
+# Design:
 #   1. Global cross-session lock (mkdir atomic): only ONE process fetches the API.
 #      Other processes serve from cache. Prevents thundering herd across N sessions.
 #      Stale locks (from killed processes) auto-recovered after LOCK_MAX_AGE_S.

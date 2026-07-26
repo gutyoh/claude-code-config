@@ -68,7 +68,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/hooks/cc-sync-pull.sh"
+            "command": "~/.claude/hooks/cc-sync-pull.sh",
+            "timeout": 10
           }
         ]
       }
@@ -78,7 +79,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/hooks/cc-sync-push.sh"
+            "command": "~/.claude/hooks/cc-sync-push.sh",
+            "timeout": 10
           }
         ]
       }

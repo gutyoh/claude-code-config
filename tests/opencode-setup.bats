@@ -47,6 +47,8 @@ teardown() {
 # UNIT TESTS: detect_opencode tiers
 # ==========================================================================
 
+# bats file_tags=unit
+
 @test "detect_opencode: Tier 0 OPENCODE_FORCE=1 returns yes regardless of binary" {
     export OPENCODE_FORCE=1
     run detect_opencode
@@ -724,4 +726,109 @@ EOF
     python3 -m json.tool < "${OPENCODE_JSON}" > /dev/null
     # AGENTS.md symlinked
     [ -L "${REPO_DIR}/AGENTS.md" ]
+}
+
+# --- JSONC parsing ----------------------------------------------------------
+#
+# A user's opencode.jsonc may legitimately contain comments. Stripping them
+# with a regex is wrong in a way that differs per platform: `[^\n]` means
+# "not newline" to GNU sed but "not backslash and not the letter n" to BSD sed,
+# and either way a `//` inside a string (every https:// URL) gets truncated.
+# When the strip fails the merge silently falls back to `{}` and the user's
+# whole config is replaced.
+
+# bats test_tags=unit,portability
+@test "_opencode_strip_jsonc removes line comments" {
+    source "$OPENCODE_SH"
+    local f="${BATS_TEST_TMPDIR}/c.jsonc"
+    printf '{\n  // a comment\n  "theme": "x"\n}\n' > "$f"
+
+    run _opencode_strip_jsonc "$f"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"a comment"* ]]
+    echo "$output" | jq -e '.theme == "x"' >/dev/null
+}
+
+# bats test_tags=unit,portability
+@test "_opencode_strip_jsonc removes block comments" {
+    source "$OPENCODE_SH"
+    local f="${BATS_TEST_TMPDIR}/c.jsonc"
+    printf '{\n  /* multi\n     line */\n  "theme": "x"\n}\n' > "$f"
+
+    run _opencode_strip_jsonc "$f"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"multi"* ]]
+    echo "$output" | jq -e '.theme == "x"' >/dev/null
+}
+
+# bats test_tags=unit,portability
+@test "_opencode_strip_jsonc preserves // inside a schema URL" {
+    source "$OPENCODE_SH"
+    local f="${BATS_TEST_TMPDIR}/c.jsonc"
+    printf '{\n  "$schema": "https://opencode.ai/config.json"\n}\n' > "$f"
+
+    run _opencode_strip_jsonc "$f"
+    [ "$status" -eq 0 ]
+    echo "$output" | jq -e '."$schema" == "https://opencode.ai/config.json"' >/dev/null
+}
+
+# bats test_tags=unit,portability
+@test "_opencode_strip_jsonc preserves // inside an arbitrary string value" {
+    source "$OPENCODE_SH"
+    local f="${BATS_TEST_TMPDIR}/c.jsonc"
+    printf '{\n  "note": "keep // this"\n}\n' > "$f"
+
+    run _opencode_strip_jsonc "$f"
+    [ "$status" -eq 0 ]
+    echo "$output" | jq -e '.note == "keep // this"' >/dev/null
+}
+
+# bats test_tags=unit,portability
+@test "_opencode_strip_jsonc survives a comment containing the letter n" {
+    # BSD sed's [^\n] stops at any literal 'n', so this exact shape is what
+    # silently defeated the old regex on macOS.
+    source "$OPENCODE_SH"
+    local f="${BATS_TEST_TMPDIR}/c.jsonc"
+    printf '{\n  // an existing note\n  "theme": "x"\n}\n' > "$f"
+
+    run _opencode_strip_jsonc "$f"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"existing note"* ]]
+    echo "$output" | jq -e '.theme == "x"' >/dev/null
+}
+
+# bats test_tags=unit,portability
+@test "_opencode_strip_jsonc drops trailing commas" {
+    source "$OPENCODE_SH"
+    local f="${BATS_TEST_TMPDIR}/c.jsonc"
+    printf '{\n  "a": 1,\n  "b": [1, 2,],\n}\n' > "$f"
+
+    run _opencode_strip_jsonc "$f"
+    [ "$status" -eq 0 ]
+    echo "$output" | jq -e '.a == 1 and (.b | length) == 2' >/dev/null
+}
+
+# bats test_tags=integration,portability
+@test "_opencode_generate_json preserves a commented jsonc config" {
+    # End-to-end regression: user keys must survive the merge, not be replaced
+    # by {} because the comment strip failed.
+    INSTALL_MCP_SERVERS=("brave-search")
+    mkdir -p "${OPENCODE_CONFIG_DIR_OVERRIDE}"
+    cat > "${OPENCODE_CONFIG_DIR_OVERRIDE}/opencode.jsonc" <<'JSONC'
+{
+  // my settings
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["@slkiser/opencode-quota"],
+  "share": "disabled"
+}
+JSONC
+    source "$OPENCODE_SH"
+
+    run _opencode_generate_json
+    [ "$status" -eq 0 ]
+
+    local out="${OPENCODE_CONFIG_DIR_OVERRIDE}/opencode.jsonc"
+    jq -e '.share == "disabled"' "$out" >/dev/null
+    jq -e '.plugin[0] == "@slkiser/opencode-quota"' "$out" >/dev/null
+    jq -e '.mcp["brave-search"]' "$out" >/dev/null
 }

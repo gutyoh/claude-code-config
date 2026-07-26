@@ -16,6 +16,18 @@ MODULES_DIR="$BATS_TEST_DIRNAME/../.claude/scripts/lib/statusline"
 
 setup() {
     source "$BATS_TEST_DIRNAME/helpers.bash"
+
+    # Hermetic HOME, and a ccusage that answers instantly.
+    #
+    # collect_data() calls get_ccusage_block() -> `ccusage blocks --json`, which
+    # walks every session transcript under ~/.claude. Against a real developer's
+    # history that is seconds per call: the seven collect_data tests below were
+    # ~26s each (~180s, 45% of the whole suite) purely from this. No test here
+    # asserts on token or cost values, so a stub costs nothing in coverage and
+    # makes runtime independent of whose machine it runs on.
+    isolate_home
+    stub_bin ccusage 'echo "{\"blocks\":[]}"'
+
     # Test-scoped constants (replaces readonly from statusline.sh)
     CACHE_FILE="$BATS_TEST_TMPDIR/cache"
     LOCK_DIR="$BATS_TEST_TMPDIR/lock"
@@ -77,6 +89,8 @@ mock_api_failure() {
 # =========================================================================
 # get_file_age
 # =========================================================================
+
+# bats file_tags=integration
 
 @test "get_file_age: returns 0-2 for freshly created file" {
     touch "$CACHE_FILE"

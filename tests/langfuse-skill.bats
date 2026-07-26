@@ -21,6 +21,8 @@ setup() {
 # UNIT TESTS: Skill file structure
 # ==========================================================================
 
+# bats file_tags=integration
+
 @test "skill: SKILL.md exists" {
     [ -f "$SKILL_DIR/SKILL.md" ]
 }

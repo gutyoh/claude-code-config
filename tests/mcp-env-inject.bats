@@ -26,6 +26,8 @@ teardown() {
 # UNIT TESTS: Script basics
 # ==========================================================================
 
+# bats file_tags=unit
+
 @test "script exists and is executable" {
     [ -x "$SCRIPT" ]
 }

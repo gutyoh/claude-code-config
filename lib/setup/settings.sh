@@ -181,6 +181,16 @@ configure_proxy_path() {
     local bin_dir="${REPO_DIR}/bin"
     local marker="# claude-code-config: proxy launcher PATH"
 
+    # fish is not POSIX: `export VAR=x` and shell functions are syntax errors
+    # there, so it gets its own installer writing native fish files instead of
+    # appending to a profile.
+    case "${SHELL:-}" in
+        */fish)
+            configure_fish_shell "${bin_dir}"
+            return
+            ;;
+    esac
+
     # Detect shell profile
     local shell_profile=""
     case "${SHELL:-}" in
@@ -283,6 +293,76 @@ EOF
     echo "  ✓ Claude launch shortcuts configured in ${shell_profile}"
 }
 
+# fish equivalent of configure_proxy_path + configure_claude_shortcuts.
+# Functions go in functions/ (autoloaded lazily, by filename); the PATH entry
+# goes in conf.d/ (sourced on every shell start).
+configure_fish_shell() {
+    local bin_dir="$1"
+    local fish_dir="${XDG_CONFIG_HOME:-${HOME}/.config}/fish"
+    local functions_dir="${fish_dir}/functions"
+    local confd_dir="${fish_dir}/conf.d"
+    local path_file="${confd_dir}/00-claude-code-config-path.fish"
+
+    mkdir -p "${functions_dir}" "${confd_dir}"
+
+    cat >"${path_file}" <<EOF
+# claude-code-config: proxy launcher PATH
+# Managed by setup.sh — regenerated on each run. fish_add_path is idempotent
+# and silently skips directories that do not exist.
+fish_add_path -ga ${bin_dir}
+EOF
+
+    cat >"${functions_dir}/claude.fish" <<'EOF'
+function claude --description 'Claude Code with proxy launcher defaults'
+    # Managed by claude-code-config setup.sh.
+    # Defaults to --allow-dangerously-skip-permissions; opt in to
+    # --dangerously-skip-permissions via -a / --unsafe / --bypass / -adskp.
+
+    set -l first ""
+    test (count $argv) -gt 0; and set first $argv[1]
+
+    switch $first
+        case -a --unsafe --bypass -adskp
+            set -l rest
+            test (count $argv) -gt 1; and set rest $argv[2..-1]
+            command claude --dangerously-skip-permissions $rest
+        case '*'
+            command claude --allow-dangerously-skip-permissions $argv
+    end
+end
+EOF
+
+    cat >"${functions_dir}/clp.fish" <<'EOF'
+function clp --description 'Claude proxy with model'
+    # Managed by claude-code-config setup.sh.
+
+    set -l model 'gpt-5.5(high)'
+    test -n "$CLAUDE_PROXY_MODEL"; and set model $CLAUDE_PROXY_MODEL
+
+    set -l first ""
+    test (count $argv) -gt 0; and set first $argv[1]
+
+    switch $first
+        case -a --unsafe --bypass -adskp
+            set -l rest
+            test (count $argv) -gt 1; and set rest $argv[2..-1]
+            claude-proxy --no-validate -m $model -- --dangerously-skip-permissions $rest
+        case '*'
+            claude-proxy --no-validate -m $model -- --allow-dangerously-skip-permissions $argv
+    end
+end
+EOF
+
+    echo "  ✓ Proxy launcher PATH added to ${path_file}"
+    echo "  ✓ Claude launch shortcuts configured in ${functions_dir}"
+    echo ""
+    echo "  Open a new terminal (or 'exec fish'), then:"
+    echo "    claude --help"
+    echo "    claude -a"
+    echo "    clp -a"
+    echo "    claude-proxy -p antigravity --models"
+}
+
 configure_statusline() {
     if python3 - "${SETTINGS_JSON}" <<'PYTHON_CHECK' 2>/dev/null; then
 import json
@@ -352,12 +432,15 @@ try:
     hooks = data.get('hooks', {})
     start = hooks.get('SessionStart', [])
     end = hooks.get('SessionEnd', [])
+    # A hook without an explicit timeout is unbounded: Claude Code waits on it
+    # for as long as it runs. Treat a timeout-less entry as needing an upgrade
+    # so re-running setup repairs configs written by older versions.
     pull_present = any(
-        h.get('command') == '~/.claude/hooks/cc-sync-pull.sh'
+        h.get('command') == '~/.claude/hooks/cc-sync-pull.sh' and 'timeout' in h
         for entry in start for h in entry.get('hooks', [])
     )
     push_present = any(
-        h.get('command') == '~/.claude/hooks/cc-sync-push.sh'
+        h.get('command') == '~/.claude/hooks/cc-sync-push.sh' and 'timeout' in h
         for entry in end for h in entry.get('hooks', [])
     )
     sys.exit(0 if pull_present and push_present else 1)
@@ -379,36 +462,39 @@ try:
 
     data.setdefault('hooks', {})
 
-    pull_entry = {
-        "hooks": [
-            {
-                "type": "command",
-                "command": "~/.claude/hooks/cc-sync-pull.sh"
-            }
-        ]
-    }
-    push_entry = {
-        "hooks": [
-            {
-                "type": "command",
-                "command": "~/.claude/hooks/cc-sync-push.sh"
-            }
-        ]
-    }
+    # Both hooks detach their transfer, so they return in milliseconds. The
+    # timeout is a backstop against a hook that somehow blocks anyway — without
+    # it Claude Code waits indefinitely and session startup stalls.
+    HOOK_TIMEOUT_SEC = 10
 
-    start = data['hooks'].setdefault('SessionStart', [])
-    if not any(
-        h.get('command') == '~/.claude/hooks/cc-sync-pull.sh'
-        for entry in start for h in entry.get('hooks', [])
-    ):
-        start.append(pull_entry)
+    def entry(command):
+        return {
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": command,
+                    "timeout": HOOK_TIMEOUT_SEC
+                }
+            ]
+        }
 
-    end = data['hooks'].setdefault('SessionEnd', [])
-    if not any(
-        h.get('command') == '~/.claude/hooks/cc-sync-push.sh'
-        for entry in end for h in entry.get('hooks', [])
-    ):
-        end.append(push_entry)
+    def upgrade(entries, command):
+        """Add a timeout to a pre-existing entry, or append a new one."""
+        for group in entries:
+            for hook in group.get('hooks', []):
+                if hook.get('command') == command:
+                    hook.setdefault('timeout', HOOK_TIMEOUT_SEC)
+                    return
+        entries.append(entry(command))
+
+    upgrade(
+        data['hooks'].setdefault('SessionStart', []),
+        '~/.claude/hooks/cc-sync-pull.sh',
+    )
+    upgrade(
+        data['hooks'].setdefault('SessionEnd', []),
+        '~/.claude/hooks/cc-sync-push.sh',
+    )
 
     with open(settings_file, 'w') as f:
         json.dump(data, f, indent=2)
