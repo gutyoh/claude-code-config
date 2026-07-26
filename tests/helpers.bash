@@ -115,3 +115,15 @@ repo_hook_path() {
         *) printf '%s\n' "${expanded}" ;;
     esac
 }
+
+# detect_test_platform -- mirror of statusline.sh's detect_platform().
+# Tests that source statusline modules must set PLATFORM to the real platform;
+# pinning it to one value forces the wrong stat/date branch on every other OS.
+detect_test_platform() {
+    case "$(uname -s)" in
+        Darwin) echo "macos" ;;
+        Linux) echo "linux" ;;
+        MSYS* | MINGW* | CYGWIN* | *_NT*) echo "windows" ;;
+        *) echo "unknown" ;;
+    esac
+}

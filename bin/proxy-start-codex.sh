@@ -36,7 +36,9 @@ need_cmd jq
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${_SCRIPT_DIR}/lib/proxy/preflight.sh"
 
-CLI_PROXY_DIR="${CLI_PROXY_DIR:-$HOME/Documents/dev/CLIProxyAPI}"
+# claude-proxy exports CLI_PROXY_DIR after probing common clone locations;
+# this fallback only matters when the script is run directly.
+CLI_PROXY_DIR="${CLI_PROXY_DIR:-${XDG_DATA_HOME:-${HOME}/.local/share}/CLIProxyAPI}"
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8317}"
 API_KEY="${API_KEY:-sk-dummy}"

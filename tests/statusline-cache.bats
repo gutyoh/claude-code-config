@@ -36,7 +36,7 @@ setup() {
     LOCK_MAX_AGE_S=30
     BACKOFF_INITIAL_S=30
     BACKOFF_MAX_S=300
-    PLATFORM="macos"
+    PLATFORM="$(detect_test_platform)"
 
     # Stubs for functions defined in statusline.sh (not sourced to avoid readonly)
     debug() { :; }

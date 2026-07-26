@@ -1,6 +1,6 @@
 # 35-zellij-autostart.fish — auto-attach to a persistent zellij session
-# on SSH login so commuting between Mac and rpi4 (or phone via Termius)
-# always lands in the same persistent workspace.
+# on SSH login, so moving between machines (laptop, home server, or a phone
+# SSH client) always lands in the same persistent workspace.
 #
 # Conditions (all must be true to auto-attach):
 #   1. status is-interactive   — only in interactive shells, never scripts

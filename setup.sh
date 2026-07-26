@@ -41,8 +41,13 @@ set -euo pipefail
 # runtime error — so without this guard setup.sh parses fine and then dies at
 # the first prompt. Re-exec into a newer bash when one exists; the exported
 # guard variable survives exec and stops an infinite loop.
-if [[ -z "${BASH_VERSINFO:-}" ]] \
-    || ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3))); then
+#
+# Only enforced when run as a script. Tests source this file to exercise
+# parse_arguments, which needs no namerefs — exiting there would take the whole
+# test run down, and `exec` from a sourced context would replace the caller.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]] \
+    && { [[ -z "${BASH_VERSINFO:-}" ]] \
+        || ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3))); }; then
     if [[ -z "${CLAUDE_CONFIG_BASH_REEXEC:-}" ]]; then
         export CLAUDE_CONFIG_BASH_REEXEC=1
         for _candidate in \

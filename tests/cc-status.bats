@@ -16,7 +16,11 @@ setup() {
     source "$BATS_TEST_DIRNAME/helpers.bash"
     # _TMP_DIR must be set BEFORE sourcing status.sh (readonly STATUS_CACHE_FILE uses it)
     _TMP_DIR="$BATS_TEST_TMPDIR"
-    PLATFORM="macos"
+    # Must match the real platform. Hardcoding "macos" forces the BSD `stat -f`
+    # branch everywhere, and on GNU coreutils `-f` means --file-system: it
+    # succeeds and prints filesystem info instead of an mtime, so every caller
+    # silently parses garbage. Correct by accident on macOS, broken on Linux.
+    PLATFORM="$(detect_test_platform)"
 
     # Data globals
     DATA_CC_STATUS=""

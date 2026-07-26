@@ -63,6 +63,25 @@ shipped_scripts() {
     }
 }
 
+# bats test_tags=unit,portability
+@test "no shipped script defaults to a personal directory layout" {
+    # ~/Documents/dev, ~/src, ~/repos are personal conventions, not standards.
+    # Naming one inside a probe list that offers alternatives is fine — that is
+    # how you find an existing clone. Defaulting to one is not.
+    local hits
+    hits="$(cd "$REPO_ROOT" && shipped_scripts | while read -r f; do
+        [[ -n "$f" ]] || continue
+        grep -qE '\$\{?HOME\}?/(Documents|Desktop|Downloads)/' "$f" 2>/dev/null || continue
+        # A probe list mentions XDG or several candidates.
+        grep -qE 'XDG_DATA_HOME|XDG_CONFIG_HOME|candidate' "$f" 2>/dev/null ||
+            echo "$f: personal directory layout with no alternatives"
+    done)"
+    [ -z "$hits" ] || {
+        echo "$hits"
+        false
+    }
+}
+
 # --- Ghostty presets --------------------------------------------------------
 
 # bats test_tags=unit,portability
@@ -201,6 +220,39 @@ shipped_scripts() {
     resolved="$(repo_hook_path '~/.claude/hooks/enforce-git-pull-rebase.sh' "$REPO_ROOT")"
     [ -f "$resolved" ]
     [ -x "$resolved" ]
+}
+
+# bats test_tags=unit,portability
+@test "no test pins PLATFORM to a literal platform name" {
+    # Sourcing a statusline module means inheriting its stat/date branching.
+    # Pinning PLATFORM to one value forces the wrong branch on every other OS —
+    # it passes on the platform it names and silently parses garbage elsewhere.
+    local hits
+    hits="$(cd "$REPO_ROOT" && grep -Hn -E 'PLATFORM=("|\x27)(macos|linux|windows)' tests/*.bats 2>/dev/null || true)"
+    [ -z "$hits" ] || {
+        echo "PLATFORM pinned to a literal (use detect_test_platform):"
+        echo "$hits"
+        false
+    }
+}
+
+# --- CI supply chain ---------------------------------------------------------
+
+# bats test_tags=unit,portability
+@test "every GitHub Action is pinned to a full commit SHA" {
+    # A tag is mutable. When tj-actions/changed-files was compromised in 2025 the
+    # attacker moved 350+ tags to a malicious commit and every repo pinned by tag
+    # picked it up. A 40-hex SHA cannot be moved.
+    [ -d "$REPO_ROOT/.github/workflows" ] || skip "no workflows"
+    local hits
+    hits="$(grep -rhn -E '^\s*(-\s*)?uses:' "$REPO_ROOT/.github/workflows/" 2>/dev/null |
+        grep -v -E 'uses:\s*\./' |
+        grep -v -E 'uses:\s*[^@]+@[0-9a-f]{40}' || true)"
+    [ -z "$hits" ] || {
+        echo "Action not pinned to a full commit SHA:"
+        echo "$hits"
+        false
+    }
 }
 
 # --- Shebangs ---------------------------------------------------------------
