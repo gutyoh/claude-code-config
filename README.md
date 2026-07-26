@@ -35,6 +35,7 @@ A portable, Git-versioned configuration repository for Claude Code that works se
 - [How It Works](#how-it-works)
 - [Adding New MCP Servers](#adding-new-mcp-servers)
 - [Branching Strategy](#branching-strategy-trunk-based--github-flow)
+- [Testing and Portability](#testing-and-portability)
 - [Official Documentation](#official-documentation)
 
 </details>
@@ -649,9 +650,23 @@ Syncs your `~/.claude/` (sessions, projects, settings) across machines via encry
 
 **How it works:**
 
-1. **SessionStart** → `cc-sync-pull.sh` runs `claude-sync pull -q --force`, then optionally `~/.claude/cc-sync-remap.sh` for per-machine path rewrites (e.g., `/Users/<user>` → `/home/<user>` when crossing macOS↔Linux)
-2. **SessionEnd** → `cc-sync-push.sh` runs `claude-sync push` to upload changes for the next machine
-3. **Fail-safe** — both hooks `set +e` and always `exit 0`; SessionStart can't block startup and SessionEnd can't block termination. Errors land in `~/.claude/cc-sync-pull.log` / `cc-sync-push.log`
+1. **SessionStart** → `cc-sync-pull.sh` detaches `claude-sync pull -q --force`, then optionally `~/.claude/cc-sync-remap.sh` for per-machine path rewrites (e.g., `/Users/<user>` → `/home/<user>` when crossing macOS↔Linux)
+2. **SessionEnd** → `cc-sync-push.sh` detaches `claude-sync push` to upload changes for the next machine
+3. **Fail-safe** — both hooks `set +e` and always `exit 0`. Errors land in `~/.claude/cc-sync-pull.log` / `cc-sync-push.log`
+
+**Both transfers are detached, and that is load-bearing:**
+
+- **SessionStart runs synchronously.** Whatever the pull spends is added to the time before you get a prompt, and a pull is a network round trip over the whole tracked file set. Detaching returns the hook in milliseconds; the transfer lands in time for the next session. Both hook entries also carry `"timeout": 10` as a backstop — a hook without one is unbounded.
+- **SessionEnd cannot wait.** An inline push is killed the moment Claude Code exits, so the upload dies mid-flight and the remote never advances. A remote frozen behind local state is what makes the next pull diverge and write `.conflict.<timestamp>` copies — which then become newly tracked files and compound every session. The detached child outlives the parent and finishes the upload.
+
+To confirm pushes are landing, compare the `push start` and `push exit=` lines in `~/.claude/cc-sync-push.log`; every start should have a matching exit.
+
+**Env overrides:**
+
+| Variable | Default | Effect |
+|---|---|---|
+| `CC_SYNC_BLOCKING` | `0` | `1` waits for the transfer instead of detaching |
+| `CC_SYNC_TIMEOUT_SEC` | `10` | Wall-clock bound in blocking mode (needs GNU `timeout`) |
 
 **No-op when `claude-sync` isn't installed.** Safe to ship enabled by default. To opt in, install `claude-sync` via its repo instructions on each machine.
 
@@ -673,12 +688,12 @@ See [`docs/how-to-configure-fish.md`](./docs/how-to-configure-fish.md) for the f
 
 ### Ghostty Terminal ([docs/ghostty/](./docs/ghostty/))
 
-Five presets covering the spectrum:
+Six presets covering the spectrum:
 
 | Preset | Philosophy |
 |---|---|
 | `config-minimal.ini` | Clean macOS-native feel, fewest overrides |
-| `config-recommended.ini` | SOTA daily-driver — productivity-focused, no visual noise |
+| `config-recommended.ini` | Daily driver — productivity-focused, no visual noise |
 | `config-power-user.ini` | tmux + Neovim workflow, max screen real estate |
 | `config-aesthetic.ini` | Transparent + blurred, riced |
 | `config-maximalist.ini` | Every popular option enabled (good starting point to trim from) |
@@ -1134,6 +1149,57 @@ git push -u origin hotfix/critical-bug
 
 > **Note**: For GitFlow templates (legacy), see `branch_protection_rules/gitflow/`
  
+## Testing and Portability
+
+This repo installs onto other people's machines, so nothing shipped may depend on one developer's paths, shell, package manager, or OS version. Two things enforce that: a cross-platform CI matrix, and a set of static portability guards in the test suite.
+
+### Test lanes
+
+| Command | What it runs | Typical time |
+|---|---|---|
+| `make unit` | Fast, hermetic — stubbed boundaries, no network | ~20s |
+| `make integration` | Drives real scripts end to end, still offline | ~35s |
+| `make smoke` | Runs `setup.sh` itself against a throwaway `HOME` | ~5s |
+| `make test` | Everything (the merge gate) | ~45s |
+| `make check` | `lint` + `format-check` + `test` | ~50s |
+
+Lanes are bats tag filters (`--filter-tags`), so a test belongs to a lane by its `# bats test_tags=` or file-level `# bats file_tags=` directive.
+
+Tests run in parallel via `bats --jobs` when GNU parallel is installed (`make install-tools` gets it). Without it the suite still runs, just serially — the Makefile probes and degrades rather than failing.
+
+### Hermetic by default
+
+`tests/helpers.bash` provides the harness:
+
+- `isolate_home` — points `HOME` and the `XDG_*` variables at the per-test tmpdir. Without it a test reads the developer's real `~/.claude`, so results depend on personal state and anything that scans it pays for gigabytes of real session history.
+- `stub_bin <name> [body]` — puts a fake executable ahead of the real one on `PATH`.
+- `stub_slow_bin <name> <seconds>` — a stub that hangs, for exercising timeout paths.
+- `require_cmd <cmd>` — skip when a prerequisite is missing.
+
+Call `isolate_home` first in `setup()`. A test that shells out to a real binary should stub it unless the point of the test is that binary.
+
+### Portability guards
+
+`tests/portability.bats` fails the build on machine-specific assumptions:
+
+- hardcoded `/Users/...` or `/home/...` paths
+- a brew prefix named without its alternatives (`/opt/homebrew` is Apple-Silicon-only)
+- `$HOME/.config` written without an `XDG_CONFIG_HOME` fallback
+- `[^\n]` inside a `sed` expression — BSD sed reads it as "not backslash and not the letter n", GNU sed as "not newline", so it silently behaves differently per platform
+- GNU-only flags (`stat -c`, `date -d`) with neither a platform branch nor a BSD fallback
+- shebangs that hardcode an interpreter path instead of using `env`
+- an active absolute `command =` in a shipped Ghostty preset
+
+### bash version
+
+`setup.sh` needs bash >= 4.3 for the namerefs (`local -n`) the interactive TUI uses. macOS ships bash 3.2.57 as `/bin/bash` and cannot ship newer for licensing reasons, so `#!/usr/bin/env bash` lands on 3.2 whenever no newer bash is ahead of it on `PATH`. `bash -n` does not catch this — nameref rejection is a runtime error, so the script parses cleanly and then dies at the first prompt.
+
+A guard at the top of `setup.sh` re-execs into a newer bash when one exists, and otherwise exits with an actionable message. Both paths are covered by tests.
+
+### CI
+
+`.github/workflows/ci.yml` runs lint and format on Ubuntu, then all three lanes on **both** `ubuntu-latest` and `macos-latest`. `fail-fast: false` so a macOS-only failure is never masked by cancelling on the Linux result — the cross-platform signal is the whole point of the matrix.
+
 ## Official Documentation
  
 This configuration follows the official Claude Code documentation:

@@ -15,6 +15,8 @@ setup() {
 
 # --- Default values ---
 
+# bats file_tags=unit
+
 @test "parse_arguments: defaults are set before parsing" {
     [ "$ACCEPT_DEFAULTS" = "false" ]
     [ "${#INSTALL_MCP_SERVERS[@]}" -eq 2 ]

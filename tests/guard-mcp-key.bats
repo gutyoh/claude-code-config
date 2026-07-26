@@ -32,6 +32,8 @@ setup() {
 # UNIT TESTS: Script basics
 # ==========================================================================
 
+# bats file_tags=unit
+
 @test "hook script exists and is executable" {
     [ -x "$HOOK" ]
 }

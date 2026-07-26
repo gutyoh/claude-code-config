@@ -15,6 +15,8 @@ setup() {
 
 # --- format_num ---
 
+# bats file_tags=unit
+
 @test "format_num: values below 1000 return plain integer" {
     result=$(format_num 42)
     [ "$result" = "42" ]

@@ -167,8 +167,10 @@ collect_data() {
     # Current working directory from stdin JSON
     DATA_CWD=$(echo "${input}" | jq -r '.cwd // empty')
 
-    # Account email
-    DATA_EMAIL=$(jq -r '.oauthAccount.emailAddress // empty' ~/.claude.json 2>/dev/null)
+    # Account email. `|| true` because jq exits non-zero when ~/.claude.json is
+    # missing — which is the normal state on a fresh install — and a bare
+    # assignment would abort any caller running under `set -e`.
+    DATA_EMAIL=$(jq -r '.oauthAccount.emailAddress // empty' ~/.claude.json 2>/dev/null || true)
     DATA_EMAIL="${DATA_EMAIL:-N/A}"
     debug_var "DATA_EMAIL" "${DATA_EMAIL}"
 

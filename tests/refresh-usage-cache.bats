@@ -34,6 +34,8 @@ set_file_mtime() {
 
 # --- Basic functionality ---
 
+# bats file_tags=integration
+
 @test "hook script exists and is executable" {
     [ -x "$HOOK" ]
 }

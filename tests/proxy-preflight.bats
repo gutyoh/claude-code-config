@@ -68,6 +68,8 @@ create_fake_binary() {
 
 # --- _binary_vcs_revision ---
 
+# bats file_tags=integration
+
 @test "_binary_vcs_revision: extracts revision from go version output" {
     create_fake_binary "$STUB_DIR/fake-bin"
     create_stub go 'echo "	build	vcs.revision=abc123def456abc123def456abc123def456abcd"'
@@ -544,14 +546,30 @@ STUB
 }
 
 @test "list_models: falls back to offline registry when proxy down" {
-    # Proxy is down (curl exits 22). The fallback reads CLIProxyAPI's own
-    # models.json from the user's $CLI_PROXY_DIR clone — always current.
-    _run_proxy_cmd \
+    # Proxy is down (curl exits 22), so list_models reads CLIProxyAPI's
+    # models.json from $CLI_PROXY_DIR.
+    #
+    # That defaults to a sibling clone (~/Documents/dev/CLIProxyAPI) which only
+    # exists on a machine that happens to have checked it out — so this test
+    # used to pass or fail based on the developer's directory layout, and always
+    # failed in CI. Point CLI_PROXY_DIR at a fixture instead: same code path,
+    # no dependency on anything outside the test.
+    local registry="${BATS_TEST_TMPDIR}/cliproxy/internal/registry/models"
+    mkdir -p "$registry"
+    cat >"${registry}/models.json" <<'JSON'
+{
+  "antigravity": [
+    {"id": "claude-opus-4-6-thinking"},
+    {"id": "gemini-3-pro"}
+  ]
+}
+JSON
+
+    CLI_PROXY_DIR="${BATS_TEST_TMPDIR}/cliproxy" _run_proxy_cmd \
         'exit 22' \
         -p antigravity --models
     [ "$status" -eq 0 ]
     [[ "$output" == *"offline"* ]]
-    # Registry should contain at least one well-known antigravity model id
     [[ "$output" == *"claude-opus-4-6-thinking"* ]]
 }
 

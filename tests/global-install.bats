@@ -54,6 +54,8 @@ STUB
 # Symlink resolution — single and multi-level
 # ============================================================================
 
+# bats file_tags=integration
+
 @test "symlink resolution: single-level symlink resolves to repo" {
     local sym="${BATS_TEST_TMPDIR}/claude-proxy"
     ln -sf "$PROXY_BIN" "$sym"

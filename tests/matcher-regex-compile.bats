@@ -63,6 +63,8 @@ hooks_for_event() {
 # Schema + compilation
 # ============================================================================
 
+# bats file_tags=unit
+
 @test "settings.json parses as valid JSON" {
     jq empty "$SETTINGS"
 }

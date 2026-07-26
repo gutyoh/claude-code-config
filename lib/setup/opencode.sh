@@ -2,7 +2,9 @@
 # Path: lib/setup/opencode.sh
 # Sourced by setup.sh — do not execute directly.
 
-OPENCODE_CONFIG_DIR_DEFAULT="${HOME}/.config/opencode"
+# XDG Base Directory spec: honour XDG_CONFIG_HOME, falling back to ~/.config
+# only when it is unset or empty. https://specifications.freedesktop.org/basedir/latest/
+OPENCODE_CONFIG_DIR_DEFAULT="${XDG_CONFIG_HOME:-${HOME}/.config}/opencode"
 OPENCODE_CONFIG_DIR="${OPENCODE_CONFIG_DIR_OVERRIDE:-${OPENCODE_CONFIG_DIR_DEFAULT}}"
 OPENCODE_AGENTS_DIR="${OPENCODE_CONFIG_DIR}/agents"
 OPENCODE_SKILLS_DIR="${OPENCODE_CONFIG_DIR}/skills"
@@ -253,6 +255,81 @@ _opencode_build_mcp_entry() {
     fi
 }
 
+# Strip // and /* */ comments from JSONC on stdout, leaving string contents
+# alone. A regex cannot do this correctly: `"https://opencode.ai/config.json"`
+# contains `//` inside a string, and a line-based strip truncates the value.
+# Character-scanning with a string/escape state machine is the only safe way.
+_opencode_strip_jsonc() {
+    local py_cmd
+    if command -v python3 &>/dev/null; then
+        py_cmd="python3"
+    else
+        py_cmd="python"
+    fi
+
+    "${py_cmd}" - "$1" <<'PYTHON_STRIP'
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as fh:
+    src = fh.read()
+
+out = []
+i, n = 0, len(src)
+in_string = False
+escaped = False
+
+while i < n:
+    ch = src[i]
+
+    if in_string:
+        out.append(ch)
+        if escaped:
+            escaped = False
+        elif ch == "\\":
+            escaped = True
+        elif ch == '"':
+            in_string = False
+        i += 1
+        continue
+
+    if ch == '"':
+        in_string = True
+        out.append(ch)
+        i += 1
+        continue
+
+    if ch == "/" and i + 1 < n:
+        nxt = src[i + 1]
+        if nxt == "/":
+            while i < n and src[i] != "\n":
+                i += 1
+            continue
+        if nxt == "*":
+            i += 2
+            while i + 1 < n and not (src[i] == "*" and src[i + 1] == "/"):
+                i += 1
+            i += 2
+            continue
+
+    out.append(ch)
+    i += 1
+
+stripped = "".join(out)
+
+# Trailing commas are legal in JSONC but not JSON. Drop a comma only when the
+# next non-whitespace character closes the container.
+result = []
+for idx, ch in enumerate(stripped):
+    if ch == ",":
+        rest = stripped[idx + 1:].lstrip()
+        if rest[:1] in ("}", "]"):
+            continue
+    result.append(ch)
+
+sys.stdout.write("".join(result))
+PYTHON_STRIP
+}
+
 # Merge MCP section into opencode.{json,jsonc}, preserving user keys.
 _opencode_generate_json() {
     if [[ ${#INSTALL_MCP_SERVERS[@]} -eq 0 ]]; then
@@ -286,7 +363,7 @@ _opencode_generate_json() {
         if existing="$(jq -c '.' "${OPENCODE_JSON}" 2>/dev/null)"; then
             :
         else
-            existing="$(sed -E 's://[^\n]*$::g; s/,(\s*[}\]])/\1/g' "${OPENCODE_JSON}" | jq -c '.' 2>/dev/null || echo '{}')"
+            existing="$(_opencode_strip_jsonc "${OPENCODE_JSON}" | jq -c '.' 2>/dev/null || echo '{}')"
             if [[ "${existing}" == "{}" ]]; then
                 local backup_ts
                 backup_ts="$(date +%s)"

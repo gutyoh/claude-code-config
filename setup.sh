@@ -33,6 +33,34 @@
 
 set -euo pipefail
 
+# --- Bash version guard ---
+# The interactive TUI uses namerefs (`local -n`), which need bash >= 4.3.
+# macOS ships bash 3.2.57 as /bin/bash and cannot ship newer for licensing
+# reasons, so `#!/usr/bin/env bash` lands on 3.2 whenever no newer bash is
+# ahead of it on PATH. `bash -n` does NOT catch this — nameref rejection is a
+# runtime error — so without this guard setup.sh parses fine and then dies at
+# the first prompt. Re-exec into a newer bash when one exists; the exported
+# guard variable survives exec and stops an infinite loop.
+if [[ -z "${BASH_VERSINFO:-}" ]] \
+    || ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3))); then
+    if [[ -z "${CLAUDE_CONFIG_BASH_REEXEC:-}" ]]; then
+        export CLAUDE_CONFIG_BASH_REEXEC=1
+        for _candidate in \
+            /opt/homebrew/bin/bash \
+            /usr/local/bin/bash \
+            /home/linuxbrew/.linuxbrew/bin/bash \
+            /usr/bin/bash; do
+            if [[ -x "${_candidate}" ]]; then
+                exec "${_candidate}" "$0" "$@"
+            fi
+        done
+    fi
+    echo "Error: setup.sh needs bash >= 4.3 (found ${BASH_VERSION:-unknown})." >&2
+    echo "  macOS ships bash 3.2. Install a newer one and re-run:" >&2
+    echo "    brew install bash" >&2
+    exit 1
+fi
+
 # --- Constants ---
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"

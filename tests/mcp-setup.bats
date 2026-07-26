@@ -37,6 +37,8 @@ teardown() {
 # UNIT TESTS: _build_mcp_json — JSON generation
 # ==========================================================================
 
+# bats file_tags=integration
+
 @test "_build_mcp_json: doppler backend produces correct JSON for brave-search" {
     local result
     result="$(_build_mcp_json "brave-search" "doppler")"
