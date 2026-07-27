@@ -49,11 +49,7 @@ teardown() {
     end=$(now_ms)
     local elapsed=$((end - start))
     # Windows Git Bash process spawning is slower than Unix
-    local threshold=500
-    local _uname; _uname="$(uname -s)"
-    if [[ "$_uname" == MINGW* || "$_uname" == MSYS* || "$_uname" == CYGWIN* || "$_uname" == *_NT* ]]; then
-        threshold=5000
-    fi
+    local threshold="$(perf_threshold_ms 500)"
     [ "$elapsed" -lt "$threshold" ]
 }
 
@@ -86,11 +82,7 @@ teardown() {
     end=$(now_ms)
     local elapsed=$((end - start))
     # Windows Git Bash process spawning is slower than Unix
-    local threshold=400
-    local _uname; _uname="$(uname -s)"
-    if [[ "$_uname" == MINGW* || "$_uname" == MSYS* || "$_uname" == CYGWIN* || "$_uname" == *_NT* ]]; then
-        threshold=5000
-    fi
+    local threshold="$(perf_threshold_ms 400)"
     [ "$elapsed" -lt "$threshold" ]
 }
 
@@ -129,11 +121,7 @@ teardown() {
     end=$(now_ms)
     local elapsed=$((end - start))
     # Windows Git Bash process spawning is slower than Unix
-    local threshold=10000
-    local _uname; _uname="$(uname -s)"
-    if [[ "$_uname" == MINGW* || "$_uname" == MSYS* || "$_uname" == CYGWIN* || "$_uname" == *_NT* ]]; then
-        threshold=30000
-    fi
+    local threshold="$(perf_threshold_ms 10000)"
     [ "$elapsed" -lt "$threshold" ]
 }
 

@@ -59,12 +59,7 @@ set_file_mtime() {
     end=$(now_ms)
     elapsed=$((end - start))
     # Windows Git Bash spawns processes slower (~2-5s); Unix is <200ms
-    local threshold=200
-    local _uname
-    _uname="$(uname -s)"
-    if [[ "$_uname" == MINGW* || "$_uname" == MSYS* || "$_uname" == CYGWIN* || "$_uname" == *_NT* ]]; then
-        threshold=5000
-    fi
+    local threshold="$(perf_threshold_ms 200)"
     [[ "$elapsed" -lt "$threshold" ]]
 }
 
@@ -89,12 +84,7 @@ set_file_mtime() {
     end=$(now_ms)
     elapsed=$((end - start))
     # Should be very fast (no curl); Windows Git Bash is slower to spawn
-    local threshold=200
-    local _uname
-    _uname="$(uname -s)"
-    if [[ "$_uname" == MINGW* || "$_uname" == MSYS* || "$_uname" == CYGWIN* || "$_uname" == *_NT* ]]; then
-        threshold=5000
-    fi
+    local threshold="$(perf_threshold_ms 200)"
     [[ "$elapsed" -lt "$threshold" ]]
 }
 

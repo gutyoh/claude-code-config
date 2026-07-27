@@ -169,3 +169,32 @@ wait_for_file() {
     done
     return 1
 }
+
+# perf_threshold_ms <base_ms> -- wall-clock budget for "this exits fast" checks.
+#
+# These assertions guard against a real regression: the hook doing network work
+# when it should have short-circuited. That failure costs seconds, so a budget
+# of a few hundred ms has plenty of margin on an idle machine.
+#
+# It has none on a shared CI runner executing eight bats jobs at once, where
+# process spawn alone can eat the whole budget and the test fails for reasons
+# that have nothing to do with the code. Keep the tight bound where it is useful
+# — a developer machine — and widen it where wall-clock is not a controlled
+# variable. Widening beats deleting: a 6x budget still catches a stray curl.
+perf_threshold_ms() {
+    local base="${1:-500}"
+
+    case "$(uname -s)" in
+        MINGW* | MSYS* | CYGWIN* | *_NT*)
+            # Git Bash spawns processes far more slowly than Unix.
+            [[ "${base}" -lt 5000 ]] && base=5000
+            ;;
+    esac
+
+    # GitHub Actions and most CI providers set CI=true.
+    if [[ -n "${CI:-}" ]]; then
+        base=$((base * 6))
+    fi
+
+    printf '%s\n' "${base}"
+}
