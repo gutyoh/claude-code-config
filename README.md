@@ -1205,9 +1205,19 @@ Call `isolate_home` first in `setup()`. A test that shells out to a real binary 
 
 ### bash version
 
-`setup.sh` needs bash >= 4.3 for the namerefs (`local -n`) the interactive TUI uses. macOS ships bash 3.2.57 as `/bin/bash` and cannot ship newer for licensing reasons, so `#!/usr/bin/env bash` lands on 3.2 whenever no newer bash is ahead of it on `PATH`. `bash -n` does not catch this — nameref rejection is a runtime error, so the script parses cleanly and then dies at the first prompt.
+macOS ships bash 3.2.57 as `/bin/bash` and cannot ship newer for licensing reasons, so `#!/usr/bin/env bash` lands on 3.2 whenever no newer bash is ahead of it on `PATH` — the default state on a clean Mac, and what GitHub's macOS runners provide.
 
-A guard at the top of `setup.sh` re-execs into a newer bash when one exists, and otherwise exits with an actionable message. Both paths are covered by tests.
+Everything here therefore targets **bash 3.2**. That rules out namerefs (`local -n`, 4.3), associative arrays (`declare -A`, 4.0), `mapfile`/`readarray`, and `${var,,}` case conversion. Assign by name with `printf -v` (3.1+) or `eval` instead:
+
+```bash
+# 4.3+ only — fails at runtime on macOS, and `bash -n` will not catch it
+local -n out="$1"; out="value"
+
+# works everywhere
+local out_name="$1"; printf -v "$out_name" '%s' "value"
+```
+
+Two guards enforce this, and `make verify-clean-machine` exercises `setup.sh` under the system bash directly.
 
 ### CI
 

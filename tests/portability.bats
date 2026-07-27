@@ -292,52 +292,80 @@ shipped_scripts() {
 
 # --- bash version guard -----------------------------------------------------
 
+# --- bash 3.2 support --------------------------------------------------------
+
 # bats test_tags=unit,portability
-@test "setup.sh guards against bash older than 4.3" {
-    grep -q 'BASH_VERSINFO' "$REPO_ROOT/setup.sh"
+@test "no script uses bash 4+ namerefs" {
+    # macOS ships bash 3.2.57 as /bin/bash and cannot ship newer for licensing
+    # reasons, so `#!/usr/bin/env bash` lands on 3.2 whenever no newer bash is
+    # ahead of it on PATH — the default state on a clean Mac. `local -n` is a
+    # 4.3 feature and fails there at RUNTIME, which `bash -n` does not catch.
+    # Assign by name with `printf -v` (bash 3.1+) or eval instead.
+    local hits
+    hits="$(cd "$REPO_ROOT" && shipped_scripts | while read -r f; do
+        [[ -n "$f" ]] || continue
+        grep -Hn -E '(local|declare) -n ' "$f" 2>/dev/null |
+            grep -v -E '^[^:]+:[0-9]+:[[:space:]]*(#|@test )' |
+            grep -v -E 'grep -' || true
+    done)"
+    [ -z "$hits" ] || {
+        echo "bash 4.3+ nameref found (breaks on stock macOS bash 3.2):"
+        echo "$hits"
+        false
+    }
+}
+
+# bats test_tags=unit,portability
+@test "no script uses other bash 4+ only features" {
+    local hits
+    hits="$(cd "$REPO_ROOT" && shipped_scripts | while read -r f; do
+        [[ -n "$f" ]] || continue
+        grep -Hn -E '(declare|local) -A |mapfile |readarray ' "$f" 2>/dev/null |
+            grep -v -E '^[^:]+:[0-9]+:[[:space:]]*(#|@test )' |
+            grep -v -E 'grep -' || true
+    done)"
+    [ -z "$hits" ] || {
+        echo "bash 4+ feature found (breaks on stock macOS bash 3.2):"
+        echo "$hits"
+        false
+    }
 }
 
 # bats test_tags=integration,portability
-@test "setup.sh --help succeeds under stock macOS bash 3.2" {
+@test "setup.sh --help runs under stock macOS bash 3.2" {
     [ -x /bin/bash ] || skip "no /bin/bash on this platform"
-    local ver
-    ver="$(/bin/bash -c 'echo ${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}')"
-    [[ "$ver" == "3.2" ]] || skip "/bin/bash is $ver, not the 3.2 we want to guard against"
-
-    # The guard re-execs into a newer bash when one exists and otherwise exits
-    # with an actionable message. Both are correct; which one happens depends on
-    # whether this machine has bash >= 4.3 installed, so accept either and
-    # assert the behaviour rather than the environment.
-    local newer=""
-    local c
-    for c in /opt/homebrew/bin/bash /usr/local/bin/bash /home/linuxbrew/.linuxbrew/bin/bash /usr/bin/bash; do
-        if [ -x "$c" ] && [ "$("$c" -c 'echo ${BASH_VERSINFO[0]}')" -ge 4 ]; then
-            newer="$c"
-            break
-        fi
-    done
-
     run /bin/bash "$REPO_ROOT/setup.sh" --help
-    if [ -n "$newer" ]; then
-        [ "$status" -eq 0 ]
-        [[ "$output" == *"Usage: setup.sh"* ]]
-    else
-        [ "$status" -eq 1 ]
-        [[ "$output" == *"bash >= 4.3"* ]]
-    fi
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Usage: setup.sh"* ]]
 }
 
 # bats test_tags=integration,portability
-@test "setup.sh fails with actionable message when no modern bash exists" {
+@test "setup.sh --minimal completes under stock macOS bash 3.2" {
     [ -x /bin/bash ] || skip "no /bin/bash on this platform"
-    local ver
-    ver="$(/bin/bash -c 'echo ${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}')"
-    [[ "$ver" == "3.2" ]] || skip "/bin/bash is $ver, not the 3.2 we want to guard against"
-
-    # CLAUDE_CONFIG_BASH_REEXEC set = "we already tried to upgrade", so the
-    # guard must stop rather than loop.
-    run env CLAUDE_CONFIG_BASH_REEXEC=1 /bin/bash "$REPO_ROOT/setup.sh" --help
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"bash >= 4.3"* ]]
-    [[ "$output" == *"brew install bash"* ]]
+    require_cmd python3
+    require_cmd jq
+    run env HOME="${BATS_TEST_TMPDIR}/h32" /bin/bash "$REPO_ROOT/setup.sh" \
+        -y --minimal --no-claude-sync --no-opencode
+    [ "$status" -eq 0 ] || {
+        echo "setup.sh exited $status under bash 3.2"
+        echo "$output"
+        false
+    }
+    [[ "$output" == *"Setup complete!"* ]]
 }
+
+# bats test_tags=integration,portability
+@test "the statusline bar overlay works under stock macOS bash 3.2" {
+    [ -x /bin/bash ] || skip "no /bin/bash on this platform"
+    run /bin/bash -c "
+        set -euo pipefail
+        PLATFORM=macos
+        source '$REPO_ROOT/.claude/scripts/lib/statusline/bar.sh'
+        b='....................'
+        _overlay_pct_inside b 42 20 '#' '.'
+        printf '%s' \"\$b\"
+    "
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"42%"* ]]
+}
+
