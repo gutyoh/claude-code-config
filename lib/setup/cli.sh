@@ -14,7 +14,7 @@ show_usage() {
     echo "  --no-agents            Skip agents & skills installation"
     echo "  --agent-teams          Enable agent teams (experimental)"
     echo "  --no-agent-teams       Disable agent teams"
-    echo "  --minimal              Core only (no agents, skills, MCP, agent teams, or proxy PATH)"
+    echo "  --minimal              Core only (no agents, skills, MCP, agent teams, proxy PATH, or OpenCode)"
     echo "  --overwrite-settings   Replace settings.json with repo defaults"
     echo "  --skip-settings        Don't modify settings.json"
     echo "  --theme THEME          Statusline color theme (dark|light|colorblind|none)"
@@ -28,8 +28,13 @@ show_usage() {
     echo "  --icon-style STYLE     Icon style (plain|bold|bracketed|rounded|reverse|bold-color|angle|double-bracket)"
     echo "  --weekly-show-reset    Show weekly reset countdown inline"
     echo "  --no-weekly-show-reset Hide weekly reset countdown (default)"
-    echo "  --proxy-path           Add bin/ to PATH in shell profile (default)"
-    echo "  --no-proxy-path        Skip proxy launcher PATH setup"
+    echo "  --proxy-path           Add bin/ to PATH and install Claude shell shortcuts (default)"
+    echo "  --no-proxy-path        Skip proxy launcher PATH and shell shortcut setup"
+    echo "  --with-opencode        Force OpenCode parallel install (default: auto-detect)"
+    echo "  --no-opencode          Skip OpenCode setup (default: auto-detect)"
+    echo "  --with-claude-sync     Force-install SessionStart/SessionEnd hooks for cross-machine sync"
+    echo "  --no-claude-sync       Skip claude-sync session hooks (default: auto-detect)"
+    echo "  --shell PATH           Install shortcuts for this login shell (default: auto-detect)"
     echo "  -h, --help             Show this help message"
     echo ""
     echo "Available components:"
@@ -49,6 +54,8 @@ show_usage() {
     echo "  ./setup.sh -y --theme colorblind  # Full install with colorblind theme"
     echo "  ./setup.sh -y --bar-style block --bar-pct-inside --components model,usage,cost"
     echo "  ./setup.sh --overwrite-settings # Interactive, but force-overwrite settings.json"
+    echo "  ./setup.sh -y --with-opencode  # Also set up OpenCode (skills/agents/MCP)"
+    echo "  ./setup.sh -y --no-opencode    # Skip OpenCode even if detected"
 }
 
 parse_arguments() {
@@ -64,19 +71,34 @@ parse_arguments() {
                     exit 1
                 fi
                 INSTALL_MCP_SERVERS=()
+                # MCP_SERVER_KEYS comes from lib/setup/mcp.sh. Under bash 3.2 —
+                # which is what macOS ships and therefore what `env bash` finds
+                # when no newer bash is on PATH — expanding an unset or empty
+                # array as "${a[@]}" under `set -u` is an "unbound variable"
+                # error. bash 4.4+ allows it. Resolve the list defensively so
+                # parse_arguments works standalone (tests source cli.sh without
+                # the rest of setup.sh) and on either bash.
+                local _available_mcp_keys=()
+                if declare -p MCP_SERVER_KEYS >/dev/null 2>&1; then
+                    _available_mcp_keys=(${MCP_SERVER_KEYS[@]+"${MCP_SERVER_KEYS[@]}"})
+                fi
+                if [[ ${#_available_mcp_keys[@]} -eq 0 ]]; then
+                    _available_mcp_keys=("brave-search" "tavily")
+                fi
+
                 IFS=',' read -ra _mcp_items <<<"$2"
                 local _mcp_item
                 for _mcp_item in "${_mcp_items[@]}"; do
                     local _mcp_valid=false
                     local _mcp_key
-                    for _mcp_key in "${MCP_SERVER_KEYS[@]}"; do
+                    for _mcp_key in "${_available_mcp_keys[@]}"; do
                         if [[ "${_mcp_item}" == "${_mcp_key}" ]]; then
                             _mcp_valid=true
                             break
                         fi
                     done
                     if [[ "${_mcp_valid}" == "false" ]]; then
-                        echo "Error: Unknown MCP server '${_mcp_item}'. Available: ${MCP_SERVER_KEYS[*]}"
+                        echo "Error: Unknown MCP server '${_mcp_item}'. Available: ${_available_mcp_keys[*]}"
                         exit 1
                     fi
                     INSTALL_MCP_SERVERS+=("${_mcp_item}")
@@ -104,6 +126,8 @@ parse_arguments() {
                 INSTALL_MCP_SERVERS=()
                 INSTALL_AGENT_TEAMS="false"
                 INSTALL_PROXY_PATH="false"
+                INSTALL_OPENCODE="no"
+                INSTALL_CLAUDE_SYNC="no"
                 shift
                 ;;
             --overwrite-settings)
@@ -212,6 +236,32 @@ parse_arguments() {
             --no-proxy-path)
                 INSTALL_PROXY_PATH="false"
                 shift
+                ;;
+            --with-opencode)
+                INSTALL_OPENCODE="yes"
+                shift
+                ;;
+            --no-opencode)
+                INSTALL_OPENCODE="no"
+                shift
+                ;;
+            --with-claude-sync)
+                INSTALL_CLAUDE_SYNC="yes"
+                shift
+                ;;
+            --no-claude-sync)
+                INSTALL_CLAUDE_SYNC="no"
+                shift
+                ;;
+            --shell)
+                # Escape hatch when auto-detection is wrong, or to install for a
+                # shell other than the login one.
+                if [[ $# -lt 2 ]]; then
+                    echo "Error: --shell requires a path (e.g. --shell \"\$(command -v fish)\")"
+                    exit 1
+                fi
+                export CLAUDE_CONFIG_SHELL="$2"
+                shift 2
                 ;;
             --icon-style)
                 if [[ $# -lt 2 ]]; then

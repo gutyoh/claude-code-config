@@ -201,7 +201,9 @@ render_progress_bar() {
 # instead of iterating/splicing multi-byte characters, which breaks on
 # Windows Git Bash: https://github.com/actions/runner-images/issues/13585
 _overlay_pct_inside() {
-    local -n _bar="$1"
+    # bash 3.2 (what macOS ships) has no namerefs. `printf -v` assigns by
+    # variable name and predates them, so it works on every bash we target.
+    local _out_var="$1"
     local pct="$2"
     local width="$3"
     local filled_char="$4" # e.g. █ ━
@@ -243,6 +245,6 @@ _overlay_pct_inside() {
             fi
         done
 
-        _bar="${new_bar}"
+        printf -v "${_out_var}" '%s' "${new_bar}"
     fi
 }

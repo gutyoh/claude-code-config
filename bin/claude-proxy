@@ -308,7 +308,31 @@ NO_VALIDATE="false"
 # CLIProxyAPI repo location — used for offline model registry lookup and
 # inherited by profile scripts (proxy-start-*.sh) that need to build or
 # exec the binary. Override via env: `CLI_PROXY_DIR=/path/to/repo ...`
-export CLI_PROXY_DIR="${CLI_PROXY_DIR:-$HOME/Documents/dev/CLIProxyAPI}"
+#
+# No single default is right for everyone: where people keep clones is a
+# personal layout choice, so probe the common ones and take the first that
+# EXISTS. A candidate only ever wins by being present on this machine.
+#
+# When nothing is found we fall back to the XDG data dir rather than to whatever
+# happened to be last in the list — otherwise the "not found" message advertises
+# one contributor's directory habit as though it were the expected location.
+if [[ -z "${CLI_PROXY_DIR:-}" ]]; then
+    _cli_proxy_default="${XDG_DATA_HOME:-${HOME}/.local/share}/CLIProxyAPI"
+    CLI_PROXY_DIR="${_cli_proxy_default}"
+    for _cli_proxy_candidate in \
+        "${_cli_proxy_default}" \
+        "${HOME}/src/CLIProxyAPI" \
+        "${HOME}/repos/CLIProxyAPI" \
+        "${HOME}/projects/CLIProxyAPI" \
+        "${HOME}/Documents/dev/CLIProxyAPI"; do
+        if [[ -d "${_cli_proxy_candidate}" ]]; then
+            CLI_PROXY_DIR="${_cli_proxy_candidate}"
+            break
+        fi
+    done
+    unset _cli_proxy_candidate _cli_proxy_default
+fi
+export CLI_PROXY_DIR
 
 # --- Args ---
 while [[ $# -gt 0 ]]; do

@@ -48,9 +48,9 @@ main() {
     #                    substring because of the "--no-" prefix, so it needs
     #                    its own check)
     if [[ "${cmd}" =~ git[[:space:]]+pull ]] \
-       && [[ ! "${cmd}" =~ --rebase ]] \
-       && [[ ! "${cmd}" =~ --no-rebase ]] \
-       && [[ ! "${cmd}" =~ --ff-only ]]; then
+        && [[ ! "${cmd}" =~ --rebase ]] \
+        && [[ ! "${cmd}" =~ --no-rebase ]] \
+        && [[ ! "${cmd}" =~ --ff-only ]]; then
         # Add --rebase after "git pull"
         # Handles: git pull -> git pull --rebase
         #          git pull origin main -> git pull --rebase origin main

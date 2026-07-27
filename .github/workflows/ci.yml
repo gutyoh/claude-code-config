@@ -1,0 +1,85 @@
+name: CI
+
+# The repo ships shell that installs onto other people's machines, so the gate
+# has to run on more than one OS. macOS and Linux disagree on sed, stat, date
+# and the system bash version — a Linux-only gate proves nothing about the
+# platform half the users are on.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# One run per ref: a new push supersedes the previous run instead of queueing
+# behind it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    name: Lint + format
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Pinned by SHA, not tag: a tag is mutable, so a compromised or moved
+      # tag silently changes what runs with access to the runner.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install shellcheck and shfmt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          curl -fsSL "https://github.com/mvdan/sh/releases/download/v3.10.0/shfmt_v3.10.0_linux_amd64" \
+            -o /usr/local/bin/shfmt
+          chmod +x /usr/local/bin/shfmt
+
+      - name: shellcheck
+        run: make lint
+
+      - name: shfmt
+        run: make format-check
+
+  test:
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      # Never mask a macOS-only failure by cancelling the job the moment Linux
+      # goes red — the cross-platform signal is the whole point of the matrix.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      # Pinned by SHA, not tag: a tag is mutable, so a compromised or moved
+      # tag silently changes what runs with access to the runner.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install bats and GNU parallel (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats parallel jq
+
+      - name: Install bats and GNU parallel (macOS)
+        if: runner.os == 'macOS'
+        run: brew install bats-core parallel jq
+
+      - name: Report toolchain
+        run: |
+          bats --version
+          bash --version | head -1
+          echo "system bash: $(/bin/bash -c 'echo $BASH_VERSION')"
+
+      - name: Unit lane
+        run: make unit
+
+      - name: Integration lane
+        run: make integration
+
+      - name: Smoke lane
+        run: make smoke

@@ -60,7 +60,12 @@ check_prerequisite() {
             exit 1
         fi
         echo ""
-        return 1
+        # Return 0 for an absent OPTIONAL tool. setup.sh runs under `set -e`
+        # and every call site is a bare statement, so returning non-zero here
+        # aborted the whole install the moment fd/fzf/ccusage were missing —
+        # which is the normal state on a machine that has not installed the
+        # optional extras. "Optional and absent" is not a failure.
+        return 0
     else
         echo "  ✓ ${label} installed"
         return 0

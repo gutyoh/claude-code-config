@@ -86,6 +86,8 @@ dotenv_seed() {
 # UNIT TESTS: Script basics
 # ==========================================================================
 
+# bats file_tags=integration
+
 @test "script exists and is executable" {
     [ -x "$SCRIPT" ]
 }

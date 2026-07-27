@@ -15,6 +15,8 @@ setup() {
 
 # --- Default values ---
 
+# bats file_tags=unit
+
 @test "parse_arguments: defaults are set before parsing" {
     [ "$ACCEPT_DEFAULTS" = "false" ]
     [ "${#INSTALL_MCP_SERVERS[@]}" -eq 2 ]
@@ -201,6 +203,68 @@ setup() {
     [ "$INSTALL_PROXY_PATH" = "false" ]
 }
 
+@test "configure_claude_shortcuts: installs claude and clp functions" {
+    local profile="${BATS_TEST_TMPDIR}/.zshrc"
+    touch "$profile"
+
+    configure_claude_shortcuts "$profile"
+
+    grep -Fq 'claude-code-config: claude launch shortcuts' "$profile"
+    grep -Fq 'command claude --allow-dangerously-skip-permissions "$@"' "$profile"
+    grep -Fq 'command claude --dangerously-skip-permissions "$@"' "$profile"
+    # The model is expanded inline rather than held in a `local` variable:
+    # this block lands in ~/.profile for non-bash/zsh shells, and `local` is
+    # not POSIX. tests/shell-snippet-posix.bats covers that end of it.
+    grep -Fq 'claude-proxy --no-validate -m "${CLAUDE_PROXY_MODEL:-gpt-5.5(high)}" -- --allow-dangerously-skip-permissions "$@"' "$profile"
+    grep -Fq 'claude-proxy --no-validate -m "${CLAUDE_PROXY_MODEL:-gpt-5.5(high)}" -- --dangerously-skip-permissions "$@"' "$profile"
+}
+
+@test "configure_claude_shortcuts: replaces existing managed block" {
+    local profile="${BATS_TEST_TMPDIR}/.zshrc"
+    cat >"$profile" <<'EOF'
+keep-before
+# claude-code-config: claude launch shortcuts
+old body
+# claude-code-config: end claude launch shortcuts
+keep-after
+EOF
+
+    configure_claude_shortcuts "$profile"
+    configure_claude_shortcuts "$profile"
+
+    [ "$(grep -Fc 'claude-code-config: claude launch shortcuts' "$profile")" -eq 1 ]
+    [ "$(grep -Fc 'claude-code-config: end claude launch shortcuts' "$profile")" -eq 1 ]
+    grep -Fq 'keep-before' "$profile"
+    grep -Fq 'keep-after' "$profile"
+    ! grep -Fq 'old body' "$profile"
+}
+
+@test "configure_claude_shortcuts: generated functions forward arguments correctly" {
+    local profile="${BATS_TEST_TMPDIR}/.zshrc"
+    local stub_dir="${BATS_TEST_TMPDIR}/stubs"
+    local log="${BATS_TEST_TMPDIR}/calls.log"
+    mkdir -p "$stub_dir"
+
+    cat >"${stub_dir}/claude" <<'EOF'
+#!/usr/bin/env bash
+printf 'claude:%s\n' "$*" >>"$CALL_LOG"
+EOF
+    cat >"${stub_dir}/claude-proxy" <<'EOF'
+#!/usr/bin/env bash
+printf 'claude-proxy:%s\n' "$*" >>"$CALL_LOG"
+EOF
+    chmod +x "${stub_dir}/claude" "${stub_dir}/claude-proxy"
+
+    configure_claude_shortcuts "$profile"
+
+    run env PATH="${stub_dir}:$PATH" CALL_LOG="$log" bash -c "source '$profile' && claude --resume && claude -a --resume && clp --continue && clp -a --resume"
+    [ "$status" -eq 0 ]
+    grep -Fq 'claude:--allow-dangerously-skip-permissions --resume' "$log"
+    grep -Fq 'claude:--dangerously-skip-permissions --resume' "$log"
+    grep -Fq 'claude-proxy:--no-validate -m gpt-5.5(high) -- --allow-dangerously-skip-permissions --continue' "$log"
+    grep -Fq 'claude-proxy:--no-validate -m gpt-5.5(high) -- --dangerously-skip-permissions --resume' "$log"
+}
+
 # --- Unknown option ---
 
 @test "parse_arguments: unknown option exits with error" {
@@ -214,4 +278,49 @@ setup() {
     run bash -c "source '$SETUP' && parse_arguments --help"
     [ "$status" -eq 0 ]
     [[ "$output" == *"Usage:"* ]]
+}
+
+# --- Managed-block safety (Copilot review, PR 22) ---------------------------
+
+@test "configure_claude_shortcuts: refuses to rewrite when the end marker is missing" {
+    # A begin marker with no end marker — hand-edit, interrupted write, partial
+    # paste — made the awk skip from the marker to EOF, silently deleting every
+    # export and alias after it. This function edits the user's shell profile,
+    # so that failure mode is destroying their config with no warning.
+    local profile="${BATS_TEST_TMPDIR}/.zshrc"
+    cat >"$profile" <<'EOF'
+export IMPORTANT_BEFORE=1
+# claude-code-config: claude launch shortcuts
+claude() { echo stale; }
+export CRITICAL_AFTER=1
+alias mystuff='keep-me'
+EOF
+
+    run configure_claude_shortcuts "$profile"
+    [ "$status" -eq 0 ]
+
+    grep -Fq 'IMPORTANT_BEFORE' "$profile"
+    grep -Fq 'CRITICAL_AFTER' "$profile"
+    grep -Fq 'mystuff' "$profile"
+    [[ "$output" == *"no end marker"* ]]
+    [ -f "${profile}.claude-code-config.bak" ]
+}
+
+@test "configure_claude_shortcuts: still rewrites cleanly when both markers exist" {
+    local profile="${BATS_TEST_TMPDIR}/.zshrc"
+    cat >"$profile" <<'EOF'
+keep-before
+# claude-code-config: claude launch shortcuts
+old body
+# claude-code-config: end claude launch shortcuts
+keep-after
+EOF
+
+    run configure_claude_shortcuts "$profile"
+    [ "$status" -eq 0 ]
+
+    grep -Fq 'keep-before' "$profile"
+    grep -Fq 'keep-after' "$profile"
+    ! grep -Fq 'old body' "$profile"
+    [ "$(grep -Fc 'claude-code-config: claude launch shortcuts' "$profile")" -eq 1 ]
 }

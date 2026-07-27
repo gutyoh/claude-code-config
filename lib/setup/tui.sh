@@ -32,7 +32,8 @@ tui_readkey() {
 # Usage: tui_select RESULT_VAR "header" "opt1" "opt2" ...
 # Sets RESULT_VAR to the selected option string.
 tui_select() {
-    local -n _result_var="$1"
+    # bash 3.2 (macOS) has no namerefs; `printf -v` assigns by name and does.
+    local _result_name="$1"
     local header="$2"
     shift 2
     local options=("$@")
@@ -93,18 +94,23 @@ tui_select() {
     # Restore cursor
     tput cnorm 2>/dev/null || true
 
-    _result_var="${options[$cur]}"
+    printf -v "${_result_name}" '%s' "${options[$cur]}"
 }
 
 # Multi-select menu: arrow keys to navigate, space to toggle, enter to confirm.
 # Usage: tui_multiselect RESULT_ARRAY_VAR "header" SELECTED_ARRAY OPTIONS_ARRAY DESCS_ARRAY
 # Sets RESULT_ARRAY_VAR to array of selected indices.
 tui_multiselect() {
-    local -n _ms_result="$1"
+    # bash 3.2 has no namerefs. Copy the three input arrays in by name, and
+    # write the result back by name at the end. The ${name[@]+...} guard keeps
+    # an empty array from tripping `set -u` on 3.2, where "${a[@]}" on an empty
+    # array is an unbound-variable error rather than an empty expansion.
+    local _ms_result_name="$1"
     local header="$2"
-    local -n _ms_selected="$3"
-    local -n _ms_options="$4"
-    local -n _ms_descs="$5"
+    local -a _ms_selected _ms_options _ms_descs
+    eval "_ms_selected=(\${$3[@]+\"\${$3[@]}\"})"
+    eval "_ms_options=(\${$4[@]+\"\${$4[@]}\"})"
+    eval "_ms_descs=(\${$5[@]+\"\${$5[@]}\"})"
     local count=${#_ms_options[@]}
     local cur=0
 
@@ -193,13 +199,14 @@ tui_multiselect() {
 
     tput cnorm 2>/dev/null || true
 
-    # Collect selected indices
-    _ms_result=()
+    # Collect selected indices, then publish to the caller's array by name.
+    local -a _ms_out=()
     for ((i = 0; i < count; i++)); do
         if [[ "${checked[$i]}" == "true" ]]; then
-            _ms_result+=("${i}")
+            _ms_out+=("${i}")
         fi
     done
+    eval "${_ms_result_name}=(\${_ms_out[@]+\"\${_ms_out[@]}\"})"
 }
 
 # Yes/No confirm: arrow keys to toggle, enter to confirm.

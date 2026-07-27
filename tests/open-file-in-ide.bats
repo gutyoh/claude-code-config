@@ -104,6 +104,8 @@ run_hook() {
 # Script basics
 # ============================================================================
 
+# bats file_tags=integration
+
 @test "hook script exists and is executable" {
     [ -x "$HOOK" ]
 }
@@ -126,7 +128,7 @@ run_hook() {
 
     run_hook "file:///tmp/foo.py"
     [ "$status" -eq 0 ]
-    [ -f "$MARKER" ]
+    wait_for_file "$MARKER"
     grep -q "^code " "$MARKER"
     # VSCode-style invocation should NOT use --line flag
     ! grep -q -- "--line" "$MARKER"
@@ -139,7 +141,7 @@ run_hook() {
 
     run_hook "file:///tmp/foo.py"
     [ "$status" -eq 0 ]
-    [ -f "$MARKER" ]
+    wait_for_file "$MARKER"
     grep -q "^pycharm" "$MARKER"
     grep -q -- "--line 1" "$MARKER"
 }
@@ -151,7 +153,7 @@ run_hook() {
 
     run_hook "file:///tmp/foo.py"
     [ "$status" -eq 0 ]
-    [ -f "$MARKER" ]
+    wait_for_file "$MARKER"
     # Should have fallen through to detected 'code'
     grep -q "^code " "$MARKER"
 }
@@ -166,7 +168,7 @@ run_hook() {
 
     run_hook "file:///tmp/foo.py"
     [ "$status" -eq 0 ]
-    [ -f "$MARKER" ]
+    wait_for_file "$MARKER"
     grep -q "^code " "$MARKER"
 }
 
@@ -176,7 +178,7 @@ run_hook() {
 
     run_hook "file:///tmp/foo.py"
     [ "$status" -eq 0 ]
-    [ -f "$MARKER" ]
+    wait_for_file "$MARKER"
     grep -q "^pycharm" "$MARKER"
     grep -q -- "--line 1" "$MARKER"
 }
@@ -191,6 +193,7 @@ run_hook() {
 
     run_hook "file:///tmp/foo.py"
     [ "$status" -eq 0 ]
+    wait_for_file "$MARKER"
     grep -q "^code " "$MARKER"
     ! grep -q "^pycharm" "$MARKER"
 }
@@ -205,7 +208,7 @@ run_hook() {
 
     run_hook "file:///tmp/foo.py"
     [ "$status" -eq 0 ]
-    [ -f "$MARKER" ]
+    wait_for_file "$MARKER"
     grep -q "^pycharm" "$MARKER"
 }
 
@@ -219,6 +222,7 @@ run_hook() {
 
     run_hook "file:///absolute/path/to/file.py"
     [ "$status" -eq 0 ]
+    wait_for_file "$MARKER"
     grep -q "/absolute/path/to/file.py" "$MARKER"
     # Must NOT contain the file:// prefix as an argument
     ! grep -q "file:///" "$MARKER"
@@ -230,6 +234,7 @@ run_hook() {
 
     run_hook "/already/absolute/file.py"
     [ "$status" -eq 0 ]
+    wait_for_file "$MARKER"
     grep -q "/already/absolute/file.py" "$MARKER"
 }
 

@@ -34,6 +34,8 @@ rewritten() {
 # Basic functionality
 # ============================================================================
 
+# bats file_tags=unit
+
 @test "hook script exists and is executable" {
     [ -x "$HOOK" ]
 }
@@ -156,10 +158,6 @@ rewritten() {
     run_hook "ls -la"
     end=$("${_PY}" -c "import time; print(int(time.time() * 1000))")
     elapsed=$((end - start))
-    threshold=500
-    _uname="$(uname -s)"
-    if [[ "$_uname" == MINGW* || "$_uname" == MSYS* || "$_uname" == CYGWIN* || "$_uname" == *_NT* ]]; then
-        threshold=5000
-    fi
+    threshold="$(perf_threshold_ms 500)"
     [ "$elapsed" -lt "$threshold" ]
 }

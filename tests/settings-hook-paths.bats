@@ -15,11 +15,26 @@
 SETTINGS="$BATS_TEST_DIRNAME/../.claude/settings.json"
 
 setup() {
+    source "$BATS_TEST_DIRNAME/helpers.bash"
     # Ensure jq is available (required by these tests)
     command -v jq >/dev/null 2>&1 || skip "jq not installed"
 }
 
+# Skip unless the given ~/.claude symlink resolves inside THIS checkout.
+_skip_unless_installed_checkout() {
+    local link="$1"
+    local repo_real link_real
+    repo_real="$(cd "$BATS_TEST_DIRNAME/.." && pwd -P)"
+    link_real="$(cd "$link" 2>/dev/null && pwd -P)" || skip "symlink target unreadable"
+    case "$link_real" in
+        "$repo_real"/*) : ;;
+        *) skip "~/.claude is installed from a different checkout ($link_real)" ;;
+    esac
+}
+
 # --- Schema validation ---
+
+# bats file_tags=unit
 
 @test "settings.json exists and is valid JSON" {
     [ -f "$SETTINGS" ]
@@ -86,8 +101,8 @@ setup() {
 
     while IFS= read -r cmd; do
         [ -z "$cmd" ] && continue
-        # Expand ~ to $HOME
-        local expanded="${cmd/#\~/$HOME}"
+        local expanded
+        expanded="$(repo_hook_path "$cmd")"
         if [ ! -f "$expanded" ]; then
             echo "MISSING: $cmd (expanded: $expanded)"
             false
@@ -109,7 +124,8 @@ setup() {
 
     while IFS= read -r cmd; do
         [ -z "$cmd" ] && continue
-        local expanded="${cmd/#\~/$HOME}"
+        local expanded
+        expanded="$(repo_hook_path "$cmd")"
         if [ ! -f "$expanded" ]; then
             echo "MISSING: $cmd (expanded: $expanded)"
             false
@@ -136,7 +152,8 @@ setup() {
     local failures=0
     while IFS= read -r cmd; do
         [ -z "$cmd" ] && continue
-        local expanded="${cmd/#\~/$HOME}"
+        local expanded
+        expanded="$(repo_hook_path "$cmd")"
         # Test from the temp directory — this is what fails with ./ paths
         if ! (cd "$tmpdir" && [ -x "$expanded" ]); then
             echo "FAILS FROM TMPDIR: $cmd"
@@ -161,7 +178,8 @@ setup() {
     cmd=$(jq -r '.statusLine.command // empty' "$SETTINGS")
     [ -n "$cmd" ]
     [[ "$cmd" == "~/"* ]]
-    local expanded="${cmd/#\~/$HOME}"
+    local expanded
+    expanded="$(repo_hook_path "$cmd")"
     [ -x "$expanded" ]
 }
 
@@ -198,6 +216,12 @@ setup() {
     local hooks_link="$HOME/.claude/hooks"
     [ -L "$hooks_link" ] || skip "~/.claude/hooks is not a symlink (run ./setup.sh to create it)"
 
+    # ~/.claude/hooks can only point at one checkout. When these tests run from
+    # a different clone (CI, a worktree, a scratch copy) the link legitimately
+    # points elsewhere and there is nothing to assert — the installed checkout
+    # is the one under test, not this one.
+    _skip_unless_installed_checkout "$hooks_link"
+
     local repo_hooks="$BATS_TEST_DIRNAME/../.claude/hooks"
     local repo_hooks_real
     repo_hooks_real=$(cd "$repo_hooks" && pwd -P)
@@ -218,6 +242,8 @@ setup() {
 @test "~/.claude/scripts is a symlink to the repo scripts directory" {
     local scripts_link="$HOME/.claude/scripts"
     [ -L "$scripts_link" ] || skip "~/.claude/scripts is not a symlink (run ./setup.sh to create it)"
+
+    _skip_unless_installed_checkout "$scripts_link"
 
     local repo_scripts="$BATS_TEST_DIRNAME/../.claude/scripts"
     local repo_scripts_real

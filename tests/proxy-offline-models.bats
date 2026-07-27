@@ -111,6 +111,8 @@ STUB
 # fetch_offline_models — the new offline-registry helper
 # ============================================================================
 
+# bats file_tags=integration
+
 @test "fetch_offline_models: returns antigravity models from the sandbox" {
     source_proxy_functions
     local out

@@ -6,7 +6,9 @@ _preview_overlay_pct() {
     # Overlay " NN% " at center of a bar string
     # Rebuilds from chars instead of bash substring ops (broken on Windows Git Bash)
     # Usage: _preview_overlay_pct BAR_VAR pct width filled_char empty_char
-    local -n _pbar="$1"
+    # bash 3.2 (what macOS ships) has no namerefs. `printf -v` assigns by
+    # variable name and predates them, so it works on every bash we target.
+    local _out_var="$1"
     local pct="$2"
     local width="$3"
     local filled_char="$4"
@@ -28,7 +30,7 @@ _preview_overlay_pct() {
             if [[ ${i} -lt ${filled} ]]; then new_bar+="${filled_char}"; else new_bar+="${empty_char}"; fi
         done
 
-        _pbar="${new_bar}"
+        printf -v "${_out_var}" '%s' "${new_bar}"
     fi
 }
 

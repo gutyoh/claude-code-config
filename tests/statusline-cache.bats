@@ -16,6 +16,18 @@ MODULES_DIR="$BATS_TEST_DIRNAME/../.claude/scripts/lib/statusline"
 
 setup() {
     source "$BATS_TEST_DIRNAME/helpers.bash"
+
+    # Hermetic HOME, and a ccusage that answers instantly.
+    #
+    # collect_data() calls get_ccusage_block() -> `ccusage blocks --json`, which
+    # walks every session transcript under ~/.claude. Against a real developer's
+    # history that is seconds per call: the seven collect_data tests below were
+    # ~26s each (~180s, 45% of the whole suite) purely from this. No test here
+    # asserts on token or cost values, so a stub costs nothing in coverage and
+    # makes runtime independent of whose machine it runs on.
+    isolate_home
+    stub_bin ccusage 'echo "{\"blocks\":[]}"'
+
     # Test-scoped constants (replaces readonly from statusline.sh)
     CACHE_FILE="$BATS_TEST_TMPDIR/cache"
     LOCK_DIR="$BATS_TEST_TMPDIR/lock"
@@ -24,7 +36,7 @@ setup() {
     LOCK_MAX_AGE_S=30
     BACKOFF_INITIAL_S=30
     BACKOFF_MAX_S=300
-    PLATFORM="macos"
+    PLATFORM="$(detect_test_platform)"
 
     # Stubs for functions defined in statusline.sh (not sourced to avoid readonly)
     debug() { :; }
@@ -78,6 +90,8 @@ mock_api_failure() {
 # get_file_age
 # =========================================================================
 
+# bats file_tags=integration
+
 @test "get_file_age: returns 0-2 for freshly created file" {
     touch "$CACHE_FILE"
     local age
@@ -108,7 +122,10 @@ mock_api_failure() {
 @test "try_acquire_lock: recovers stale lock older than LOCK_MAX_AGE_S" {
     mkdir "$LOCK_DIR"
     local target_ts=$(( $(date +%s) - LOCK_MAX_AGE_S - 5 ))
-    touch -t "$(date -r "$target_ts" "+%Y%m%d%H%M.%S" 2>/dev/null)" "$LOCK_DIR" 2>/dev/null
+    # `date -r` means different things per platform: BSD formats an epoch, GNU
+    # reads a FILE's mtime — so `date -r 1700000000` fails on Linux. Use the
+    # python-based helper this file already defines.
+    set_file_mtime "$LOCK_DIR" "$target_ts"
     try_acquire_lock
     [[ -d "$LOCK_DIR" ]]
 }

@@ -16,7 +16,11 @@ setup() {
     source "$BATS_TEST_DIRNAME/helpers.bash"
     # _TMP_DIR must be set BEFORE sourcing status.sh (readonly STATUS_CACHE_FILE uses it)
     _TMP_DIR="$BATS_TEST_TMPDIR"
-    PLATFORM="macos"
+    # Must match the real platform. Hardcoding "macos" forces the BSD `stat -f`
+    # branch everywhere, and on GNU coreutils `-f` means --file-system: it
+    # succeeds and prints filesystem info instead of an mtime, so every caller
+    # silently parses garbage. Correct by accident on macOS, broken on Linux.
+    PLATFORM="$(detect_test_platform)"
 
     # Data globals
     DATA_CC_STATUS=""
@@ -63,6 +67,8 @@ set_file_mtime() {
 # _map_status_label — API status to display label mapping
 # (Atlassian Statuspage has exactly 5 component statuses)
 # ============================================================
+
+# bats file_tags=integration
 
 @test "label: operational → on" {
     [[ "$(_map_status_label "operational")" == "on" ]]
@@ -156,7 +162,7 @@ set_file_mtime() {
     end=$("${_PY}" -c "import time; print(int(time.time() * 1000))")
     elapsed=$((end - start))
     # Should return in <500ms (not 10s), proving async
-    [[ "$elapsed" -lt 500 ]]
+    [[ "$elapsed" -lt "$(perf_threshold_ms 500)" ]]
     [[ "$DATA_CC_STATUS" == "partial" ]]
 }
 
@@ -169,8 +175,9 @@ set_file_mtime() {
     collect_service_status
     # This render gets stale "on"
     [[ "$DATA_CC_STATUS" == "on" ]]
-    # Wait for background fetch to complete
-    sleep 1
+    # Wait for the background fetch to land. A fixed sleep here is a bet on
+    # scheduler latency: it passes locally and fails on a loaded CI runner.
+    wait_for_content "${STATUS_CACHE_FILE}" outage 15
     # Next render should get "outage" from cache
     DATA_CC_STATUS=""
     collect_service_status
@@ -187,7 +194,7 @@ set_file_mtime() {
     collect_service_status
     end=$("${_PY}" -c "import time; print(int(time.time() * 1000))")
     elapsed=$((end - start))
-    [[ "$elapsed" -lt 500 ]]
+    [[ "$elapsed" -lt "$(perf_threshold_ms 500)" ]]
     [[ -z "$DATA_CC_STATUS" ]]
 }
 
@@ -199,7 +206,7 @@ set_file_mtime() {
     collect_service_status
     end=$("${_PY}" -c "import time; print(int(time.time() * 1000))")
     elapsed=$((end - start))
-    [[ "$elapsed" -lt 500 ]]
+    [[ "$elapsed" -lt "$(perf_threshold_ms 500)" ]]
     [[ -z "$DATA_CC_STATUS" ]]
 }
 

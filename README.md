@@ -35,6 +35,7 @@ A portable, Git-versioned configuration repository for Claude Code that works se
 - [How It Works](#how-it-works)
 - [Adding New MCP Servers](#adding-new-mcp-servers)
 - [Branching Strategy](#branching-strategy-trunk-based--github-flow)
+- [Testing and Portability](#testing-and-portability)
 - [Official Documentation](#official-documentation)
 
 </details>
@@ -132,7 +133,9 @@ The setup script creates symlinks and **automatically configures MCP servers** i
 The script will:
 - Create `~/.claude/` if it doesn't exist
 - Symlink `skills/`, `agents/`, `hooks/` to your global config
+- Add `bin/` to PATH and install `claude` / `clp` shell shortcuts
 - **Add Brave Search MCP server to user scope** (available in all projects)
+- **Install in parallel for OpenCode** if `opencode` is detected on PATH (translates agents, generates `~/.config/opencode/opencode.json`, symlinks `AGENTS.md`)
 - Check for required environment variables
  
 > **Note:** Symlinks keep everything in sync. When you `git pull` updates, your global config updates automatically.
@@ -639,6 +642,66 @@ Add this to `~/.claude/settings.json`:
 - You want visibility into token consumption
 - You want to pace your usage throughout the day
 
+### 6. Cross-Machine Session Sync (claude-sync)
+
+Syncs your `~/.claude/` (sessions, projects, settings) across machines via encrypted cloud storage. Optional — requires the [claude-sync](https://github.com/tawanorg/claude-sync) tool installed on every machine you want synced (`npm install -g @tawandotorg/claude-sync`, then `claude-sync init`).
+
+**Locations:** `.claude/hooks/cc-sync-pull.sh` (SessionStart) and `.claude/hooks/cc-sync-push.sh` (SessionEnd)
+
+**How it works:**
+
+1. **SessionStart** → `cc-sync-pull.sh` detaches `claude-sync pull -q --force`, then optionally `~/.claude/cc-sync-remap.sh` for per-machine path rewrites (e.g., `/Users/<user>` → `/home/<user>` when crossing macOS↔Linux)
+2. **SessionEnd** → `cc-sync-push.sh` detaches `claude-sync push` to upload changes for the next machine
+3. **Fail-safe** — both hooks `set +e` and always `exit 0`. Errors land in `~/.claude/cc-sync-pull.log` / `cc-sync-push.log`
+
+**Both transfers are detached, and that is load-bearing:**
+
+- **SessionStart runs synchronously.** Whatever the pull spends is added to the time before you get a prompt, and a pull is a network round trip over the whole tracked file set. Detaching returns the hook in milliseconds; the transfer lands in time for the next session. Both hook entries also carry `"timeout": 10` as a backstop — a hook without one is unbounded.
+- **The bound applies to the hook, never to a detached transfer.** `CC_SYNC_TIMEOUT_SEC` caps `CC_SYNC_BLOCKING=1` only. A detached pull blocks nothing, and a full pull over a large tracked set routinely outlasts any bound short enough to be useful at startup — capping it there kills every transfer just before it finishes and leaves the remote permanently unmerged, which is the failure this hook exists to prevent.
+- **SessionEnd cannot wait.** An inline push is killed the moment Claude Code exits, so the upload dies mid-flight and the remote never advances. A remote frozen behind local state is what makes the next pull diverge and write `.conflict.<timestamp>` copies — which then become newly tracked files and compound every session. The detached child outlives the parent and finishes the upload.
+
+To confirm pushes are landing, compare the `push start` and `push exit=` lines in `~/.claude/cc-sync-push.log`; every start should have a matching exit.
+
+**Env overrides:**
+
+| Variable | Default | Effect |
+|---|---|---|
+| `CC_SYNC_BLOCKING` | `0` | `1` waits for the transfer instead of detaching |
+| `CC_SYNC_TIMEOUT_SEC` | `10` | Wall-clock bound in blocking mode (needs GNU `timeout`) |
+
+**No-op when `claude-sync` isn't installed.** Safe to ship enabled by default. To opt in, install `claude-sync` via its repo instructions on each machine.
+
+## Shell + Terminal Configuration
+
+Optional opinionated presets for the **fish shell** and the **Ghostty terminal** — paired daily-driver setup for macOS and Linux. Copy-install one preset of each, customize as needed.
+
+### Fish Shell ([docs/fish/](./docs/fish/))
+
+One preset, fully modular (`conf.d/` + `functions/`):
+
+| Preset | Use case |
+|---|---|
+| `config-power-user/` | Daily driver — Claude Code, mise, bun, dbt, Tide prompt, cross-platform brew detection, SSH socket auto-detection, OS-aware Tide badge, zellij auto-attach on SSH |
+
+See [`docs/how-to-configure-fish.md`](./docs/how-to-configure-fish.md) for the full guide.
+
+### Ghostty Terminal ([docs/ghostty/](./docs/ghostty/))
+
+Six presets covering the spectrum:
+
+| Preset | Philosophy |
+|---|---|
+| `config-minimal.ini` | Clean macOS-native feel, fewest overrides |
+| `config-recommended.ini` | Daily driver — productivity-focused, no visual noise |
+| `config-power-user.ini` | tmux + Neovim workflow, max screen real estate |
+| `config-aesthetic.ini` | Transparent + blurred, riced |
+| `config-maximalist.ini` | Every popular option enabled (good starting point to trim from) |
+| `config-tip.ini` | Tip-channel preset with Ghostty 1.3+ features (click-to-move cursor, command-finish notifications, P3 colorspace, OSC 52) |
+
+See [`docs/how-to-configure-ghostty.md`](./docs/how-to-configure-ghostty.md) for the full guide.
+
+All presets target macOS + Linux. Ghostty silently ignores `macos-*` keys on Linux, and `super+` keybinds work as Cmd (macOS) or Super/Win (Linux) automatically.
+
 ## Proxy Launcher
 
 Route Claude Code through alternative model providers (OpenAI Codex, Google Gemini, Antigravity Cloud Code) using a single unified CLI. The proxy launcher auto-starts the backend, configures environment variables, and launches Claude Code — all in one command.
@@ -673,14 +736,29 @@ Route Claude Code through alternative model providers (OpenAI Codex, Google Gemi
 
 > **Key design principle:** Profiles only control *how to start the proxy*. Model selection is decoupled — you can use any model string the backend supports.
 
-**PATH setup:** The `setup.sh` script automatically adds `bin/` to your shell PATH, so you can run `claude-proxy` from any directory. If you skipped this during setup, add it manually:
+**PATH and shortcuts setup:** The `setup.sh` script automatically adds `bin/` to your shell PATH and installs shell functions in `~/.zshrc`, `~/.bashrc`, or `~/.profile`:
+
+```bash
+claude        # normal Claude Code, with bypassPermissions available in Shift+Tab cycle
+claude -a     # start Claude Code directly in bypassPermissions mode
+clp           # claude-proxy with gpt-5.5(high), bypassPermissions available in Shift+Tab cycle
+clp -a        # claude-proxy with gpt-5.5(high), directly in bypassPermissions mode
+```
+
+The proxy shortcut default model can be overridden per shell:
+
+```bash
+export CLAUDE_PROXY_MODEL="gpt-5.5(high)"
+```
+
+If you skipped this during setup, add PATH manually:
 
 ```bash
 # Add to ~/.zshrc or ~/.bashrc (use the actual path to your clone):
 export PATH="/path/to/claude-code-config/bin:$PATH"
 ```
 
-Or re-run `./setup.sh` to configure it automatically.
+Or re-run `./setup.sh` to configure PATH and shortcuts automatically.
 
 ### Proxy Quick Start
 
@@ -788,6 +866,12 @@ Options:
 
 # Pass extra arguments to Claude Code (after --)
 ./bin/claude-proxy -p antigravity -- --verbose
+
+# Installed shell shortcut: proxy + allow switching to bypassPermissions
+clp
+
+# Installed shell shortcut: proxy + start directly in bypassPermissions
+clp -a
 ```
 
 ### Creating Custom Profiles
@@ -1064,6 +1148,130 @@ git push -u origin hotfix/critical-bug
 
 > **Note**: For GitFlow templates (legacy), see `branch_protection_rules/gitflow/`
  
+## Testing and Portability
+
+> **Platform scope.** The bash installer (`setup.sh`) is the supported path and is exercised on
+> macOS and Linux in CI. The PowerShell installer (`setup.ps1`) still works for the features it
+> shipped with, but predates claude-sync hooks, OpenCode setup, the `claude`/`clp` shortcuts,
+> fish support, XDG paths and login-shell detection, and no CI job runs it. On Windows, prefer
+> `setup.sh` under Git Bash or WSL.
+
+This repo installs onto other people's machines, so nothing shipped may depend on one developer's paths, shell, package manager, or OS version. Two things enforce that: a cross-platform CI matrix, and a set of static portability guards in the test suite.
+
+### Test lanes
+
+| Command | What it runs | Typical time |
+|---|---|---|
+| `make unit` | Fast, hermetic — stubbed boundaries, no network | ~20s |
+| `make integration` | Drives real scripts end to end, still offline | ~35s |
+| `make smoke` | Runs `setup.sh` itself against a throwaway `HOME` | ~5s |
+| `make test` | Everything (the merge gate) | ~45s |
+| `make check` | `lint` + `format-check` + `test` | ~50s |
+| `make verify-clean-machine` | The whole suite as CI sees it | ~60s |
+
+**Run `make verify-clean-machine` before pushing.** A developer machine lies in
+two ways CI does not: `~/.claude` is already installed, so tests that read it
+pass for the wrong reason; and Homebrew bash sits ahead of `/bin/bash` on
+`PATH`, so `env bash` finds 5.x while the macOS runner finds 3.2.57. That
+target removes both — empty `HOME`, system bash first — and is the difference
+between catching a portability break locally and finding it in CI.
+
+Lanes are bats tag filters (`--filter-tags`), so a test belongs to a lane by its `# bats test_tags=` or file-level `# bats file_tags=` directive.
+
+Tests run in parallel via `bats --jobs` when GNU parallel is installed (`make install-tools` gets it). Without it the suite still runs, just serially — the Makefile probes and degrades rather than failing.
+
+### Hermetic by default
+
+`tests/helpers.bash` provides the harness:
+
+- `isolate_home` — points `HOME` and the `XDG_*` variables at the per-test tmpdir. Without it a test reads the developer's real `~/.claude`, so results depend on personal state and anything that scans it pays for gigabytes of real session history.
+- `stub_bin <name> [body]` — puts a fake executable ahead of the real one on `PATH`.
+- `stub_slow_bin <name> <seconds>` — a stub that hangs, for exercising timeout paths.
+- `require_cmd <cmd>` — skip when a prerequisite is missing.
+
+Call `isolate_home` first in `setup()`. A test that shells out to a real binary should stub it unless the point of the test is that binary.
+
+### Portability guards
+
+`tests/portability.bats` fails the build on machine-specific assumptions:
+
+- hardcoded `/Users/...` or `/home/...` paths
+- a brew prefix named without its alternatives (`/opt/homebrew` is Apple-Silicon-only)
+- `$HOME/.config` written without an `XDG_CONFIG_HOME` fallback
+- `[^\n]` inside a `sed` expression — BSD sed reads it as "not backslash and not the letter n", GNU sed as "not newline", so it silently behaves differently per platform
+- GNU-only flags (`stat -c`, `date -d`) with neither a platform branch nor a BSD fallback
+- shebangs that hardcode an interpreter path instead of using `env`
+- an active absolute `command =` in a shipped Ghostty preset
+- `stat -f … || stat -c …`, which reads as a BSD-then-GNU fallback but is not: on GNU coreutils `-f` means `--file-system`, so the first call *succeeds* and the `||` never fires
+- `date -r <epoch>`, which formats that epoch on BSD but reads a *file's* mtime on GNU
+- a personal directory convention (`~/Documents/dev`, `~/src`) used as a default rather than inside a probe list
+- `PLATFORM` pinned to a literal in a test, which forces the wrong `stat`/`date` branch on every other OS
+- a GitHub Action referenced by tag instead of a full commit SHA
+
+### Which shell gets configured
+
+`setup.sh` installs the `claude` / `clp` shortcuts into the rc file your login shell actually reads. Getting that wrong fails silently — the install reports success and you never get a `claude` function — so the detection is deliberate.
+
+**It does not use `$SHELL`.** That variable is inherited from whatever spawned the process and no shell corrects it on startup:
+
+```bash
+$ SHELL=/bin/made-up fish -c 'echo $SHELL'
+/bin/made-up
+```
+
+A fish user whose terminal was launched with `SHELL=zsh` would get the block written to `~/.zshrc`, which fish never reads. The password database is authoritative, so `detect_login_shell` consults it in this order:
+
+| Order | Source | Why |
+|---|---|---|
+| 1 | `CLAUDE_CONFIG_SHELL` / `--shell` | Explicit override |
+| 2 | `dscl` | macOS uses OpenDirectory; `/etc/passwd` can be stale |
+| 3 | `getent passwd` | NSS-aware, so it works with LDAP/AD |
+| 4 | `/etc/passwd` | Flat-file fallback |
+| 5 | `$SHELL` | Last resort only |
+
+The resolved shell is printed during install. Override it when detection is wrong or you want to target a different shell:
+
+```bash
+./setup.sh --shell "$(command -v fish)"
+```
+
+**Where each shell gets its config:**
+
+| Login shell | Destination |
+|---|---|
+| fish | `$XDG_CONFIG_HOME/fish/functions/{claude,clp}.fish` + `conf.d/` for PATH |
+| zsh | `~/.zshrc` |
+| bash | `~/.bashrc`, plus a bridge in `~/.bash_profile` |
+| anything else | `~/.profile` |
+
+The bash bridge matters: bash reads `~/.bashrc` for non-login interactive shells and `~/.bash_profile` for login shells. Linux terminals open the former, **macOS Terminal.app and iTerm2 open the latter** — so a block written only to `~/.bashrc` never loads on macOS. `setup.sh` appends the conventional `[ -f ~/.bashrc ] && . ~/.bashrc` line, once, and skips it if your `~/.bash_profile` already sources `~/.bashrc`.
+
+fish gets native files rather than a profile because fish is not POSIX — `export VAR=x` and POSIX function syntax are both syntax errors there. The snippet written for every other shell is checked with `shellcheck -s sh` and executed under each installed POSIX shell in CI.
+
+### bash version
+
+macOS ships bash 3.2.57 as `/bin/bash` and cannot ship newer for licensing reasons, so `#!/usr/bin/env bash` lands on 3.2 whenever no newer bash is ahead of it on `PATH` — the default state on a clean Mac, and what GitHub's macOS runners provide.
+
+Everything here therefore targets **bash 3.2**. That rules out namerefs (`local -n`, 4.3), associative arrays (`declare -A`, 4.0), `mapfile`/`readarray`, and `${var,,}` case conversion. Assign by name with `printf -v` (3.1+) or `eval` instead:
+
+```bash
+# 4.3+ only — fails at runtime on macOS, and `bash -n` will not catch it
+local -n out="$1"; out="value"
+
+# works everywhere
+local out_name="$1"; printf -v "$out_name" '%s' "value"
+```
+
+Two guards enforce this, and `make verify-clean-machine` exercises `setup.sh` under the system bash directly.
+
+### CI
+
+`.github/workflows/ci.yml` runs lint and format on Ubuntu, then all three lanes on **both** `ubuntu-latest` and `macos-latest`. `fail-fast: false` so a macOS-only failure is never masked by cancelling on the Linux result — the cross-platform signal is the whole point of the matrix.
+
+Every action is pinned to a full commit SHA. A tag is mutable: when `tj-actions/changed-files` was compromised in 2025, the attacker moved 350+ tags to a malicious commit and every repository pinned by tag executed it with access to the runner.
+
+Tests that shell out over the network (`npx -y …`) probe once per suite and **skip** when the registry is unreachable, rather than failing. A flaky gate is worse than no gate — people learn to re-run it instead of reading it.
+
 ## Official Documentation
  
 This configuration follows the official Claude Code documentation:
