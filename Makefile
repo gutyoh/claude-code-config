@@ -8,7 +8,7 @@
 #   brew install shellcheck shfmt bats-core   # macOS
 #   sudo apt-get install shellcheck shfmt bats # Ubuntu/Debian
 
-.PHONY: help lint format format-check test test-all unit integration smoke check ci clean install-tools
+.PHONY: help lint format format-check test test-all unit integration smoke verify-clean-machine check ci clean install-tools
 
 # --- Configuration ---
 
@@ -62,6 +62,7 @@ help: ## Show this help message
 	@echo "  unit          - Fast hermetic tests only"
 	@echo "  integration   - End-to-end against real scripts (offline)"
 	@echo "  smoke         - Drive setup.sh against a throwaway HOME"
+	@echo "  verify-clean-machine - Run the suite as CI would (empty HOME, system bash)"
 	@echo ""
 	@echo "Utility targets:"
 	@echo "  install-tools - Install shellcheck, shfmt, bats-core, GNU parallel"
@@ -106,6 +107,27 @@ integration: ## End-to-end tests against real scripts (offline)
 smoke: ## Drive setup.sh itself against a throwaway HOME
 	@echo "Running smoke lane..."
 	@bats $(BATS_PARALLEL) --filter-tags smoke $(BATS_FILES)
+
+# Reproduce what CI actually runs under, locally.
+#
+# A developer machine lies in two ways CI does not: ~/.claude is installed (so
+# tests that read it pass for the wrong reason) and Homebrew bash is ahead of
+# /bin/bash on PATH (so `env bash` finds 5.x while the macOS runner finds
+# 3.2.57). Both hid real failures until CI went red. This target removes both
+# lies: empty HOME, and bash 3.2 first on PATH when one exists.
+verify-clean-machine: ## Run the suite as a clean machine would (empty HOME, system bash)
+	@tmp="$$(mktemp -d)"; \
+	shim="$$tmp/shim"; mkdir -p "$$shim"; \
+	if [ -x /bin/bash ] && [ "$$(/bin/bash -c 'echo $${BASH_VERSINFO[0]}')" -lt 4 ]; then \
+		ln -sf /bin/bash "$$shim/bash"; \
+		echo "using system bash $$(/bin/bash -c 'echo $$BASH_VERSION')"; \
+	else \
+		echo "no pre-4.x system bash here; running with the default bash"; \
+	fi; \
+	env PATH="$$shim:$$PATH" HOME="$$tmp/home" \
+		XDG_CONFIG_HOME="$$tmp/home/.config" XDG_CACHE_HOME="$$tmp/home/.cache" \
+		$(MAKE) test; \
+	rc=$$?; rm -rf "$$tmp"; exit $$rc
 
 check: lint format-check test ## Run lint + format-check + test
 	@echo ""

@@ -164,7 +164,7 @@ shipped_scripts() {
         [[ -n "$f" ]] || continue
         grep -qE 'stat -c|date -d ' "$f" 2>/dev/null || continue
         grep -qE 'Darwin|darwin|macos|uname|OSTYPE|PLATFORM' "$f" 2>/dev/null && continue
-        grep -qE 'stat -f|date -r|date -j' "$f" 2>/dev/null && continue
+        grep -qE 'stat -f|date -j' "$f" 2>/dev/null && continue
         echo "$f: GNU-only flag with neither platform branch nor BSD fallback"
     done)"
     [ -z "$hits" ] || {
@@ -231,6 +231,24 @@ shipped_scripts() {
     hits="$(cd "$REPO_ROOT" && grep -Hn -E 'PLATFORM=("|\x27)(macos|linux|windows)' tests/*.bats 2>/dev/null || true)"
     [ -z "$hits" ] || {
         echo "PLATFORM pinned to a literal (use detect_test_platform):"
+        echo "$hits"
+        false
+    }
+}
+
+# bats test_tags=unit,portability
+@test "no shipped script uses date -r on an epoch" {
+    # `date -r` is not one flag with one meaning. BSD: format the given epoch.
+    # GNU: read the given FILE's mtime. So `date -r 1700000000` prints a date on
+    # macOS and fails with "No such file" on Linux.
+    local hits
+    hits="$(cd "$REPO_ROOT" && shipped_scripts | while read -r f; do
+        [[ -n "$f" ]] || continue
+        grep -Hn -E 'date -r [^ ]*[0-9]' "$f" 2>/dev/null |
+            grep -v -E '^[^:]+:[0-9]+:[[:space:]]*(#|@test )' || true
+    done)"
+    [ -z "$hits" ] || {
+        echo "date -r on an epoch (BSD-only meaning):"
         echo "$hits"
         false
     }

@@ -127,3 +127,45 @@ detect_test_platform() {
         *) echo "unknown" ;;
     esac
 }
+
+# require_npx <package> -- skip when the npm registry cannot serve <package>.
+#
+# `npx -y <pkg>` is a network fetch. A dozen of them running under `bats --jobs`
+# contend on the registry and fail intermittently — a flaky gate is worse than
+# no gate, because people learn to re-run it instead of reading it. Probe once
+# per suite, cache the verdict in BATS_SUITE_TMPDIR, and skip cleanly when the
+# registry is unreachable so an offline or rate-limited run reports "skipped"
+# rather than "failed".
+require_npx() {
+    local pkg="$1"
+    local marker="${BATS_SUITE_TMPDIR:-${BATS_TEST_TMPDIR}}/.npx-probe-${pkg//[^A-Za-z0-9]/_}"
+
+    if [[ -f "${marker}" ]]; then
+        [[ "$(cat "${marker}")" == "ok" ]] || skip "npm registry unavailable for ${pkg}"
+        return
+    fi
+
+    if command -v npx >/dev/null 2>&1 && npx -y "${pkg}" --help >/dev/null 2>&1; then
+        echo "ok" >"${marker}"
+        return
+    fi
+    echo "unavailable" >"${marker}"
+    skip "npm registry unavailable for ${pkg}"
+}
+
+# wait_for_file <path> [timeout_s] -- poll until <path> exists.
+#
+# For assertions about work a script launched in the background. The producer
+# returns before the child has written, so `[ -f "$f" ]` immediately after is a
+# race: it wins on an idle machine and loses under `bats --jobs`, which looks
+# like flakiness rather than the timing assumption it is.
+wait_for_file() {
+    local path="$1" timeout="${2:-10}"
+    local waited=0
+    while [[ "${waited}" -lt $((timeout * 10)) ]]; do
+        [[ -f "${path}" ]] && return 0
+        sleep 0.1
+        waited=$((waited + 1))
+    done
+    return 1
+}

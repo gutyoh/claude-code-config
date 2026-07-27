@@ -122,7 +122,10 @@ mock_api_failure() {
 @test "try_acquire_lock: recovers stale lock older than LOCK_MAX_AGE_S" {
     mkdir "$LOCK_DIR"
     local target_ts=$(( $(date +%s) - LOCK_MAX_AGE_S - 5 ))
-    touch -t "$(date -r "$target_ts" "+%Y%m%d%H%M.%S" 2>/dev/null)" "$LOCK_DIR" 2>/dev/null
+    # `date -r` means different things per platform: BSD formats an epoch, GNU
+    # reads a FILE's mtime — so `date -r 1700000000` fails on Linux. Use the
+    # python-based helper this file already defines.
+    set_file_mtime "$LOCK_DIR" "$target_ts"
     try_acquire_lock
     [[ -d "$LOCK_DIR" ]]
 }

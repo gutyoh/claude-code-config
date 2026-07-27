@@ -13,8 +13,24 @@ SKILL_DIR="$BATS_TEST_DIRNAME/../.claude/skills/langfuse"
 AGENT_FILE="$BATS_TEST_DIRNAME/../.claude/agents/langfuse-expert.md"
 CLAUDE_MD="$BATS_TEST_DIRNAME/../CLAUDE.md"
 
+# Serialize this file's tests.
+#
+# A dozen `npx -y langfuse-cli` invocations are a dozen registry fetches. Run
+# concurrently under `bats --jobs` they contend and fail intermittently — the
+# work is network-bound, so parallelism buys nothing here and costs
+# determinism. Other files still run in parallel with this one; only the tests
+# *within* it are serialized.
+# https://bats-core.readthedocs.io/en/stable/usage.html
+export BATS_NO_PARALLELIZE_WITHIN_FILE=true
+
 setup() {
     source "$BATS_TEST_DIRNAME/helpers.bash"
+}
+
+# Tests that shell out to `npx -y langfuse-cli` are network-dependent. Guard
+# them so a rate-limited or offline run skips instead of failing the gate.
+setup_npx() {
+    require_npx langfuse-cli
 }
 
 # ==========================================================================
@@ -265,6 +281,7 @@ setup() {
 # ==========================================================================
 
 @test "integration: langfuse-cli is available via npx" {
+    setup_npx
     # This verifies npx can resolve the package (may download on first run)
     run npx -y langfuse-cli --help
     [ "$status" -eq 0 ]
@@ -272,6 +289,7 @@ setup() {
 }
 
 @test "integration: langfuse-cli api __schema lists resources" {
+    setup_npx
     run npx -y langfuse-cli api __schema
     [ "$status" -eq 0 ]
     [[ "$output" == *"Resources:"* ]]
@@ -281,6 +299,7 @@ setup() {
 }
 
 @test "integration: langfuse-cli api traces --help shows list action" {
+    setup_npx
     run npx -y langfuse-cli api traces --help
     [ "$status" -eq 0 ]
     [[ "$output" == *"list"* ]]
@@ -288,6 +307,7 @@ setup() {
 }
 
 @test "integration: langfuse-cli api prompts --help shows CRUD actions" {
+    setup_npx
     run npx -y langfuse-cli api prompts --help
     [ "$status" -eq 0 ]
     [[ "$output" == *"list"* ]]
@@ -296,6 +316,7 @@ setup() {
 }
 
 @test "integration: langfuse-cli api traces list --help shows filter options" {
+    setup_npx
     run npx -y langfuse-cli api traces list --help
     [ "$status" -eq 0 ]
     [[ "$output" == *"--limit"* ]]
@@ -304,6 +325,7 @@ setup() {
 }
 
 @test "integration: langfuse-cli api traces list --curl generates valid curl" {
+    setup_npx
     # Use dummy credentials to generate curl preview without executing
     run npx -y langfuse-cli \
         --host https://example.com --public-key pk-test --secret-key sk-test \
@@ -326,6 +348,7 @@ langfuse_available() {
 }
 
 @test "integration-live: health check passes (requires running Langfuse)" {
+    setup_npx
     if ! langfuse_available; then
         skip "Langfuse not available (set LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_HOST)"
     fi
@@ -335,6 +358,7 @@ langfuse_available() {
 }
 
 @test "integration-live: traces list returns valid JSON (requires running Langfuse)" {
+    setup_npx
     if ! langfuse_available; then
         skip "Langfuse not available (set LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_HOST)"
     fi
@@ -345,6 +369,7 @@ langfuse_available() {
 }
 
 @test "integration-live: prompts list returns valid JSON (requires running Langfuse)" {
+    setup_npx
     if ! langfuse_available; then
         skip "Langfuse not available (set LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_HOST)"
     fi
@@ -354,6 +379,7 @@ langfuse_available() {
 }
 
 @test "integration-live: sessions list returns valid JSON (requires running Langfuse)" {
+    setup_npx
     if ! langfuse_available; then
         skip "Langfuse not available (set LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_HOST)"
     fi
@@ -363,6 +389,7 @@ langfuse_available() {
 }
 
 @test "integration-live: trace get by ID works (requires running Langfuse with traces)" {
+    setup_npx
     if ! langfuse_available; then
         skip "Langfuse not available (set LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_HOST)"
     fi

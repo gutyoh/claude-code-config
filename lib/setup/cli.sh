@@ -70,19 +70,34 @@ parse_arguments() {
                     exit 1
                 fi
                 INSTALL_MCP_SERVERS=()
+                # MCP_SERVER_KEYS comes from lib/setup/mcp.sh. Under bash 3.2 —
+                # which is what macOS ships and therefore what `env bash` finds
+                # when no newer bash is on PATH — expanding an unset or empty
+                # array as "${a[@]}" under `set -u` is an "unbound variable"
+                # error. bash 4.4+ allows it. Resolve the list defensively so
+                # parse_arguments works standalone (tests source cli.sh without
+                # the rest of setup.sh) and on either bash.
+                local _available_mcp_keys=()
+                if declare -p MCP_SERVER_KEYS >/dev/null 2>&1; then
+                    _available_mcp_keys=(${MCP_SERVER_KEYS[@]+"${MCP_SERVER_KEYS[@]}"})
+                fi
+                if [[ ${#_available_mcp_keys[@]} -eq 0 ]]; then
+                    _available_mcp_keys=("brave-search" "tavily")
+                fi
+
                 IFS=',' read -ra _mcp_items <<<"$2"
                 local _mcp_item
                 for _mcp_item in "${_mcp_items[@]}"; do
                     local _mcp_valid=false
                     local _mcp_key
-                    for _mcp_key in "${MCP_SERVER_KEYS[@]}"; do
+                    for _mcp_key in "${_available_mcp_keys[@]}"; do
                         if [[ "${_mcp_item}" == "${_mcp_key}" ]]; then
                             _mcp_valid=true
                             break
                         fi
                     done
                     if [[ "${_mcp_valid}" == "false" ]]; then
-                        echo "Error: Unknown MCP server '${_mcp_item}'. Available: ${MCP_SERVER_KEYS[*]}"
+                        echo "Error: Unknown MCP server '${_mcp_item}'. Available: ${_available_mcp_keys[*]}"
                         exit 1
                     fi
                     INSTALL_MCP_SERVERS+=("${_mcp_item}")

@@ -1162,6 +1162,14 @@ This repo installs onto other people's machines, so nothing shipped may depend o
 | `make smoke` | Runs `setup.sh` itself against a throwaway `HOME` | ~5s |
 | `make test` | Everything (the merge gate) | ~45s |
 | `make check` | `lint` + `format-check` + `test` | ~50s |
+| `make verify-clean-machine` | The whole suite as CI sees it | ~60s |
+
+**Run `make verify-clean-machine` before pushing.** A developer machine lies in
+two ways CI does not: `~/.claude` is already installed, so tests that read it
+pass for the wrong reason; and Homebrew bash sits ahead of `/bin/bash` on
+`PATH`, so `env bash` finds 5.x while the macOS runner finds 3.2.57. That
+target removes both — empty `HOME`, system bash first — and is the difference
+between catching a portability break locally and finding it in CI.
 
 Lanes are bats tag filters (`--filter-tags`), so a test belongs to a lane by its `# bats test_tags=` or file-level `# bats file_tags=` directive.
 
@@ -1189,6 +1197,11 @@ Call `isolate_home` first in `setup()`. A test that shells out to a real binary 
 - GNU-only flags (`stat -c`, `date -d`) with neither a platform branch nor a BSD fallback
 - shebangs that hardcode an interpreter path instead of using `env`
 - an active absolute `command =` in a shipped Ghostty preset
+- `stat -f … || stat -c …`, which reads as a BSD-then-GNU fallback but is not: on GNU coreutils `-f` means `--file-system`, so the first call *succeeds* and the `||` never fires
+- `date -r <epoch>`, which formats that epoch on BSD but reads a *file's* mtime on GNU
+- a personal directory convention (`~/Documents/dev`, `~/src`) used as a default rather than inside a probe list
+- `PLATFORM` pinned to a literal in a test, which forces the wrong `stat`/`date` branch on every other OS
+- a GitHub Action referenced by tag instead of a full commit SHA
 
 ### bash version
 
@@ -1199,6 +1212,10 @@ A guard at the top of `setup.sh` re-execs into a newer bash when one exists, and
 ### CI
 
 `.github/workflows/ci.yml` runs lint and format on Ubuntu, then all three lanes on **both** `ubuntu-latest` and `macos-latest`. `fail-fast: false` so a macOS-only failure is never masked by cancelling on the Linux result — the cross-platform signal is the whole point of the matrix.
+
+Every action is pinned to a full commit SHA. A tag is mutable: when `tj-actions/changed-files` was compromised in 2025, the attacker moved 350+ tags to a malicious commit and every repository pinned by tag executed it with access to the runner.
+
+Tests that shell out over the network (`npx -y …`) probe once per suite and **skip** when the registry is unreachable, rather than failing. A flaky gate is worse than no gate — people learn to re-run it instead of reading it.
 
 ## Official Documentation
  
