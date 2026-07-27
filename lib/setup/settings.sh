@@ -415,6 +415,37 @@ ensure_bash_profile_sources_bashrc() {
     return 0
 }
 
+# Write a managed fish file, unless the user owns it.
+#
+# The POSIX branch delimits its block with markers and refuses to rewrite when
+# they are not intact. The fish branch had no equivalent: it wrote each function
+# with `cat >`, so a hand-customised claude.fish was replaced without a word.
+# That is the same silent-destruction failure the markers exist to prevent, and
+# fish users are exactly the people likely to have customised these, since until
+# recently setup.sh never installed them at all.
+#
+# Every file this function generates carries MANAGED_MARKER. Its presence means
+# we wrote it and may regenerate it; its absence means someone else did.
+MANAGED_MARKER="Managed by claude-code-config setup.sh"
+
+_write_managed_fish() {
+    local target="$1" label="$2"
+
+    if [[ -f "${target}" ]] && ! grep -qF "${MANAGED_MARKER}" "${target}" 2>/dev/null; then
+        local backup
+        backup="${target}.bak.$(date +%s)"
+        cp "${target}" "${backup}" 2>/dev/null || true
+        cat >/dev/null # drain the heredoc we were given, so the caller still works
+        echo "  ⚠ ${target} was not written by setup.sh — leaving it alone."
+        echo "    Backup: ${backup}"
+        echo "    Delete or rename it and re-run setup to install the managed ${label}."
+        return 0
+    fi
+
+    cat >"${target}"
+    echo "  ✓ ${label} → ${target}"
+}
+
 configure_fish_shell() {
     local bin_dir="$1"
     local fish_dir="${XDG_CONFIG_HOME:-${HOME}/.config}/fish"
@@ -431,14 +462,14 @@ configure_fish_shell() {
     local fish_bin_dir="${bin_dir//\\/\\\\}"
     fish_bin_dir="${fish_bin_dir//\'/\\\'}"
 
-    cat >"${path_file}" <<EOF
+    _write_managed_fish "${path_file}" "proxy launcher PATH" <<EOF
 # claude-code-config: proxy launcher PATH
-# Managed by setup.sh — regenerated on each run. fish_add_path is idempotent
-# and silently skips directories that do not exist.
+# Managed by claude-code-config setup.sh — regenerated on each run.
+# fish_add_path is idempotent and silently skips missing directories.
 fish_add_path -ga '${fish_bin_dir}'
 EOF
 
-    cat >"${functions_dir}/claude.fish" <<'EOF'
+    _write_managed_fish "${functions_dir}/claude.fish" "claude function" <<'EOF'
 function claude --description 'Claude Code with proxy launcher defaults'
     # Managed by claude-code-config setup.sh.
     # Defaults to --allow-dangerously-skip-permissions; opt in to
@@ -458,7 +489,7 @@ function claude --description 'Claude Code with proxy launcher defaults'
 end
 EOF
 
-    cat >"${functions_dir}/clp.fish" <<'EOF'
+    _write_managed_fish "${functions_dir}/clp.fish" "clp function" <<'EOF'
 function clp --description 'Claude proxy with model'
     # Managed by claude-code-config setup.sh.
 
@@ -479,8 +510,6 @@ function clp --description 'Claude proxy with model'
 end
 EOF
 
-    echo "  ✓ Proxy launcher PATH added to ${path_file}"
-    echo "  ✓ Claude launch shortcuts configured in ${functions_dir}"
     echo ""
     echo "  Open a new terminal (or 'exec fish'), then:"
     echo "    claude --help"

@@ -246,3 +246,80 @@ fish_config_dir() {
         false
     }
 }
+
+# --- The installer must not clobber a hand-owned function -------------------
+#
+# The POSIX branch delimits its block with markers and refuses to rewrite when
+# they are not intact. The fish branch wrote each function with `cat >`, so a
+# customised claude.fish was replaced with no warning — the same silent
+# destruction the markers exist to prevent. fish users are the likeliest to have
+# customised these, because until recently setup.sh never installed them.
+
+# bats test_tags=integration,fish
+@test "an unmanaged claude.fish is preserved, not overwritten" {
+    local fdir="${XDG_CONFIG_HOME}/fish/functions"
+    mkdir -p "$fdir"
+    cat >"$fdir/claude.fish" <<'FISH'
+function claude --description 'hand written, do not clobber'
+    set -l sentinel PRESERVE_ME
+    command claude $argv
+end
+FISH
+    local before
+    before="$(cat "$fdir/claude.fish")"
+
+    run bash -c "
+        REPO_DIR='$REPO_DIR'
+        CLAUDE_CONFIG_SHELL='$FISH_SHELL'
+        source '$SETTINGS_SH'
+        configure_proxy_path
+    "
+    [ "$status" -eq 0 ]
+
+    [ "$(cat "$fdir/claude.fish")" = "$before" ] || {
+        echo "the installer overwrote a file it did not write"
+        false
+    }
+    grep -q 'PRESERVE_ME' "$fdir/claude.fish"
+    [[ "$output" == *"was not written by setup.sh"* ]]
+    ls "$fdir"/claude.fish.bak.* >/dev/null 2>&1
+}
+
+# bats test_tags=integration,fish
+@test "a managed claude.fish is regenerated on re-run" {
+    run bash -c "
+        REPO_DIR='$REPO_DIR'
+        CLAUDE_CONFIG_SHELL='$FISH_SHELL'
+        source '$SETTINGS_SH'
+        configure_proxy_path
+    "
+    [ "$status" -eq 0 ]
+    grep -q 'Managed by claude-code-config setup.sh' "$(fish_config_dir)/functions/claude.fish"
+
+    # Second run must update it in place rather than refuse.
+    run bash -c "
+        REPO_DIR='$REPO_DIR'
+        CLAUDE_CONFIG_SHELL='$FISH_SHELL'
+        source '$SETTINGS_SH'
+        configure_proxy_path
+    "
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"was not written by setup.sh"* ]]
+    [ "$(grep -c '^function claude ' "$(fish_config_dir)/functions/claude.fish")" -eq 1 ]
+}
+
+# bats test_tags=integration,fish
+@test "the generated PATH file is recognised as managed on re-run" {
+    for _ in 1 2; do
+        run bash -c "
+            REPO_DIR='$REPO_DIR'
+            CLAUDE_CONFIG_SHELL='$FISH_SHELL'
+            source '$SETTINGS_SH'
+            configure_proxy_path
+        "
+        [ "$status" -eq 0 ]
+    done
+    [[ "$output" != *"was not written by setup.sh"* ]]
+    local pf="$(fish_config_dir)/conf.d/00-claude-code-config-path.fish"
+    [ "$(grep -c '^fish_add_path ' "$pf")" -eq 1 ]
+}
