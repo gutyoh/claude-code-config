@@ -269,3 +269,74 @@ route_for() {
     [ "$status" -eq 0 ]
     [ ! -f "${HOME}/.bash_profile" ]
 }
+
+# --- $USER is not guaranteed to exist ---------------------------------------
+
+# bats test_tags=unit,portability
+@test "detection survives an unset \$USER instead of falling back to \$SHELL" {
+    # Docker, cron, systemd units and `sudo` without -E all reach here with no
+    # $USER. Every database lookup then queried an empty username, failed, and
+    # detection fell through to $SHELL — silently reinstating the exact bug this
+    # function exists to prevent, while still reporting success.
+    stub_bin dscl 'echo "UserShell: /PLACEHOLDER/bin/fish"'
+    stub_bin getent 'echo "u:x:1:1::/PLACEHOLDER/u:/PLACEHOLDER/bin/fish"'
+    export PATH
+
+    run env -u USER SHELL=/bin/zsh bash -c "
+        set -euo pipefail
+        source '$SETTINGS_SH'
+        detect_login_shell
+    "
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"unbound variable"* ]] || {
+        echo "crashed on unset USER: $output"
+        false
+    }
+    [[ "$output" != "/bin/zsh" ]] || {
+        echo "fell back to \$SHELL instead of asking the system: $output"
+        false
+    }
+}
+
+# --- A new ~/.bash_profile must not shadow an existing ~/.profile ------------
+
+# bats test_tags=integration,portability
+@test "the bash bridge does not orphan an existing ~/.profile" {
+    # A bash login shell reads the FIRST of ~/.bash_profile, ~/.bash_login,
+    # ~/.profile and stops. Creating ~/.bash_profile on a machine that only had
+    # ~/.profile — the Debian/Ubuntu default — silently stops the user's exports
+    # from loading. Same silent-failure class the bridge was written to fix.
+    printf 'export MY_IMPORTANT_VAR=from_profile\n' >"${HOME}/.profile"
+    printf '# user bashrc\n' >"${HOME}/.bashrc"
+
+    run bash -c "
+        REPO_DIR='$REPO_DIR'
+        CLAUDE_CONFIG_SHELL=/bin/bash
+        source '$SETTINGS_SH'
+        configure_proxy_path
+    "
+    [ "$status" -eq 0 ]
+
+    run env -i HOME="$HOME" PATH=/usr/bin:/bin bash -l -i -c 'echo "V=[$MY_IMPORTANT_VAR]"'
+    [[ "$output" == *"V=[from_profile]"* ]] || {
+        echo "~/.profile stopped loading after the bridge was added: $output"
+        false
+    }
+}
+
+# bats test_tags=unit,portability
+@test "an existing ~/.bash_profile is not given a ~/.profile line" {
+    # If the user already had a .bash_profile, .profile was already shadowed by
+    # their own choice. Not ours to change.
+    printf 'export X=1\n' >"${HOME}/.profile"
+    printf '# my own bash_profile\n' >"${HOME}/.bash_profile"
+
+    run bash -c "
+        REPO_DIR='$REPO_DIR'
+        CLAUDE_CONFIG_SHELL=/bin/bash
+        source '$SETTINGS_SH'
+        configure_proxy_path
+    "
+    [ "$status" -eq 0 ]
+    [ "$(grep -c '\.profile' "${HOME}/.bash_profile")" -eq 0 ]
+}

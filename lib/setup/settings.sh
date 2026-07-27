@@ -196,17 +196,30 @@ detect_login_shell() {
 
     local found=""
 
+    # $USER is not guaranteed to be exported — Docker, cron, systemd units and
+    # `sudo` without -E all reach here without it. `id -un` asks the system
+    # instead of trusting the environment. Without this the lookups below query
+    # an empty username, every one fails, and detection falls through to $SHELL:
+    # silently re-introducing the exact bug this function exists to fix, while
+    # still reporting success.
+    local user="${USER:-}"
+    [[ -z "${user}" ]] && user="$(id -un 2>/dev/null || true)"
+    if [[ -z "${user}" ]]; then
+        printf '%s\n' "${SHELL:-}"
+        return
+    fi
+
     # macOS: OpenDirectory, not /etc/passwd.
     if command -v dscl >/dev/null 2>&1; then
-        found="$(dscl . -read "/Users/${USER}" UserShell 2>/dev/null | awk '{print $2}')"
+        found="$(dscl . -read "/Users/${user}" UserShell 2>/dev/null | awk '{print $2}')"
     fi
 
     # Linux / BSD: nsswitch-aware lookup, then the flat file.
     if [[ -z "${found}" ]] && command -v getent >/dev/null 2>&1; then
-        found="$(getent passwd "${USER}" 2>/dev/null | cut -d: -f7)"
+        found="$(getent passwd "${user}" 2>/dev/null | cut -d: -f7)"
     fi
     if [[ -z "${found}" && -r /etc/passwd ]]; then
-        found="$(awk -F: -v u="${USER}" '$1 == u { print $7 }' /etc/passwd 2>/dev/null | head -1)"
+        found="$(awk -F: -v u="${user}" '$1 == u { print $7 }' /etc/passwd 2>/dev/null | head -1)"
     fi
 
     # Last resort. Better than nothing, but see the caveat above.
@@ -380,12 +393,26 @@ ensure_bash_profile_sources_bashrc() {
         return 0
     fi
 
-    cat >>"${profile}" <<EOF
+    # Creating ~/.bash_profile is not a neutral act. A bash login shell reads the
+    # FIRST of ~/.bash_profile, ~/.bash_login, ~/.profile and stops — so on a
+    # machine that has only ~/.profile (the Debian/Ubuntu default) this file
+    # shadows it, and the user's exports silently stop loading. Carry ~/.profile
+    # forward when we are the ones introducing the file.
+    local carry=""
+    if [[ ! -f "${profile}" && ! -f "${HOME}/.bash_login" && -f "${HOME}/.profile" ]]; then
+        carry='[ -f "${HOME}/.profile" ] && . "${HOME}/.profile"'
+    fi
 
-${marker}
-[ -f "\${HOME}/.bashrc" ] && . "\${HOME}/.bashrc"
-EOF
+    {
+        printf '\n%s\n' "${marker}"
+        [[ -n "${carry}" ]] && printf '%s\n' "${carry}"
+        printf '%s\n' '[ -f "${HOME}/.bashrc" ] && . "${HOME}/.bashrc"'
+    } >>"${profile}"
+
     echo "  ✓ ${profile} now sources ~/.bashrc (macOS terminals start login shells)"
+    [[ -n "${carry}" ]] \
+        && echo "    (and ~/.profile, which a new ~/.bash_profile would otherwise shadow)"
+    return 0
 }
 
 configure_fish_shell() {
@@ -397,11 +424,18 @@ configure_fish_shell() {
 
     mkdir -p "${functions_dir}" "${confd_dir}"
 
+    # Single-quote the path for fish. Unquoted, a clone under a directory with a
+    # space becomes two arguments, fish_add_path finds neither, and — because it
+    # skips missing directories silently — the entry is dropped with no error.
+    # In fish single quotes only \ and ' are special, so escaping those is enough.
+    local fish_bin_dir="${bin_dir//\\/\\\\}"
+    fish_bin_dir="${fish_bin_dir//\'/\\\'}"
+
     cat >"${path_file}" <<EOF
 # claude-code-config: proxy launcher PATH
 # Managed by setup.sh — regenerated on each run. fish_add_path is idempotent
 # and silently skips directories that do not exist.
-fish_add_path -ga ${bin_dir}
+fish_add_path -ga '${fish_bin_dir}'
 EOF
 
     cat >"${functions_dir}/claude.fish" <<'EOF'

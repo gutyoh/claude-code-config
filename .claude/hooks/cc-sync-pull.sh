@@ -46,8 +46,8 @@ mkdir -p "$(dirname "${LOG}")" 2>/dev/null
 
 # Run "$@" under a wall-clock bound when a timeout binary exists. GNU coreutils
 # ships `timeout`, Homebrew's coreutils ships `gtimeout`, stock macOS has
-# neither — there the command runs unbounded, which the detached default makes
-# harmless.
+# neither — there the command runs unbounded. Only the blocking path uses this;
+# see sync_once for why the detached transfer must not be capped.
 run_bounded() {
     if command -v timeout >/dev/null 2>&1; then
         timeout --foreground --kill-after=5s "${TIMEOUT_SEC}s" "$@"
@@ -60,8 +60,22 @@ run_bounded() {
 
 sync_once() {
     echo "--- $(date -u +%FT%TZ) cc-sync-pull start (blocking=${BLOCKING}) ---"
-    run_bounded claude-sync pull -q --force
-    local rc=$?
+
+    # The bound exists to protect session startup, so it applies only when we are
+    # actually holding startup up. A detached transfer blocks nothing, and a full
+    # pull over a large tracked set routinely runs longer than any bound short
+    # enough to be useful in the foreground — capping it there would kill every
+    # pull just before it finished and leave the remote permanently unmerged,
+    # which is the failure this hook exists to prevent.
+    local rc
+    if [[ "${BLOCKING}" == "1" ]]; then
+        run_bounded claude-sync pull -q --force
+        rc=$?
+    else
+        claude-sync pull -q --force
+        rc=$?
+    fi
+
     echo "claude-sync pull exit=${rc}"
     if [[ "${rc}" -eq 124 ]]; then
         echo "  timed out after ${TIMEOUT_SEC}s — retrying next session"

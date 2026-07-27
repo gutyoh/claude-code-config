@@ -218,3 +218,31 @@ fish_config_dir() {
         }
     done
 }
+
+# bats test_tags=integration,fish
+@test "the fish PATH entry survives a repo path containing a space" {
+    # Unquoted, `fish_add_path -ga /a/b c/bin` is two arguments; fish_add_path
+    # skips missing directories silently, so the entry vanishes with no error.
+    require_cmd fish
+    local spaced="${BATS_TEST_TMPDIR}/has space/repo"
+    mkdir -p "${spaced}/bin"
+
+    run bash -c "
+        REPO_DIR='$spaced'
+        CLAUDE_CONFIG_SHELL=/usr/bin/fish
+        source '$SETTINGS_SH'
+        configure_proxy_path
+    "
+    [ "$status" -eq 0 ]
+
+    local path_file="$(fish_config_dir)/conf.d/00-claude-code-config-path.fish"
+    run fish -n "$path_file"
+    [ "$status" -eq 0 ]
+
+    run fish -c "source '$path_file'; contains '${spaced}/bin' \$PATH; and echo PRESENT"
+    [[ "$output" == *"PRESENT"* ]] || {
+        echo "PATH entry was dropped for a spaced path:"
+        cat "$path_file"
+        false
+    }
+}

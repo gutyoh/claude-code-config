@@ -134,7 +134,7 @@ Prefer **abbreviations** in 2026.
 
 ```fish
 abbr -a ls eza               # typing `ls<space>` expands to `eza<space>`
-alias dbtf=$HOME/.local/bin/dbt   # use only when expansion isn't enough
+alias ll 'eza -la --git'          # use only when expansion isn't enough
 ```
 
 | | Abbreviation | Alias |
@@ -242,8 +242,6 @@ sudo dscl . -create /Users/$(whoami) UserShell /bin/zsh
 
 See `docs/fish/`:
 
-- `config-minimal/`     — single-file, server-friendly
-- `config-recommended/` — modular, sensible defaults
 - `config-power-user/`  — full integrations (Claude Code, mise, bun, dbt, etc.)
 
 ## Troubleshooting

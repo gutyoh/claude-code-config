@@ -311,19 +311,26 @@ NO_VALIDATE="false"
 #
 # No single default is right for everyone: where people keep clones is a
 # personal layout choice, so probe the common ones and take the first that
-# exists. The last entry is the fallback used when nothing is found, so the
-# error message still names a concrete path.
+# EXISTS. A candidate only ever wins by being present on this machine.
+#
+# When nothing is found we fall back to the XDG data dir rather than to whatever
+# happened to be last in the list — otherwise the "not found" message advertises
+# one contributor's directory habit as though it were the expected location.
 if [[ -z "${CLI_PROXY_DIR:-}" ]]; then
+    _cli_proxy_default="${XDG_DATA_HOME:-${HOME}/.local/share}/CLIProxyAPI"
+    CLI_PROXY_DIR="${_cli_proxy_default}"
     for _cli_proxy_candidate in \
-        "${XDG_DATA_HOME:-${HOME}/.local/share}/CLIProxyAPI" \
+        "${_cli_proxy_default}" \
         "${HOME}/src/CLIProxyAPI" \
         "${HOME}/repos/CLIProxyAPI" \
         "${HOME}/projects/CLIProxyAPI" \
         "${HOME}/Documents/dev/CLIProxyAPI"; do
-        CLI_PROXY_DIR="${_cli_proxy_candidate}"
-        [[ -d "${CLI_PROXY_DIR}" ]] && break
+        if [[ -d "${_cli_proxy_candidate}" ]]; then
+            CLI_PROXY_DIR="${_cli_proxy_candidate}"
+            break
+        fi
     done
-    unset _cli_proxy_candidate
+    unset _cli_proxy_candidate _cli_proxy_default
 fi
 export CLI_PROXY_DIR
 

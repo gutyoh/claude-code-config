@@ -26,15 +26,34 @@ shipped_scripts() {
         tr '\0' '\n' | grep -v '^docs/' | sort -u || true
 }
 
+# The fish presets under docs/ are copied verbatim onto user machines, so they
+# are shipped config, not prose — a personal path in one lands on every machine
+# that adopts the preset. They were outside shipped_scripts (which drops all of
+# docs/ so that .md examples may name absolute paths), which is how a personal
+# tool alias shipped in a preset. Scan them for the content guards below.
+shipped_configs() {
+    git -C "$REPO_ROOT" ls-files -z --cached --others --exclude-standard \
+        -- 'docs/**/*.fish' 2>/dev/null | tr '\0' '\n' | sort -u || true
+}
+
+# Everything whose literal content is installed somewhere.
+all_shipped() {
+    { shipped_scripts; shipped_configs; } | sort -u
+}
+
 # --- Hardcoded home directories -------------------------------------------
 
 # bats test_tags=unit,portability
 @test "no shipped script hardcodes a user home directory" {
+    # Case-insensitive: usernames are not always lowercase, and a guard that
+    # only matches [a-z] waves through a capitalised one — exactly the shape it
+    # exists to catch.
     local hits
-    hits="$(cd "$REPO_ROOT" && shipped_scripts | while read -r f; do
+    hits="$(cd "$REPO_ROOT" && all_shipped | while read -r f; do
         [[ -n "$f" ]] || continue
-        grep -Hn -E '/(Users|home)/[a-z][a-z0-9_-]*' "$f" 2>/dev/null |
-            grep -v -E '(<user>|\$\{?USER|/home/linuxbrew|example|placeholder)' || true
+        grep -Hn -iE '/(Users|home)/[a-z][a-z0-9_-]*' "$f" 2>/dev/null |
+            grep -v -E '^[^:]+:[0-9]+:[[:space:]]*(#|@test )' |
+            grep -v -iE '(<user>|\$\{?USER|/home/linuxbrew|example|placeholder|/Users/you)' || true
     done)"
     [ -z "$hits" ] || {
         echo "Hardcoded home directories found:"
@@ -69,8 +88,10 @@ shipped_scripts() {
     # Naming one inside a probe list that offers alternatives is fine — that is
     # how you find an existing clone. Defaulting to one is not.
     local hits
-    hits="$(cd "$REPO_ROOT" && shipped_scripts | while read -r f; do
+    hits="$(cd "$REPO_ROOT" && all_shipped | while read -r f; do
         [[ -n "$f" ]] || continue
+        # Documents/Desktop/Downloads are personal layout. ~/.local/bin is NOT —
+        # it is the freedesktop convention for user binaries, so it stays allowed.
         grep -qE '\$\{?HOME\}?/(Documents|Desktop|Downloads)/' "$f" 2>/dev/null || continue
         # A probe list mentions XDG or several candidates.
         grep -qE 'XDG_DATA_HOME|XDG_CONFIG_HOME|candidate' "$f" 2>/dev/null ||
@@ -389,3 +410,39 @@ shipped_scripts() {
     [[ "$output" == *"42%"* ]]
 }
 
+
+# --- Docs must not advertise things that do not ship -------------------------
+
+# bats test_tags=unit,portability
+@test "docs reference no preset directory that is missing from the tree" {
+    # Two fish presets were listed in three places and never existed, sending
+    # readers to look for directories that were never written.
+    local hits=""
+    local ref dir
+    while read -r ref; do
+        [[ -n "$ref" ]] || continue
+        dir="$REPO_ROOT/docs/fish/${ref}"
+        [[ -d "$dir" ]] || hits="${hits}missing docs/fish/${ref}"$'\n'
+    done < <(grep -rhoE 'config-(minimal|recommended|power-user)/' \
+        "$REPO_ROOT/README.md" "$REPO_ROOT/docs/fish/README.md" \
+        "$REPO_ROOT/docs/how-to-configure-fish.md" 2>/dev/null | sort -u)
+
+    [ -z "$hits" ] || {
+        echo "Docs advertise fish presets that do not exist:"
+        echo "$hits"
+        false
+    }
+}
+
+# bats test_tags=unit,portability
+@test "no doc links to a repository that does not exist" {
+    # sammcj/claude-sync was linked as the tool's home and 404s; the real
+    # package is @tawandotorg/claude-sync (github.com/tawanorg/claude-sync).
+    local hits
+    hits="$(grep -rn 'sammcj/claude-sync' "$REPO_ROOT/README.md" "$REPO_ROOT/docs/" 2>/dev/null || true)"
+    [ -z "$hits" ] || {
+        echo "Link to a non-existent repository:"
+        echo "$hits"
+        false
+    }
+}

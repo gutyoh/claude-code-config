@@ -1,13 +1,14 @@
 # Fish Shell Configuration
 
-Modular Fish configuration presets, mirroring the structure of `docs/ghostty/`.
+Modular Fish configuration preset, mirroring the structure of `docs/ghostty/`.
+
+`setup.sh` installs the `claude` / `clp` functions and the PATH entry natively when your
+login shell is fish; the files here are the reference for a manual/copy install.
 
 ## Available Presets
 
 | Preset | Layout | Best for |
 |--------|--------|----------|
-| `config-minimal/`        | single `config.fish` | Servers, throwaway boxes |
-| `config-recommended/`    | modular `conf.d/` + `functions/` | Most users |
 | `config-power-user/`     | full modular layout with all integrations | Daily driver — Claude Code, mise, bun, dbt, etc. |
 
 ## Layout Conventions (Modular Presets)

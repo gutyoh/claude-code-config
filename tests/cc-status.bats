@@ -162,7 +162,7 @@ set_file_mtime() {
     end=$("${_PY}" -c "import time; print(int(time.time() * 1000))")
     elapsed=$((end - start))
     # Should return in <500ms (not 10s), proving async
-    [[ "$elapsed" -lt 500 ]]
+    [[ "$elapsed" -lt "$(perf_threshold_ms 500)" ]]
     [[ "$DATA_CC_STATUS" == "partial" ]]
 }
 
@@ -175,8 +175,9 @@ set_file_mtime() {
     collect_service_status
     # This render gets stale "on"
     [[ "$DATA_CC_STATUS" == "on" ]]
-    # Wait for background fetch to complete
-    sleep 1
+    # Wait for the background fetch to land. A fixed sleep here is a bet on
+    # scheduler latency: it passes locally and fails on a loaded CI runner.
+    wait_for_content "${STATUS_CACHE_FILE}" outage 15
     # Next render should get "outage" from cache
     DATA_CC_STATUS=""
     collect_service_status
@@ -193,7 +194,7 @@ set_file_mtime() {
     collect_service_status
     end=$("${_PY}" -c "import time; print(int(time.time() * 1000))")
     elapsed=$((end - start))
-    [[ "$elapsed" -lt 500 ]]
+    [[ "$elapsed" -lt "$(perf_threshold_ms 500)" ]]
     [[ -z "$DATA_CC_STATUS" ]]
 }
 
@@ -205,7 +206,7 @@ set_file_mtime() {
     collect_service_status
     end=$("${_PY}" -c "import time; print(int(time.time() * 1000))")
     elapsed=$((end - start))
-    [[ "$elapsed" -lt 500 ]]
+    [[ "$elapsed" -lt "$(perf_threshold_ms 500)" ]]
     [[ -z "$DATA_CC_STATUS" ]]
 }
 

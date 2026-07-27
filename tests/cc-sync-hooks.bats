@@ -370,3 +370,50 @@ JSON
         "${HOME}/.claude/settings.json")
     [ "$n" -eq 0 ]
 }
+
+# --- The detached transfer must not be capped -------------------------------
+#
+# Regression: sync_once() applied run_bounded on BOTH paths, so the detached
+# child inherited the 10s startup bound. On any machine with GNU timeout (or
+# Homebrew gtimeout) a pull that legitimately runs longer was SIGTERMed every
+# session — exit 124, remote never merged. The hook returned fast, so the bug
+# looked like a fix: startup was instant and the sync silently never completed.
+
+# bats test_tags=integration,sync
+@test "detached pull is NOT killed by the startup timeout" {
+    if ! command -v timeout >/dev/null 2>&1 && ! command -v gtimeout >/dev/null 2>&1; then
+        skip "no timeout binary — nothing could cap the transfer here anyway"
+    fi
+    # Comfortably longer than the 10s default bound.
+    stub_bin claude-sync 'sleep 13; exit 0'
+
+    run bash -c "echo '{}' | '$PULL_SCRIPT'"
+    [ "$status" -eq 0 ]
+
+    wait_for_log "${HOME}/.claude/cc-sync-pull.log" 'pull exit=' 40
+    run grep -c 'pull exit=0' "${HOME}/.claude/cc-sync-pull.log"
+    [ "$output" -ge 1 ] || {
+        echo "detached pull did not complete:"
+        cat "${HOME}/.claude/cc-sync-pull.log"
+        false
+    }
+    ! grep -q 'pull exit=124' "${HOME}/.claude/cc-sync-pull.log"
+}
+
+# bats test_tags=integration,sync
+@test "blocking pull is still bounded by CC_SYNC_TIMEOUT_SEC" {
+    # The bound has to stay where it matters: blocking mode holds up startup.
+    if ! command -v timeout >/dev/null 2>&1 && ! command -v gtimeout >/dev/null 2>&1; then
+        skip "GNU timeout not available"
+    fi
+    stub_slow_bin claude-sync 60
+
+    local start end
+    start=$(date +%s)
+    run bash -c "echo '{}' | CC_SYNC_BLOCKING=1 CC_SYNC_TIMEOUT_SEC=2 '$PULL_SCRIPT'"
+    end=$(date +%s)
+
+    [ "$status" -eq 0 ]
+    [ $((end - start)) -lt 15 ]
+    grep -q 'timed out after 2s' "${HOME}/.claude/cc-sync-pull.log"
+}

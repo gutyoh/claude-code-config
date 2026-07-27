@@ -170,6 +170,24 @@ wait_for_file() {
     return 1
 }
 
+# wait_for_content <path> <pattern> [timeout_s] -- poll until <path> matches.
+#
+# Same reasoning as wait_for_file, one step further: the file already exists and
+# a background writer is expected to CHANGE it. A fixed `sleep 1` before reading
+# is a bet on scheduler latency — it wins on an idle machine and loses on a
+# shared CI runner under `bats --jobs`, where it reads the old value and looks
+# like a product bug rather than the timing assumption it is.
+wait_for_content() {
+    local path="$1" pattern="$2" timeout="${3:-10}"
+    local waited=0
+    while [[ "${waited}" -lt $((timeout * 10)) ]]; do
+        [[ -f "${path}" ]] && grep -q "${pattern}" "${path}" 2>/dev/null && return 0
+        sleep 0.1
+        waited=$((waited + 1))
+    done
+    return 1
+}
+
 # perf_threshold_ms <base_ms> -- wall-clock budget for "this exits fast" checks.
 #
 # These assertions guard against a real regression: the hook doing network work

@@ -644,7 +644,7 @@ Add this to `~/.claude/settings.json`:
 
 ### 6. Cross-Machine Session Sync (claude-sync)
 
-Syncs your `~/.claude/` (sessions, projects, settings) across machines via encrypted cloud storage. Optional — requires the [claude-sync](https://github.com/sammcj/claude-sync) tool installed on every machine you want synced.
+Syncs your `~/.claude/` (sessions, projects, settings) across machines via encrypted cloud storage. Optional — requires the [claude-sync](https://github.com/tawanorg/claude-sync) tool installed on every machine you want synced (`npm install -g @tawandotorg/claude-sync`, then `claude-sync init`).
 
 **Locations:** `.claude/hooks/cc-sync-pull.sh` (SessionStart) and `.claude/hooks/cc-sync-push.sh` (SessionEnd)
 
@@ -657,6 +657,7 @@ Syncs your `~/.claude/` (sessions, projects, settings) across machines via encry
 **Both transfers are detached, and that is load-bearing:**
 
 - **SessionStart runs synchronously.** Whatever the pull spends is added to the time before you get a prompt, and a pull is a network round trip over the whole tracked file set. Detaching returns the hook in milliseconds; the transfer lands in time for the next session. Both hook entries also carry `"timeout": 10` as a backstop — a hook without one is unbounded.
+- **The bound applies to the hook, never to a detached transfer.** `CC_SYNC_TIMEOUT_SEC` caps `CC_SYNC_BLOCKING=1` only. A detached pull blocks nothing, and a full pull over a large tracked set routinely outlasts any bound short enough to be useful at startup — capping it there kills every transfer just before it finishes and leaves the remote permanently unmerged, which is the failure this hook exists to prevent.
 - **SessionEnd cannot wait.** An inline push is killed the moment Claude Code exits, so the upload dies mid-flight and the remote never advances. A remote frozen behind local state is what makes the next pull diverge and write `.conflict.<timestamp>` copies — which then become newly tracked files and compound every session. The detached child outlives the parent and finishes the upload.
 
 To confirm pushes are landing, compare the `push start` and `push exit=` lines in `~/.claude/cc-sync-push.log`; every start should have a matching exit.
@@ -676,12 +677,10 @@ Optional opinionated presets for the **fish shell** and the **Ghostty terminal**
 
 ### Fish Shell ([docs/fish/](./docs/fish/))
 
-Three preset tiers, all modular (`conf.d/` + `functions/`):
+One preset, fully modular (`conf.d/` + `functions/`):
 
 | Preset | Use case |
 |---|---|
-| `config-minimal/` | Servers, throwaway boxes |
-| `config-recommended/` | Most users — sensible defaults, modern CLI tool init |
 | `config-power-user/` | Daily driver — Claude Code, mise, bun, dbt, Tide prompt, cross-platform brew detection, SSH socket auto-detection, OS-aware Tide badge, zellij auto-attach on SSH |
 
 See [`docs/how-to-configure-fish.md`](./docs/how-to-configure-fish.md) for the full guide.
@@ -1150,6 +1149,12 @@ git push -u origin hotfix/critical-bug
 > **Note**: For GitFlow templates (legacy), see `branch_protection_rules/gitflow/`
  
 ## Testing and Portability
+
+> **Platform scope.** The bash installer (`setup.sh`) is the supported path and is exercised on
+> macOS and Linux in CI. The PowerShell installer (`setup.ps1`) still works for the features it
+> shipped with, but predates claude-sync hooks, OpenCode setup, the `claude`/`clp` shortcuts,
+> fish support, XDG paths and login-shell detection, and no CI job runs it. On Windows, prefer
+> `setup.sh` under Git Bash or WSL.
 
 This repo installs onto other people's machines, so nothing shipped may depend on one developer's paths, shell, package manager, or OS version. Two things enforce that: a cross-platform CI matrix, and a set of static portability guards in the test suite.
 
