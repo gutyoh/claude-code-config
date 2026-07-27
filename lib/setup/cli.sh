@@ -34,6 +34,7 @@ show_usage() {
     echo "  --no-opencode          Skip OpenCode setup (default: auto-detect)"
     echo "  --with-claude-sync     Force-install SessionStart/SessionEnd hooks for cross-machine sync"
     echo "  --no-claude-sync       Skip claude-sync session hooks (default: auto-detect)"
+    echo "  --shell PATH           Install shortcuts for this login shell (default: auto-detect)"
     echo "  -h, --help             Show this help message"
     echo ""
     echo "Available components:"
@@ -251,6 +252,16 @@ parse_arguments() {
             --no-claude-sync)
                 INSTALL_CLAUDE_SYNC="no"
                 shift
+                ;;
+            --shell)
+                # Escape hatch when auto-detection is wrong, or to install for a
+                # shell other than the login one.
+                if [[ $# -lt 2 ]]; then
+                    echo "Error: --shell requires a path (e.g. --shell \"\$(command -v fish)\")"
+                    exit 1
+                fi
+                export CLAUDE_CONFIG_SHELL="$2"
+                shift 2
                 ;;
             --icon-style)
                 if [[ $# -lt 2 ]]; then

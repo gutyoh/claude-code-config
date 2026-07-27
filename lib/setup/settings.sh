@@ -177,15 +177,57 @@ PYTHON_SCRIPT
     fi
 }
 
+# Resolve the user's LOGIN shell — the one whose rc file they actually use.
+#
+# $SHELL is the obvious candidate and the wrong one: it is an ordinary
+# environment variable inherited from whatever spawned the process, and no
+# shell corrects it on startup. `SHELL=/bin/made-up fish -c 'echo $SHELL'`
+# prints /bin/made-up. So a fish user whose terminal was launched with
+# SHELL=zsh gets their shortcuts written to ~/.zshrc, which fish never reads,
+# and the install silently does nothing useful.
+#
+# The password database is authoritative. Order: explicit override, then the
+# platform's user database, then $SHELL as a last resort.
+detect_login_shell() {
+    if [[ -n "${CLAUDE_CONFIG_SHELL:-}" ]]; then
+        printf '%s\n' "${CLAUDE_CONFIG_SHELL}"
+        return
+    fi
+
+    local found=""
+
+    # macOS: OpenDirectory, not /etc/passwd.
+    if command -v dscl >/dev/null 2>&1; then
+        found="$(dscl . -read "/Users/${USER}" UserShell 2>/dev/null | awk '{print $2}')"
+    fi
+
+    # Linux / BSD: nsswitch-aware lookup, then the flat file.
+    if [[ -z "${found}" ]] && command -v getent >/dev/null 2>&1; then
+        found="$(getent passwd "${USER}" 2>/dev/null | cut -d: -f7)"
+    fi
+    if [[ -z "${found}" && -r /etc/passwd ]]; then
+        found="$(awk -F: -v u="${USER}" '$1 == u { print $7 }' /etc/passwd 2>/dev/null | head -1)"
+    fi
+
+    # Last resort. Better than nothing, but see the caveat above.
+    [[ -z "${found}" ]] && found="${SHELL:-}"
+
+    printf '%s\n' "${found}"
+}
+
 configure_proxy_path() {
     local bin_dir="${REPO_DIR}/bin"
     local marker="# claude-code-config: proxy launcher PATH"
 
+    local login_shell
+    login_shell="$(detect_login_shell)"
+
     # fish is not POSIX: `export VAR=x` and shell functions are syntax errors
     # there, so it gets its own installer writing native fish files instead of
     # appending to a profile.
-    case "${SHELL:-}" in
+    case "${login_shell}" in
         */fish)
+            echo "  Detected login shell: ${login_shell}"
             configure_fish_shell "${bin_dir}"
             return
             ;;
@@ -193,11 +235,12 @@ configure_proxy_path() {
 
     # Detect shell profile
     local shell_profile=""
-    case "${SHELL:-}" in
+    case "${login_shell}" in
         */zsh) shell_profile="${HOME}/.zshrc" ;;
         */bash) shell_profile="${HOME}/.bashrc" ;;
         *) shell_profile="${HOME}/.profile" ;;
     esac
+    echo "  Detected login shell: ${login_shell:-unknown} -> ${shell_profile}"
 
     if [[ ! -f "${shell_profile}" ]]; then
         touch "${shell_profile}"

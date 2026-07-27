@@ -186,9 +186,12 @@ stub_proxy() {
     require_cmd jq
     require_cmd shellcheck
 
-    run env HOME="${BATS_TEST_TMPDIR}/smokehome" SHELL=/bin/sh \
+    # --shell, not SHELL: the login shell now comes from the password database,
+    # because $SHELL is inherited from the parent process and lies. This test
+    # wants the POSIX-profile branch specifically, so it asks for it.
+    run env HOME="${BATS_TEST_TMPDIR}/smokehome" \
         bash "${REPO_DIR}/setup.sh" -y --no-agents --no-mcp \
-        --no-claude-sync --no-opencode
+        --no-claude-sync --no-opencode --shell /bin/sh
     [ "$status" -eq 0 ] || {
         echo "$output"
         false
