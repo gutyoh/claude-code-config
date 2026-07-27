@@ -254,6 +254,26 @@ shipped_scripts() {
     }
 }
 
+# bats test_tags=unit,portability
+@test "no script uses script(1) without detecting the implementation" {
+    # BSD: script [options] [file [command ...]]
+    # GNU: script [options] -c "command" [file]
+    # The GNU form errors on BSD with "illegal option -- c"; the BSD form makes
+    # GNU treat the command as a typescript filename. Neither fails loudly in a
+    # way that names the cause.
+    local hits
+    hits="$(cd "$REPO_ROOT" && shipped_scripts | while read -r f; do
+        [[ -n "$f" ]] || continue
+        grep -qE '(^|[^a-z_])script -' "$f" 2>/dev/null || continue
+        grep -qE 'util-linux|uname|Darwin|PLATFORM' "$f" 2>/dev/null ||
+            echo "$f: script(1) used without detecting BSD vs GNU"
+    done)"
+    [ -z "$hits" ] || {
+        echo "$hits"
+        false
+    }
+}
+
 # --- CI supply chain ---------------------------------------------------------
 
 # bats test_tags=unit,portability

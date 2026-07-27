@@ -40,10 +40,22 @@ DRIVER
 }
 
 # Enter twice: accept the highlighted option, then confirm the preselection.
+#
+# script(1) is one of the sharper BSD/GNU splits:
+#   BSD (macOS):        script [options] [file [command ...]]
+#   GNU (util-linux):   script [options] -c "command" [file]
+# Passing the GNU form to BSD script errors with "illegal option -- c", and the
+# BSD form makes GNU script treat the command as a typescript filename. Detect
+# which one is present rather than assuming.
 run_under_pty() {
     local shell_bin="$1"
-    printf '\n\n' | script -q /dev/null "$shell_bin" \
-        "${BATS_TEST_TMPDIR}/driver.sh" "$REPO_ROOT" 2>&1
+    local driver="${BATS_TEST_TMPDIR}/driver.sh"
+
+    if script --version 2>&1 | grep -q 'util-linux'; then
+        printf '\n\n' | script -q -e -c "'$shell_bin' '$driver' '$REPO_ROOT'" /dev/null 2>&1
+    else
+        printf '\n\n' | script -q /dev/null "$shell_bin" "$driver" "$REPO_ROOT" 2>&1
+    fi
 }
 
 assert_results() {
