@@ -212,8 +212,11 @@ setup() {
     grep -Fq 'claude-code-config: claude launch shortcuts' "$profile"
     grep -Fq 'command claude --allow-dangerously-skip-permissions "$@"' "$profile"
     grep -Fq 'command claude --dangerously-skip-permissions "$@"' "$profile"
-    grep -Fq 'claude-proxy --no-validate -m "$model" -- --allow-dangerously-skip-permissions "$@"' "$profile"
-    grep -Fq 'claude-proxy --no-validate -m "$model" -- --dangerously-skip-permissions "$@"' "$profile"
+    # The model is expanded inline rather than held in a `local` variable:
+    # this block lands in ~/.profile for non-bash/zsh shells, and `local` is
+    # not POSIX. tests/shell-snippet-posix.bats covers that end of it.
+    grep -Fq 'claude-proxy --no-validate -m "${CLAUDE_PROXY_MODEL:-gpt-5.5(high)}" -- --allow-dangerously-skip-permissions "$@"' "$profile"
+    grep -Fq 'claude-proxy --no-validate -m "${CLAUDE_PROXY_MODEL:-gpt-5.5(high)}" -- --dangerously-skip-permissions "$@"' "$profile"
 }
 
 @test "configure_claude_shortcuts: replaces existing managed block" {

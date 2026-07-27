@@ -289,16 +289,18 @@ claude() {
   esac
 }
 
+# No `local`: this block is written to ~/.profile for any shell that is not
+# bash or zsh, and `local` is not in POSIX — it is a widely-implemented
+# extension, not a guarantee. Expanding the parameter inline needs no variable,
+# so nothing leaks into the caller's environment either.
 clp() {
-  local model="${CLAUDE_PROXY_MODEL:-gpt-5.5(high)}"
-
   case "${1:-}" in
     -a|--unsafe|--bypass|-adskp)
       shift
-      claude-proxy --no-validate -m "$model" -- --dangerously-skip-permissions "$@"
+      claude-proxy --no-validate -m "${CLAUDE_PROXY_MODEL:-gpt-5.5(high)}" -- --dangerously-skip-permissions "$@"
       ;;
     *)
-      claude-proxy --no-validate -m "$model" -- --allow-dangerously-skip-permissions "$@"
+      claude-proxy --no-validate -m "${CLAUDE_PROXY_MODEL:-gpt-5.5(high)}" -- --allow-dangerously-skip-permissions "$@"
       ;;
   esac
 }
