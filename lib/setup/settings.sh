@@ -250,13 +250,28 @@ configure_claude_shortcuts() {
     local tmp
 
     if grep -qF "${begin_marker}" "${shell_profile}" 2>/dev/null; then
-        tmp="$(mktemp)"
-        awk -v begin="${begin_marker}" -v end="${end_marker}" '
-            $0 == begin { skip=1; next }
-            $0 == end { skip=0; next }
-            !skip { print }
-        ' "${shell_profile}" >"${tmp}"
-        mv "${tmp}" "${shell_profile}"
+        # Only rewrite when BOTH markers are present. With a begin marker and no
+        # end marker — a hand-edit, an interrupted write, a partial paste — the
+        # awk below would skip from the marker to EOF and silently delete
+        # everything after it. This edits the user's shell profile, so the
+        # failure mode is losing their exports and aliases with no warning.
+        if grep -qF "${end_marker}" "${shell_profile}" 2>/dev/null; then
+            tmp="$(mktemp)"
+            awk -v begin="${begin_marker}" -v end="${end_marker}" '
+                $0 == begin { skip=1; next }
+                $0 == end { skip=0; next }
+                !skip { print }
+            ' "${shell_profile}" >"${tmp}"
+            mv "${tmp}" "${shell_profile}"
+        else
+            local backup="${shell_profile}.claude-code-config.bak"
+            cp "${shell_profile}" "${backup}" 2>/dev/null || true
+            echo "  ⚠ ${shell_profile} has the shortcuts begin marker but no end marker."
+            echo "    Refusing to rewrite it — that would delete everything after the marker."
+            echo "    Backup: ${backup}"
+            echo "    Remove the stale block by hand, then re-run setup."
+            return 0
+        fi
     fi
 
     cat >>"${shell_profile}" <<'EOF'

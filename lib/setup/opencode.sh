@@ -168,7 +168,10 @@ VALID_THEME_TOKENS = {
 HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
-def translate_color(value: str) -> str | None:
+# Returns a theme token / hex string, or None when the colour has no mapping.
+# No PEP 604 "str | None" annotation: that is evaluated at def time and
+# raises TypeError on Python < 3.10, which older distros still ship.
+def translate_color(value):
     v = value.strip().strip('"').strip("'").lower()
     if v in VALID_THEME_TOKENS:
         return v

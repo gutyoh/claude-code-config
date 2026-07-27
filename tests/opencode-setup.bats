@@ -832,3 +832,28 @@ JSONC
     jq -e '.plugin[0] == "@slkiser/opencode-quota"' "$out" >/dev/null
     jq -e '.mcp["brave-search"]' "$out" >/dev/null
 }
+
+# bats test_tags=unit,portability
+@test "embedded python avoids PEP 604 unions (needs Python >= 3.10)" {
+    # `def f(x) -> str | None:` is evaluated at def time, so on Python 3.8/3.9 —
+    # still shipped by older distros — it raises TypeError before the function
+    # can run. setup.sh only checks that python3 exists, not its version.
+    run grep -nE '(->|:) *[A-Za-z_]+ *\| *(None|str|int|bool)' "$OPENCODE_SH"
+    [ "$status" -ne 0 ] || {
+        echo "PEP 604 union annotation found:"
+        echo "$output"
+        false
+    }
+}
+
+# bats test_tags=unit,portability
+@test "no embedded python uses PEP 604 unions anywhere in setup" {
+    local repo hits
+    repo="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+    hits="$(grep -rnE '(->|:) *[A-Za-z_]+ *\| *(None|str|int|bool)' \
+        "$repo/lib/setup" "$repo/.claude/hooks" 2>/dev/null || true)"
+    [ -z "$hits" ] || {
+        echo "$hits"
+        false
+    }
+}

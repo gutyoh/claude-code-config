@@ -276,3 +276,48 @@ EOF
     [ "$status" -eq 0 ]
     [[ "$output" == *"Usage:"* ]]
 }
+
+# --- Managed-block safety (Copilot review, PR 22) ---------------------------
+
+@test "configure_claude_shortcuts: refuses to rewrite when the end marker is missing" {
+    # A begin marker with no end marker — hand-edit, interrupted write, partial
+    # paste — made the awk skip from the marker to EOF, silently deleting every
+    # export and alias after it. This function edits the user's shell profile,
+    # so that failure mode is destroying their config with no warning.
+    local profile="${BATS_TEST_TMPDIR}/.zshrc"
+    cat >"$profile" <<'EOF'
+export IMPORTANT_BEFORE=1
+# claude-code-config: claude launch shortcuts
+claude() { echo stale; }
+export CRITICAL_AFTER=1
+alias mystuff='keep-me'
+EOF
+
+    run configure_claude_shortcuts "$profile"
+    [ "$status" -eq 0 ]
+
+    grep -Fq 'IMPORTANT_BEFORE' "$profile"
+    grep -Fq 'CRITICAL_AFTER' "$profile"
+    grep -Fq 'mystuff' "$profile"
+    [[ "$output" == *"no end marker"* ]]
+    [ -f "${profile}.claude-code-config.bak" ]
+}
+
+@test "configure_claude_shortcuts: still rewrites cleanly when both markers exist" {
+    local profile="${BATS_TEST_TMPDIR}/.zshrc"
+    cat >"$profile" <<'EOF'
+keep-before
+# claude-code-config: claude launch shortcuts
+old body
+# claude-code-config: end claude launch shortcuts
+keep-after
+EOF
+
+    run configure_claude_shortcuts "$profile"
+    [ "$status" -eq 0 ]
+
+    grep -Fq 'keep-before' "$profile"
+    grep -Fq 'keep-after' "$profile"
+    ! grep -Fq 'old body' "$profile"
+    [ "$(grep -Fc 'claude-code-config: claude launch shortcuts' "$profile")" -eq 1 ]
+}
