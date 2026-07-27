@@ -75,12 +75,17 @@ collect_service_status() {
     if [[ ${cache_age} -lt ${STATUS_CACHE_MAX_STALE} && -f "${STATUS_CACHE_FILE}" ]]; then
         DATA_CC_STATUS=$(cat "${STATUS_CACHE_FILE}")
         _fetch_and_cache_status &>/dev/null 3>&- &
-        disown 2>/dev/null
-        return
+        # `disown` fails when the job has already exited, which a fast refresh
+        # routinely does. A bare `return` then propagates that status, so a
+        # function documented as best-effort reports failure for having been
+        # quick. Swallow it and return success explicitly.
+        disown 2>/dev/null || true
+        return 0
     fi
 
     # Expired or no cache — serve empty, try to refresh in background
     DATA_CC_STATUS=""
     _fetch_and_cache_status &>/dev/null &
-    disown 2>/dev/null
+    disown 2>/dev/null || true
+    return 0
 }

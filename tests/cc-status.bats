@@ -449,3 +449,32 @@ _has_network() {
     tmp_count=$(find "$BATS_TEST_TMPDIR" -name "status-cache.tmp.*" 2>/dev/null | wc -l | tr -d ' ')
     [[ "$tmp_count" -eq 0 ]]
 }
+
+# bats test_tags=integration
+@test "collect_service_status returns 0 after spawning a background refresh" {
+    # `disown` fails when the job has already exited — which a fast refresh
+    # routinely does — and a bare `return` propagates that. The function is
+    # documented as non-blocking and best-effort, so reporting failure for
+    # having been quick is a contract violation, and under a `set -e` caller
+    # it aborts the whole statusline render.
+    echo "on" >"${STATUS_CACHE_FILE}"
+    set_file_mtime "${STATUS_CACHE_FILE}" "$(( $(date +%s) - 400 ))"
+    _fetch_and_cache_status() { :; }   # returns instantly, so disown races
+
+    local i
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+        collect_service_status
+        [ "$?" -eq 0 ] || {
+            echo "collect_service_status returned non-zero on iteration $i"
+            false
+        }
+    done
+}
+
+# bats test_tags=integration
+@test "collect_service_status returns 0 with no cache at all" {
+    rm -f "${STATUS_CACHE_FILE}"
+    _fetch_and_cache_status() { :; }
+    collect_service_status
+    [ -z "$DATA_CC_STATUS" ]
+}
