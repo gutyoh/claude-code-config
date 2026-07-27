@@ -7,16 +7,108 @@
 #   2. Hook cache: ~/.claude/cache/claude-usage.json (PreToolUse Haiku ping)
 #   3. OAuth API:  /api/oauth/usage with stale-while-error (legacy fallback)
 
+# --- ccusage: SWR cache ------------------------------------------------------
+#
+# `ccusage blocks --json` walks every session transcript under ~/.claude. That
+# is seconds of work that scales with how long you have used Claude Code — on a
+# well-used machine it dominates the render completely, and it ran on EVERY
+# render with no cache. The statusline is drawn after every turn, so the cost
+# was paid continuously and concurrent renders piled up on top of each other.
+#
+# Two independent fixes, in order of how much they save:
+#
+#   1. Do not call it at all unless a component actually consumes it. The
+#      component list is user config; someone who does not display cost or
+#      token counts should never pay for them.
+#   2. Cache the result and serve stale while refreshing in the background —
+#      the same shape status.sh already uses. A render never waits on ccusage.
+#
+# The block is a 5-hour rolling window, so a minute-old number is not
+# meaningfully different from a fresh one. Correctness here is "roughly current",
+# not "to the token".
+
+readonly CCUSAGE_CACHE_FILE="${_TMP_DIR:-/tmp}/ccusage-block.json"
+readonly CCUSAGE_CACHE_TTL=60        # Fresh for a minute
+readonly CCUSAGE_CACHE_MAX_STALE=900 # Serve stale up to 15 minutes
+readonly CCUSAGE_LOCK_DIR="${_TMP_DIR:-/tmp}/ccusage-lock"
+readonly CCUSAGE_LOCK_MAX_AGE=120 # Reclaim a lock left by a killed process
+
+# Components whose values come from ccusage. Nothing else needs it.
+readonly CCUSAGE_COMPONENTS="tokens_in tokens_out tokens_cache cost burn_rate"
+
+# Is any ccusage-fed component actually being displayed?
+_ccusage_needed() {
+    local c
+    for c in ${CCUSAGE_COMPONENTS}; do
+        [[ ",${CONF_COMPONENTS}," == *",${c},"* ]] && return 0
+    done
+    return 1
+}
+
+_ccusage_cache_age() {
+    [[ ! -f "${CCUSAGE_CACHE_FILE}" ]] && echo "999999" && return
+    get_file_age "${CCUSAGE_CACHE_FILE}" 2>/dev/null || echo "999999"
+}
+
+# Run ccusage and replace the cache atomically.
+#
+# Atomic because a render may read the file while this writes it: a half-written
+# JSON document parses as nothing and the statusline silently loses its numbers.
+# Locked because N concurrent sessions would otherwise each spawn their own
+# multi-second scan of the same data.
+_refresh_ccusage_cache() {
+    command -v ccusage >/dev/null 2>&1 || return 1
+
+    if [[ -d "${CCUSAGE_LOCK_DIR}" ]]; then
+        local lock_age
+        lock_age=$(get_file_age "${CCUSAGE_LOCK_DIR}" 2>/dev/null || echo 0)
+        if [[ "${lock_age}" -lt "${CCUSAGE_LOCK_MAX_AGE}" ]]; then
+            return 1 # someone else is already refreshing
+        fi
+        rmdir "${CCUSAGE_LOCK_DIR}" 2>/dev/null
+    fi
+    mkdir "${CCUSAGE_LOCK_DIR}" 2>/dev/null || return 1
+
+    local ccdata active_block tmp
+    ccdata=$(ccusage blocks --json 2>/dev/null)
+    if [[ -n "${ccdata}" && "${ccdata}" != "null" ]]; then
+        active_block=$(echo "${ccdata}" | jq -c '.blocks[] | select(.isActive == true)' 2>/dev/null)
+        if [[ -n "${active_block}" && "${active_block}" != "null" ]]; then
+            tmp="${CCUSAGE_CACHE_FILE}.tmp.$$"
+            printf '%s\n' "${active_block}" >"${tmp}" 2>/dev/null \
+                && mv -f "${tmp}" "${CCUSAGE_CACHE_FILE}" 2>/dev/null
+        fi
+    fi
+
+    rmdir "${CCUSAGE_LOCK_DIR}" 2>/dev/null
+    return 0
+}
+
+# Emit the active block, never blocking the render on ccusage.
 get_ccusage_block() {
-    local ccdata active_block
+    _ccusage_needed || return 1
 
-    ccdata=$(ccusage blocks --json 2>/dev/null) || return 1
-    [[ -z "${ccdata}" || "${ccdata}" == "null" ]] && return 1
+    local age
+    age=$(_ccusage_cache_age)
 
-    active_block=$(echo "${ccdata}" | jq '.blocks[] | select(.isActive == true)' 2>/dev/null)
-    [[ -z "${active_block}" || "${active_block}" == "null" ]] && return 1
+    # Fresh — serve it.
+    if [[ "${age}" -lt "${CCUSAGE_CACHE_TTL}" && -f "${CCUSAGE_CACHE_FILE}" ]]; then
+        cat "${CCUSAGE_CACHE_FILE}"
+        return 0
+    fi
 
-    echo "${active_block}"
+    # Stale but usable — serve it now, refresh for the next render.
+    if [[ "${age}" -lt "${CCUSAGE_CACHE_MAX_STALE}" && -f "${CCUSAGE_CACHE_FILE}" ]]; then
+        cat "${CCUSAGE_CACHE_FILE}"
+        _refresh_ccusage_cache &>/dev/null &
+        disown 2>/dev/null || true
+        return 0
+    fi
+
+    # Nothing usable. Start a refresh and report no data for this render only.
+    _refresh_ccusage_cache &>/dev/null &
+    disown 2>/dev/null || true
+    return 1
 }
 
 calculate_time_remaining() {
