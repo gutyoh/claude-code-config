@@ -167,3 +167,105 @@ route_for() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"--shell"* ]]
 }
+
+# --- bash login vs non-login rc files ---------------------------------------
+#
+# bash reads ~/.bashrc for non-login interactive shells and ~/.bash_profile for
+# login shells. Linux terminal emulators open the former; macOS Terminal.app and
+# iTerm2 open the LATTER. Demonstrated:
+#
+#     bash -l -i  ->  BASH_PROFILE loaded
+#     bash    -i  ->  BASHRC loaded
+#
+# So a block written only to ~/.bashrc is invisible on macOS. Same silent
+# failure as picking the wrong shell entirely: install succeeds, user gets
+# nothing.
+
+# bats test_tags=integration,portability
+@test "a bash login shell reads .bash_profile, not .bashrc" {
+    # Pins the premise. If this ever stops being true the bridge is unnecessary.
+    local h="${BATS_TEST_TMPDIR}/bashhome"
+    mkdir -p "$h"
+    echo 'echo BASHRC' >"$h/.bashrc"
+    echo 'echo BASHPROFILE' >"$h/.bash_profile"
+
+    run env HOME="$h" bash -l -i -c true
+    [[ "$output" == *"BASHPROFILE"* ]]
+    [[ "$output" != *"BASHRC"* ]]
+
+    run env HOME="$h" bash -i -c true
+    [[ "$output" == *"BASHRC"* ]]
+}
+
+# bats test_tags=integration,portability
+@test "installing for bash bridges .bash_profile to .bashrc" {
+    run bash -c "
+        REPO_DIR='$REPO_DIR'
+        CLAUDE_CONFIG_SHELL=/bin/bash
+        source '$SETTINGS_SH'
+        configure_proxy_path
+    "
+    [ "$status" -eq 0 ]
+
+    grep -Fq 'claude-code-config: claude launch shortcuts' "${HOME}/.bashrc"
+    [ -f "${HOME}/.bash_profile" ]
+    grep -qE '(\.|source)[[:space:]]+.*\.bashrc' "${HOME}/.bash_profile"
+}
+
+# bats test_tags=integration,portability
+@test "the bash bridge actually makes a login shell load the shortcuts" {
+    # End to end: install, then start a real login shell and check the function
+    # is defined. This is the behaviour the bridge exists for.
+    run bash -c "
+        REPO_DIR='$REPO_DIR'
+        CLAUDE_CONFIG_SHELL=/bin/bash
+        source '$SETTINGS_SH'
+        configure_proxy_path
+    "
+    [ "$status" -eq 0 ]
+
+    run env HOME="$HOME" bash -l -i -c 'type -t clp'
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"function"* ]]
+}
+
+# bats test_tags=unit,portability
+@test "the bash bridge is idempotent" {
+    for _ in 1 2 3; do
+        run bash -c "
+            REPO_DIR='$REPO_DIR'
+            CLAUDE_CONFIG_SHELL=/bin/bash
+            source '$SETTINGS_SH'
+            configure_proxy_path
+        "
+        [ "$status" -eq 0 ]
+    done
+    [ "$(grep -c 'load .bashrc for login shells' "${HOME}/.bash_profile")" -eq 1 ]
+}
+
+# bats test_tags=unit,portability
+@test "the bash bridge leaves an existing source line alone" {
+    # A .bash_profile that already pulls in .bashrc by any spelling needs no
+    # help, and appending a second one would be noise.
+    printf 'source ~/.bashrc\n' >"${HOME}/.bash_profile"
+    run bash -c "
+        REPO_DIR='$REPO_DIR'
+        CLAUDE_CONFIG_SHELL=/bin/bash
+        source '$SETTINGS_SH'
+        configure_proxy_path
+    "
+    [ "$status" -eq 0 ]
+    [ "$(grep -c 'load .bashrc for login shells' "${HOME}/.bash_profile")" -eq 0 ]
+}
+
+# bats test_tags=unit,portability
+@test "non-bash shells get no .bash_profile bridge" {
+    run bash -c "
+        REPO_DIR='$REPO_DIR'
+        CLAUDE_CONFIG_SHELL=/bin/zsh
+        source '$SETTINGS_SH'
+        configure_proxy_path
+    "
+    [ "$status" -eq 0 ]
+    [ ! -f "${HOME}/.bash_profile" ]
+}

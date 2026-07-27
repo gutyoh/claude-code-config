@@ -242,6 +242,15 @@ configure_proxy_path() {
     esac
     echo "  Detected login shell: ${login_shell:-unknown} -> ${shell_profile}"
 
+    # bash reads ~/.bashrc for non-login interactive shells and ~/.bash_profile
+    # for login shells. Linux terminals open the former; macOS Terminal.app and
+    # iTerm2 open the LATTER. So a block written only to ~/.bashrc silently
+    # never loads on macOS — the install reports success and the user gets no
+    # `claude` function. Bridge them, which is the conventional fix.
+    case "${login_shell}" in
+        */bash) ensure_bash_profile_sources_bashrc ;;
+    esac
+
     if [[ ! -f "${shell_profile}" ]]; then
         touch "${shell_profile}"
     fi
@@ -356,6 +365,29 @@ EOF
 # fish equivalent of configure_proxy_path + configure_claude_shortcuts.
 # Functions go in functions/ (autoloaded lazily, by filename); the PATH entry
 # goes in conf.d/ (sourced on every shell start).
+# Make ~/.bash_profile source ~/.bashrc, once, idempotently.
+# Without this, anything written to .bashrc is invisible to login shells, which
+# is what macOS terminals start.
+ensure_bash_profile_sources_bashrc() {
+    local profile="${HOME}/.bash_profile"
+    local marker="# claude-code-config: load .bashrc for login shells"
+
+    # A .bash_profile that already pulls in .bashrc by any spelling is fine.
+    if [[ -f "${profile}" ]] && grep -qE '(\.|source)[[:space:]]+.*\.bashrc' "${profile}" 2>/dev/null; then
+        return 0
+    fi
+    if [[ -f "${profile}" ]] && grep -qF "${marker}" "${profile}" 2>/dev/null; then
+        return 0
+    fi
+
+    cat >>"${profile}" <<EOF
+
+${marker}
+[ -f "\${HOME}/.bashrc" ] && . "\${HOME}/.bashrc"
+EOF
+    echo "  ✓ ${profile} now sources ~/.bashrc (macOS terminals start login shells)"
+}
+
 configure_fish_shell() {
     local bin_dir="$1"
     local fish_dir="${XDG_CONFIG_HOME:-${HOME}/.config}/fish"

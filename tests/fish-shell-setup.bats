@@ -19,9 +19,10 @@ setup() {
     export REPO_DIR
     SETTINGS_SH="${REPO_DIR}/lib/setup/settings.sh"
 
-    # Stand-in for "the user's login shell is fish". The path itself is
-    # irrelevant — routing keys off the */fish glob — and the
-    # prefix-independence test below covers every real install location.
+    # Stand-in for "the user's login shell is fish". Set via
+    # CLAUDE_CONFIG_SHELL, not SHELL: the login shell now comes from the
+    # password database, because $SHELL is inherited from the parent process
+    # and does not track the user's actual shell.
     FISH_SHELL="/usr/bin/fish"
     export FISH_SHELL
 }
@@ -36,7 +37,7 @@ fish_config_dir() {
 @test "configure_proxy_path routes fish to the fish installer" {
     run bash -c "
         REPO_DIR='$REPO_DIR'
-        SHELL="$FISH_SHELL"
+        CLAUDE_CONFIG_SHELL="$FISH_SHELL"
         source '$SETTINGS_SH'
         configure_proxy_path
     "
@@ -50,7 +51,7 @@ fish_config_dir() {
     # appended bash syntax to a file fish never reads.
     run bash -c "
         REPO_DIR='$REPO_DIR'
-        SHELL="$FISH_SHELL"
+        CLAUDE_CONFIG_SHELL="$FISH_SHELL"
         source '$SETTINGS_SH'
         configure_proxy_path
     "
@@ -64,7 +65,7 @@ fish_config_dir() {
 @test "fish install creates claude and clp functions" {
     run bash -c "
         REPO_DIR='$REPO_DIR'
-        SHELL="$FISH_SHELL"
+        CLAUDE_CONFIG_SHELL="$FISH_SHELL"
         source '$SETTINGS_SH'
         configure_proxy_path
     "
@@ -77,7 +78,7 @@ fish_config_dir() {
 @test "fish install adds bin/ to PATH via conf.d" {
     run bash -c "
         REPO_DIR='$REPO_DIR'
-        SHELL="$FISH_SHELL"
+        CLAUDE_CONFIG_SHELL="$FISH_SHELL"
         source '$SETTINGS_SH'
         configure_proxy_path
     "
@@ -93,7 +94,7 @@ fish_config_dir() {
     export XDG_CONFIG_HOME="${BATS_TEST_TMPDIR}/custom-xdg"
     run bash -c "
         REPO_DIR='$REPO_DIR'
-        SHELL="$FISH_SHELL"
+        CLAUDE_CONFIG_SHELL="$FISH_SHELL"
         XDG_CONFIG_HOME='$XDG_CONFIG_HOME'
         source '$SETTINGS_SH'
         configure_proxy_path
@@ -107,7 +108,7 @@ fish_config_dir() {
     for _ in 1 2; do
         run bash -c "
             REPO_DIR='$REPO_DIR'
-            SHELL="$FISH_SHELL"
+            CLAUDE_CONFIG_SHELL="$FISH_SHELL"
             source '$SETTINGS_SH'
             configure_proxy_path
         "
@@ -126,7 +127,7 @@ fish_config_dir() {
     require_cmd fish
     run bash -c "
         REPO_DIR='$REPO_DIR'
-        SHELL="$FISH_SHELL"
+        CLAUDE_CONFIG_SHELL="$FISH_SHELL"
         source '$SETTINGS_SH'
         configure_proxy_path
     "
@@ -145,7 +146,7 @@ fish_config_dir() {
     require_cmd fish
     run bash -c "
         REPO_DIR='$REPO_DIR'
-        SHELL="$FISH_SHELL"
+        CLAUDE_CONFIG_SHELL="$FISH_SHELL"
         source '$SETTINGS_SH'
         configure_proxy_path
     "
@@ -177,7 +178,7 @@ fish_config_dir() {
         rm -rf "${XDG_CONFIG_HOME:?}/fish"
         run bash -c "
             REPO_DIR='$REPO_DIR'
-            SHELL='$candidate'
+            CLAUDE_CONFIG_SHELL='$candidate'
             source '$SETTINGS_SH'
             configure_proxy_path
         "
