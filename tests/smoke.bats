@@ -23,6 +23,18 @@ setup() {
     SETUP="${REPO_DIR}/setup.sh"
 }
 
+# setup.sh is a few hundred lines of install logic; a bare status check tells
+# you the assertion failed and nothing about why. Surface the output so a CI
+# failure is diagnosable from the log alone.
+assert_setup_ok() {
+    if [ "$status" -ne 0 ]; then
+        echo "setup.sh exited ${status}"
+        echo "--- output ---"
+        echo "$output"
+        false
+    fi
+}
+
 # bats test_tags=smoke
 @test "setup.sh --help exits 0 and prints usage" {
     run "$SETUP" --help
@@ -42,7 +54,7 @@ setup() {
     require_cmd jq
 
     run "$SETUP" -y --minimal --no-claude-sync --no-opencode
-    [ "$status" -eq 0 ]
+    assert_setup_ok
     [[ "$output" == *"Setup complete!"* ]]
 }
 
@@ -52,7 +64,7 @@ setup() {
     require_cmd jq
 
     run "$SETUP" -y --minimal --no-claude-sync --no-opencode
-    [ "$status" -eq 0 ]
+    assert_setup_ok
 
     local settings="${HOME}/.claude/settings.json"
     [ -f "$settings" ]
@@ -65,7 +77,7 @@ setup() {
     require_cmd jq
 
     run "$SETUP" -y --minimal --no-claude-sync --no-opencode
-    [ "$status" -eq 0 ]
+    assert_setup_ok
 
     local settings="${HOME}/.claude/settings.json"
     local hooks
@@ -79,9 +91,9 @@ setup() {
     require_cmd jq
 
     run "$SETUP" -y --minimal --no-claude-sync --no-opencode
-    [ "$status" -eq 0 ]
+    assert_setup_ok
     run "$SETUP" -y --minimal --no-claude-sync --no-opencode
-    [ "$status" -eq 0 ]
+    assert_setup_ok
 
     jq -e '.' "${HOME}/.claude/settings.json" >/dev/null
 }
@@ -93,7 +105,7 @@ setup() {
     stub_bin claude-sync 'exit 0'
 
     run "$SETUP" -y --minimal --with-claude-sync --no-opencode
-    [ "$status" -eq 0 ]
+    assert_setup_ok
 
     local settings="${HOME}/.claude/settings.json"
     local timeout
@@ -123,4 +135,42 @@ setup() {
             false
         }
     done
+}
+
+# --- Optional prerequisites must not abort the install ----------------------
+
+# bats test_tags=smoke
+@test "check_prerequisite: a missing OPTIONAL tool returns success" {
+    # Regression: the function returned 1 for an absent optional tool. setup.sh
+    # runs under `set -e` and every call site is a bare statement, so the whole
+    # install aborted the moment fd/fzf/ccusage were missing — the normal state
+    # on a machine that never installed the extras. It failed silently right
+    # after "Checking prerequisites..." with no error of its own.
+    run bash -c "
+        source '${REPO_DIR}/lib/setup/filesystem.sh'
+        check_prerequisite 'definitely-not-a-real-binary' 'fake' 'false' 'optional: for tests'
+    "
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"not found"* ]]
+}
+
+# bats test_tags=smoke
+@test "check_prerequisite: a missing REQUIRED tool still aborts" {
+    run bash -c "
+        source '${REPO_DIR}/lib/setup/filesystem.sh'
+        check_prerequisite 'definitely-not-a-real-binary' 'fake' 'true' ''
+    "
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"cannot continue"* ]]
+}
+
+# bats test_tags=smoke
+@test "setup.sh --minimal completes with only core tools on PATH" {
+    # The clean-machine case: no fd, no fzf, no ccusage, no brew tools.
+    require_cmd python3
+    require_cmd jq
+    run env HOME="${BATS_TEST_TMPDIR}/barehome" PATH="/usr/bin:/bin" \
+        bash "$SETUP" -y --minimal --no-claude-sync --no-opencode
+    assert_setup_ok
+    [[ "$output" == *"Setup complete!"* ]]
 }

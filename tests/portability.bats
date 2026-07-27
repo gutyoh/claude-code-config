@@ -304,9 +304,27 @@ shipped_scripts() {
     ver="$(/bin/bash -c 'echo ${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}')"
     [[ "$ver" == "3.2" ]] || skip "/bin/bash is $ver, not the 3.2 we want to guard against"
 
+    # The guard re-execs into a newer bash when one exists and otherwise exits
+    # with an actionable message. Both are correct; which one happens depends on
+    # whether this machine has bash >= 4.3 installed, so accept either and
+    # assert the behaviour rather than the environment.
+    local newer=""
+    local c
+    for c in /opt/homebrew/bin/bash /usr/local/bin/bash /home/linuxbrew/.linuxbrew/bin/bash /usr/bin/bash; do
+        if [ -x "$c" ] && [ "$("$c" -c 'echo ${BASH_VERSINFO[0]}')" -ge 4 ]; then
+            newer="$c"
+            break
+        fi
+    done
+
     run /bin/bash "$REPO_ROOT/setup.sh" --help
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"Usage: setup.sh"* ]]
+    if [ -n "$newer" ]; then
+        [ "$status" -eq 0 ]
+        [[ "$output" == *"Usage: setup.sh"* ]]
+    else
+        [ "$status" -eq 1 ]
+        [[ "$output" == *"bash >= 4.3"* ]]
+    fi
 }
 
 # bats test_tags=integration,portability
