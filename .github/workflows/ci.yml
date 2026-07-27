@@ -28,21 +28,32 @@ jobs:
     steps:
       # Pinned by SHA, not tag: a tag is mutable, so a compromised or moved
       # tag silently changes what runs with access to the runner.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing here pushes or fetches, so the token has no reason to stay
+          # behind in .git/config where any later step could read it.
+          persist-credentials: false
 
-      - name: Install shellcheck and shfmt
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y shellcheck
-          curl -fsSL "https://github.com/mvdan/sh/releases/download/v3.10.0/shfmt_v3.10.0_linux_amd64" \
-            -o /usr/local/bin/shfmt
-          chmod +x /usr/local/bin/shfmt
+      # Every tool comes from mise.toml, resolved through the committed
+      # mise.lock — pinned URLs and checksums rather than the GitHub API, so
+      # installs are reproducible and never hit the unauthenticated rate limit.
+      # --locked fails loudly if the lockfile does not cover this platform,
+      # which is the whole point of committing it.
+      - uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4
+        with:
+          install_args: --locked
+
+      - name: Report toolchain
+        run: just --version && shellcheck --version | head -2 && shfmt --version
 
       - name: shellcheck
-        run: make lint
+        run: just lint
 
       - name: shfmt
-        run: make format-check
+        run: just format-check
+
+      - name: Audit workflows
+        run: just lint-workflows
 
   test:
     name: Tests (${{ matrix.os }})
@@ -57,29 +68,42 @@ jobs:
     steps:
       # Pinned by SHA, not tag: a tag is mutable, so a compromised or moved
       # tag silently changes what runs with access to the runner.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing here pushes or fetches, so the token has no reason to stay
+          # behind in .git/config where any later step could read it.
+          persist-credentials: false
 
-      - name: Install bats and GNU parallel (Linux)
+      - uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4
+        with:
+          install_args: --locked
+
+      # jq and GNU parallel are the two the lockfile cannot supply: parallel is
+      # a Perl script rather than a release binary, and jq ships with the runner
+      # images but not on every developer machine. parallel is optional — bats
+      # falls back to serial without it.
+      - name: Install GNU parallel and jq (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y bats parallel jq
+          sudo apt-get install -y parallel jq
 
-      - name: Install bats and GNU parallel (macOS)
+      - name: Install GNU parallel and jq (macOS)
         if: runner.os == 'macOS'
-        run: brew install bats-core parallel jq
+        run: brew install parallel jq
 
       - name: Report toolchain
         run: |
           bats --version
+          just --version
           bash --version | head -1
           echo "system bash: $(/bin/bash -c 'echo $BASH_VERSION')"
 
       - name: Unit lane
-        run: make unit
+        run: just unit
 
       - name: Integration lane
-        run: make integration
+        run: just integration
 
       - name: Smoke lane
-        run: make smoke
+        run: just smoke

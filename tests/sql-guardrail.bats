@@ -6,7 +6,7 @@
 # Tests both STRICT mode (Databricks) and STANDARD mode (psql/mysql/sqlcmd/sqlite3/duckdb/sqlplus).
 #
 # Run: bats tests/sql-guardrail.bats
-#      make test
+#      just test
 
 HOOK="$BATS_TEST_DIRNAME/../.claude/hooks/sql-guardrail.sh"
 

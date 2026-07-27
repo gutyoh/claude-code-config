@@ -7,7 +7,7 @@
 # and (when Langfuse is reachable) actual API queries.
 #
 # Run: bats tests/langfuse-skill.bats
-#      make test
+#      just test
 
 SKILL_DIR="$BATS_TEST_DIRNAME/../.claude/skills/langfuse"
 AGENT_FILE="$BATS_TEST_DIRNAME/../.claude/agents/langfuse-expert.md"

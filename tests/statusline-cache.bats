@@ -10,7 +10,7 @@
 # test-scoped constants that point to $BATS_TEST_TMPDIR for full isolation.
 #
 # Run: bats tests/statusline-cache.bats
-#      make test
+#      just test
 
 MODULES_DIR="$BATS_TEST_DIRNAME/../.claude/scripts/lib/statusline"
 

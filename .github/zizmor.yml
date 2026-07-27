@@ -1,0 +1,11 @@
+# zizmor configuration — https://docs.zizmor.sh/configuration/
+rules:
+  artipacked:
+    ignore:
+      # The two Claude workflows are not exercised by any CI job, so setting
+      # persist-credentials: false there would be an unverifiable change to a
+      # path that only fails when someone @claude-s an issue. Both run with
+      # `contents: read`, so the persisted token cannot write to the repo.
+      # Revisit if either workflow ever gains write permissions.
+      - claude.yml
+      - claude-code-review.yml

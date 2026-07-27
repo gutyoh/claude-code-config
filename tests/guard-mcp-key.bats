@@ -7,7 +7,7 @@
 # allowed when keys are present.
 #
 # Run: bats tests/guard-mcp-key.bats
-#      make test
+#      just test
 
 HOOK="$BATS_TEST_DIRNAME/../.claude/hooks/guard-mcp-key.sh"
 REPO_ROOT="$BATS_TEST_DIRNAME/.."

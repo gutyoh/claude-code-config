@@ -7,7 +7,7 @@
 # --no-rebase, --rebase=false) that must NOT be rewritten.
 #
 # Run: bats tests/enforce-git-pull-rebase.bats
-#      make test
+#      just test
 
 HOOK="$BATS_TEST_DIRNAME/../.claude/hooks/enforce-git-pull-rebase.sh"
 

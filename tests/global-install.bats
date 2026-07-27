@@ -15,7 +15,7 @@
 #   - setup.ps1 contains the bash + PowerShell shim blocks
 #
 # Run: bats tests/global-install.bats
-#      make test
+#      just test
 
 PROXY_BIN="$BATS_TEST_DIRNAME/../bin/claude-proxy"
 SETUP_SH="$BATS_TEST_DIRNAME/../setup.sh"

@@ -13,7 +13,7 @@
 #                              and SessionEnd   -> cc-sync-push
 #
 # Run: bats tests/cc-sync-hooks.bats
-#      make test
+#      just test
 
 bats_require_minimum_version 1.5.0
 

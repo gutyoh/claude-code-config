@@ -1,0 +1,41 @@
+version: 2
+
+# SHA-pinning actions is what makes a workflow reproducible — a tag is mutable,
+# and moving one is how tj-actions/changed-files reached 23,000 repositories in
+# Q1 2026. But a pin someone has to bump by hand is a pin that rots: this repo
+# sat three majors behind on actions/checkout until a Node 20 deprecation
+# warning made it visible.
+#
+# Dependabot reads the trailing `# v7.0.1` comment, checks upstream, and opens a
+# PR that bumps the SHA and the comment together. The pin stays; the staleness
+# does not.
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+    # Wait before proposing a freshly published release. Most compromised-release
+    # incidents surface within days, so this removes the window where the repo
+    # would be an early adopter of a bad version. Security advisories are exempt,
+    # so real fixes still arrive immediately. 7 days also satisfies zizmor's
+    # dependabot-cooldown audit.
+    cooldown:
+      default-days: 7
+
+    # One PR for the routine bumps, separate PRs for majors. A major can carry a
+    # behaviour change worth reading on its own (checkout v7 changed fork-PR
+    # checkout defaults); a patch bump usually is not worth a review each.
+    groups:
+      actions-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "chore(ci)"

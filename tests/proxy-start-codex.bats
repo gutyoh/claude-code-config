@@ -8,7 +8,7 @@
 # binary is built or started.
 #
 # Run: bats tests/proxy-start-codex.bats
-#      make test
+#      just test
 
 SCRIPT="$BATS_TEST_DIRNAME/../bin/proxy-start-codex.sh"
 
