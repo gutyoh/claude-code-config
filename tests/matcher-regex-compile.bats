@@ -13,7 +13,7 @@
 # fails to match them.
 #
 # Run: bats tests/matcher-regex-compile.bats
-#      make test
+#      just test
 
 SETTINGS="$BATS_TEST_DIRNAME/../.claude/settings.json"
 

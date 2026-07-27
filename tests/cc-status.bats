@@ -8,7 +8,7 @@
 #   components.sh — render_component_cc_status()
 #
 # Run: bats tests/cc-status.bats
-#      make test
+#      just test
 
 MODULES_DIR="$BATS_TEST_DIRNAME/../.claude/scripts/lib/statusline"
 

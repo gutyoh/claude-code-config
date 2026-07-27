@@ -11,7 +11,7 @@
 # every feature correct" — the unit and integration lanes answer that.
 #
 # Run: bats tests/smoke.bats
-#      make smoke
+#      just smoke
 
 bats_require_minimum_version 1.5.0
 

@@ -5,7 +5,7 @@
 # bats-core tests for statusline utility functions.
 # Sources statusline.sh (source guard prevents main from running).
 # Run: bats tests/statusline-utils.bats
-#      make test
+#      just test
 
 STATUSLINE="$BATS_TEST_DIRNAME/../.claude/scripts/statusline.sh"
 

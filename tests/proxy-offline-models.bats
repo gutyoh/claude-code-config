@@ -8,7 +8,7 @@
 # of whatever the user's real CLIProxyAPI clone contains.
 #
 # Run: bats tests/proxy-offline-models.bats
-#      make test
+#      just test
 
 PROXY_BIN="$BATS_TEST_DIRNAME/../bin/claude-proxy"
 PREFLIGHT="$BATS_TEST_DIRNAME/../lib/proxy/preflight.sh"

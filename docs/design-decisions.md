@@ -117,7 +117,7 @@ Use BATS (Bash Automated Testing System). 11 test files covering hooks, statusli
 
 ### Consequences
 
-- **Benefits**: regression protection for critical hooks. CI integration via `make test`. Confidence when refactoring.
+- **Benefits**: regression protection for critical hooks. CI integration via `just test`. Confidence when refactoring.
 - **Trade-offs**: BATS is a dependency (installed via npm/brew). Test files add maintenance overhead.
 
 ## ADR-7: Three-tier statusline data priority

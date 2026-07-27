@@ -4,7 +4,7 @@
 #
 # bats-core tests for proxy preflight checks (lib/proxy/preflight.sh).
 # Run: bats tests/proxy-preflight.bats
-#      make test
+#      just test
 
 PREFLIGHT="$BATS_TEST_DIRNAME/../lib/proxy/preflight.sh"
 STUB_DIR=""

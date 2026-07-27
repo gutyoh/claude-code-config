@@ -1,0 +1,40 @@
+# mise.toml
+# Path: claude-code-config/mise.toml
+#
+# Every tool the quality gate needs, pinned. `mise install` gets all of them on
+# macOS and Linux without brew/apt divergence — which mattered here, because the
+# apt and brew packages were different versions of shfmt and the CI pin was a
+# third (a curl'd 3.10.0).
+#
+#   mise install     # get the toolchain
+#   just --list      # what you can do with it
+
+[tools]
+# Command runner. Pinned so every contributor and CI run the same `just`.
+just = "1.51.0"
+
+# --- Shell quality toolchain ---
+# The versions this repo is actually developed against. Pinning matters more
+# than currency for formatters: a shfmt bump can reformat the tree and turn
+# `just format-check` red on a commit that changed nothing.
+shellcheck = "0.11.0"
+shfmt = "3.13.1"
+bats = "1.14.0"
+
+# Static analysis for the workflows themselves.
+zizmor = "1.28.0"
+
+# Local hook runner. CI does not run pre-commit — it runs `just check` directly
+# — so this is purely for catching things before they leave the machine.
+pre-commit = "4.6.0"
+
+# NOT pinned here: GNU parallel. It is a Perl script rather than a release
+# binary, so it has no mise backend; `just install-tools` gets it from
+# brew/apt instead. It is optional — bats runs serially without it.
+
+[settings]
+# Maintain mise.lock (committed) so `mise install` resolves tools from pinned
+# URLs + checksums instead of the GitHub API. That makes installs reproducible
+# and integrity-verified, and keeps CI off the unauthenticated 60 req/h rate
+# limit. The lock covers both CI platforms: linux-x64 and macos-arm64.
+lockfile = true

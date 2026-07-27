@@ -14,7 +14,9 @@ claude-code-config/
 ├── .shellcheckrc                          # ShellCheck config (bash dialect, disabled rules)
 ├── CLAUDE.md                              # Project context (shared, checked into repo)
 ├── README.md                              # User documentation
-├── Makefile                               # Quality targets: lint, format, test, check, ci
+├── justfile                               # Quality recipes: lint, format, test, check, ci
+├── mise.toml                              # Pinned toolchain (just, shellcheck, shfmt, bats, zizmor)
+├── mise.lock                              # Resolved URLs + checksums for both CI platforms
 ├── setup.sh                               # Interactive setup for macOS/Linux
 ├── setup.ps1                              # Interactive setup for Windows (modular, arrow-key TUI)
 ├── PSScriptAnalyzerSettings.psd1          # PowerShell linter config (equiv of .shellcheckrc)
@@ -206,12 +208,12 @@ Dot-sourced by `setup.ps1`. PowerShell port of `lib/setup/` with arrow-key TUI, 
 | Setup (Windows) | `.\setup.ps1` | Interactive TUI setup (modular, arrow-key menus) |
 | Proxy launcher | `claude-proxy [options]` | Route Claude through proxy |
 | Key rotation | `mcp-key-rotate <service> [action]` | Rotate MCP API keys |
-| Lint (bash) | `make lint` | ShellCheck all scripts |
+| Lint (bash) | `just lint` | ShellCheck all scripts |
 | Lint (PS) | `pwsh -c "Invoke-ScriptAnalyzer ..."` | PSScriptAnalyzer on PS scripts |
-| Format | `make format` | shfmt all scripts |
-| Test (bash) | `make test` | Run BATS test suite |
+| Format | `just format` | shfmt all scripts |
+| Test (bash) | `just test` | Run BATS test suite |
 | Test (PS) | `pwsh -c "Invoke-Pester tests/setup-ps.Tests.ps1"` | Run Pester test suite |
-| CI | `make ci` | Full CI: format-check + lint + test |
+| CI | `just ci` | Full CI: format-check + lint + test |
 
 ## See also
 

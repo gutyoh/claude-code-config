@@ -5,7 +5,7 @@
 # bats-core tests for setup.sh CLI argument parsing.
 # Sources setup.sh (source guard prevents main from running).
 # Run: bats tests/setup-cli.bats
-#      make test
+#      just test
 
 SETUP="$BATS_TEST_DIRNAME/../setup.sh"
 

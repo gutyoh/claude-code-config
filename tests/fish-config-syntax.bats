@@ -9,7 +9,7 @@
 # preset).
 #
 # Run: bats tests/fish-config-syntax.bats
-#      make test
+#      just test
 
 FISH_DIR="$BATS_TEST_DIRNAME/../docs/fish/config-power-user"
 

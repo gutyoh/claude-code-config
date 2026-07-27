@@ -10,7 +10,7 @@
 # silently breaking hooks in every other project.
 #
 # Run: bats tests/settings-hook-paths.bats
-#      make test
+#      just test
 
 SETTINGS="$BATS_TEST_DIRNAME/../.claude/settings.json"
 

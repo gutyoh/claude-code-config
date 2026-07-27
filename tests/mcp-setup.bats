@@ -7,7 +7,7 @@
 # configure flow using `claude mcp add-json`.
 #
 # Run: bats tests/mcp-setup.bats
-#      make test
+#      just test
 
 # shellcheck disable=SC2030,SC2031 # false positives — each @test is a subshell by design (shellcheck#3263)
 

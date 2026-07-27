@@ -5,7 +5,7 @@
 # bats-core tests for the refresh-usage-cache.sh PreToolUse hook.
 # Tests: cache freshness check, background fetch, JSON output format.
 # Run: bats tests/refresh-usage-cache.bats
-#      make test
+#      just test
 
 HOOK="$BATS_TEST_DIRNAME/../.claude/hooks/refresh-usage-cache.sh"
 

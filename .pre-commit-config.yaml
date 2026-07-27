@@ -1,0 +1,53 @@
+# .pre-commit-config.yaml
+# Path: claude-code-config/.pre-commit-config.yaml
+#
+# Catches locally what CI would catch remotely, minutes earlier.
+#
+#   mise install && just setup     # installs the toolchain and these hooks
+#   just hooks                     # run them all against the whole tree
+#
+# CI does NOT run pre-commit — it runs `just check` directly — so the gate never
+# depends on a contributor having installed hooks. These are a convenience, not
+# the source of truth.
+#
+# The shell hooks are `repo: local` on purpose. The upstream shellcheck hook
+# runs through Docker, which is a daemon to install and start for a linter mise
+# already pins; and the upstream shfmt hook picks its own file set, which is
+# wider than the one `just format-check` uses (it reaches into tests/*.bats).
+# Either would let a hook run and a CI run disagree about the same tree.
+# Delegating to the just recipes means one definition of "clean", and the tool
+# versions come from mise.toml for both.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-merge-conflict
+      - id: check-executables-have-shebangs
+      - id: check-json
+      - id: check-yaml
+
+  - repo: local
+    hooks:
+      - id: shellcheck
+        name: shellcheck (via just lint)
+        entry: just lint
+        language: system
+        pass_filenames: false
+        files: '(\.sh$|^bin/)'
+
+      - id: shfmt
+        name: shfmt (via just format-check)
+        entry: just format-check
+        language: system
+        pass_filenames: false
+        files: '(\.sh$|^bin/)'
+
+      - id: zizmor
+        name: zizmor (via just lint-workflows)
+        entry: just lint-workflows
+        language: system
+        pass_filenames: false
+        files: '^\.github/'

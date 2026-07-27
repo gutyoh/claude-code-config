@@ -34,4 +34,3 @@ abbr -a g    git
 abbr -a lg   lazygit
 abbr -a ld   lazydocker
 abbr -a y    yazi
-

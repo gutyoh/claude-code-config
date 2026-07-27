@@ -11,7 +11,7 @@
 # the test can assert which IDE command was chosen.
 #
 # Run: bats tests/open-file-in-ide.bats
-#      make test
+#      just test
 
 HOOK="$BATS_TEST_DIRNAME/../.claude/hooks/open-file-in-ide.sh"
 

@@ -7,7 +7,7 @@
 # with mock mcp-key-rotate, and settings.json integration.
 #
 # Run: bats tests/auto-rotate-mcp-key.bats
-#      make test
+#      just test
 
 HOOK="$BATS_TEST_DIRNAME/../.claude/hooks/auto-rotate-mcp-key.sh"
 REPO_ROOT="$BATS_TEST_DIRNAME/.."

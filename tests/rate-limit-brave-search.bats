@@ -4,7 +4,7 @@
 #
 # bats-core tests for the rate-limit-brave-search.sh PreToolUse hook.
 # Run: bats tests/rate-limit-brave-search.bats
-#      make test
+#      just test
 
 HOOK="$BATS_TEST_DIRNAME/../.claude/hooks/rate-limit-brave-search.sh"
 DUMMY_INPUT='{"tool_name":"mcp__brave-search__brave_web_search","tool_input":{"query":"test"}}'
