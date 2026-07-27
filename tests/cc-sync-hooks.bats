@@ -302,3 +302,71 @@ JSON
     timeout=$(jq -r '.hooks.SessionStart[0].hooks[0].timeout // "MISSING"' "$settings")
     [ "$timeout" != "MISSING" ]
 }
+
+# --- Opting out ------------------------------------------------------------
+
+# bats test_tags=unit,sync
+@test "customize_installation offers an interactive claude-sync toggle" {
+    # The install summary lists claude-sync, but for a while there was no
+    # prompt to change it — an interactive user who did not want cross-machine
+    # sync had to know the --no-claude-sync flag existed and re-run.
+    grep -q 'INSTALL_CLAUDE_SYNC="no"' "$BATS_TEST_DIRNAME/../lib/setup/menu.sh"
+    grep -q 'INSTALL_CLAUDE_SYNC="yes"' "$BATS_TEST_DIRNAME/../lib/setup/menu.sh"
+}
+
+# bats test_tags=integration,sync
+@test "--no-claude-sync installs no hooks even when claude-sync is present" {
+    require_cmd python3
+    stub_bin claude-sync 'exit 0'
+    local repo
+    repo="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+
+    run bash "${repo}/setup.sh" -y --minimal --no-claude-sync --no-opencode
+    [ "$status" -eq 0 ]
+
+    local n
+    n=$(jq '[.hooks.SessionStart // [], .hooks.SessionEnd // []] | flatten | length' \
+        "${HOME}/.claude/settings.json")
+    [ "$n" -eq 0 ]
+}
+
+# bats test_tags=integration,sync
+@test "--no-claude-sync removes hooks a previous run installed" {
+    # Opting out has to be reversible, not just preventive: someone who enabled
+    # sync and changed their mind should be able to re-run and have the entries
+    # taken back out.
+    require_cmd python3
+    stub_bin claude-sync 'exit 0'
+    local repo
+    repo="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+
+    run bash "${repo}/setup.sh" -y --minimal --with-claude-sync --no-opencode
+    [ "$status" -eq 0 ]
+    local before
+    before=$(jq '[.hooks.SessionStart // []] | flatten | length' "${HOME}/.claude/settings.json")
+    [ "$before" -gt 0 ]
+
+    run bash "${repo}/setup.sh" -y --minimal --no-claude-sync --no-opencode
+    [ "$status" -eq 0 ]
+    local after
+    after=$(jq '[.hooks.SessionStart // [], .hooks.SessionEnd // []] | flatten | length' \
+        "${HOME}/.claude/settings.json")
+    [ "$after" -eq 0 ]
+}
+
+# bats test_tags=integration,sync
+@test "auto mode skips the hooks when claude-sync is not installed" {
+    require_cmd python3
+    local repo
+    repo="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+
+    # No claude-sync stub on PATH: auto must resolve to "no".
+    run env PATH="/usr/bin:/bin" HOME="$HOME" bash "${repo}/setup.sh" \
+        -y --minimal --no-opencode
+    [ "$status" -eq 0 ]
+
+    local n
+    n=$(jq '[.hooks.SessionStart // [], .hooks.SessionEnd // []] | flatten | length' \
+        "${HOME}/.claude/settings.json")
+    [ "$n" -eq 0 ]
+}

@@ -176,6 +176,34 @@ customize_installation() {
         INSTALL_OPENCODE="no"
     fi
 
+    # --- claude-sync session hooks ---
+    # The summary above already lists this, but without a prompt there was no
+    # way to change it from the TUI: an interactive user who did not want
+    # cross-machine sync had to know about --no-claude-sync and re-run.
+    local claude_sync_default="no"
+    case "${INSTALL_CLAUDE_SYNC}" in
+        yes) claude_sync_default="yes" ;;
+        no) claude_sync_default="no" ;;
+        auto)
+            if command -v claude-sync >/dev/null 2>&1; then
+                claude_sync_default="yes"
+            else
+                claude_sync_default="no"
+            fi
+            ;;
+    esac
+    local claude_sync_prompt="Install claude-sync session hooks? (syncs ~/.claude across machines"
+    if command -v claude-sync >/dev/null 2>&1; then
+        claude_sync_prompt="${claude_sync_prompt} — claude-sync detected)"
+    else
+        claude_sync_prompt="${claude_sync_prompt} — claude-sync not installed)"
+    fi
+    if tui_confirm "${claude_sync_prompt}" "${claude_sync_default}"; then
+        INSTALL_CLAUDE_SYNC="yes"
+    else
+        INSTALL_CLAUDE_SYNC="no"
+    fi
+
     # --- Settings mode ---
     local settings_choice
     tui_select settings_choice "Settings.json mode:" \
