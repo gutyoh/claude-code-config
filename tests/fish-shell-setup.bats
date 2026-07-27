@@ -192,3 +192,29 @@ fish_config_dir() {
         }
     done
 }
+
+# bats test_tags=unit,fish
+@test "docs fish presets stay in sync with what the installer generates" {
+    # docs/fish/.../functions/*.fish is the reference for a manual install, and
+    # lib/setup/settings.sh generates the same functions for an automated one.
+    # Two copies of the same code drift silently; compare the executable parts.
+    run bash -c "
+        REPO_DIR='$REPO_DIR'
+        CLAUDE_CONFIG_SHELL=/usr/bin/fish
+        source '$SETTINGS_SH'
+        configure_proxy_path
+    "
+    [ "$status" -eq 0 ]
+
+    local f
+    for f in claude clp; do
+        local doc gen
+        doc="$(grep -vE '^[[:space:]]*#' "${REPO_DIR}/docs/fish/config-power-user/functions/${f}.fish" | grep -v '^[[:space:]]*$')"
+        gen="$(grep -vE '^[[:space:]]*#' "${XDG_CONFIG_HOME}/fish/functions/${f}.fish" | grep -v '^[[:space:]]*$')"
+        [ "$doc" = "$gen" ] || {
+            echo "${f}.fish drifted between docs/ and the installer:"
+            diff <(printf '%s\n' "$doc") <(printf '%s\n' "$gen") || true
+            false
+        }
+    done
+}

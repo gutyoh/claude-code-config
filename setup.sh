@@ -15,6 +15,13 @@
 #   --no-proxy-path        Skip proxy launcher PATH and shell shortcut setup
 #   --with-claude-sync     Force-install SessionStart/SessionEnd hooks for cross-machine sync
 #   --no-claude-sync       Skip claude-sync session hooks (auto-detected by default)
+#   --shell PATH           Install shortcuts for this login shell (default: auto-detect
+#                          from the password database, NOT $SHELL — see detect_login_shell)
+#   --mcp LIST             Comma-separated MCP servers to install
+#   --proxy-path           Add bin/ to PATH and install shell shortcuts (default)
+#   --with-opencode        Force OpenCode parallel install (default: auto-detect)
+#   --no-opencode          Skip OpenCode setup
+#   --no-weekly-show-reset Hide weekly reset countdown (default)
 #   --minimal              Core only (no agents, skills, MCP, agent teams, proxy PATH, shell shortcuts, or claude-sync hooks)
 #   --overwrite-settings   Replace settings.json with repo defaults
 #   --skip-settings        Don't modify settings.json

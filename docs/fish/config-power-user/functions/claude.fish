@@ -1,5 +1,6 @@
 function claude --description 'Claude Code with proxy launcher defaults'
-    # Mirrors the zsh `claude` function in ~/.zshrc.
+    # setup.sh installs this natively for a fish login shell; this copy is the
+    # reference for a manual/copy install. Keep the two in sync.
     # Defaults to --allow-dangerously-skip-permissions; opt-in to
     # --dangerously-skip-permissions via the -a / --unsafe / --bypass / -adskp flags.
 

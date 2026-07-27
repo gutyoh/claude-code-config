@@ -1,5 +1,6 @@
 function clp --description 'Claude proxy with model'
-    # Mirrors the zsh `clp` function in ~/.zshrc.
+    # setup.sh installs this natively for a fish login shell; this copy is the
+    # reference for a manual/copy install. Keep the two in sync.
 
     set -l model 'gpt-5.5(high)'
     test -n "$CLAUDE_PROXY_MODEL"; and set model $CLAUDE_PROXY_MODEL

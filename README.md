@@ -1203,6 +1203,46 @@ Call `isolate_home` first in `setup()`. A test that shells out to a real binary 
 - `PLATFORM` pinned to a literal in a test, which forces the wrong `stat`/`date` branch on every other OS
 - a GitHub Action referenced by tag instead of a full commit SHA
 
+### Which shell gets configured
+
+`setup.sh` installs the `claude` / `clp` shortcuts into the rc file your login shell actually reads. Getting that wrong fails silently — the install reports success and you never get a `claude` function — so the detection is deliberate.
+
+**It does not use `$SHELL`.** That variable is inherited from whatever spawned the process and no shell corrects it on startup:
+
+```bash
+$ SHELL=/bin/made-up fish -c 'echo $SHELL'
+/bin/made-up
+```
+
+A fish user whose terminal was launched with `SHELL=zsh` would get the block written to `~/.zshrc`, which fish never reads. The password database is authoritative, so `detect_login_shell` consults it in this order:
+
+| Order | Source | Why |
+|---|---|---|
+| 1 | `CLAUDE_CONFIG_SHELL` / `--shell` | Explicit override |
+| 2 | `dscl` | macOS uses OpenDirectory; `/etc/passwd` can be stale |
+| 3 | `getent passwd` | NSS-aware, so it works with LDAP/AD |
+| 4 | `/etc/passwd` | Flat-file fallback |
+| 5 | `$SHELL` | Last resort only |
+
+The resolved shell is printed during install. Override it when detection is wrong or you want to target a different shell:
+
+```bash
+./setup.sh --shell "$(command -v fish)"
+```
+
+**Where each shell gets its config:**
+
+| Login shell | Destination |
+|---|---|
+| fish | `$XDG_CONFIG_HOME/fish/functions/{claude,clp}.fish` + `conf.d/` for PATH |
+| zsh | `~/.zshrc` |
+| bash | `~/.bashrc`, plus a bridge in `~/.bash_profile` |
+| anything else | `~/.profile` |
+
+The bash bridge matters: bash reads `~/.bashrc` for non-login interactive shells and `~/.bash_profile` for login shells. Linux terminals open the former, **macOS Terminal.app and iTerm2 open the latter** — so a block written only to `~/.bashrc` never loads on macOS. `setup.sh` appends the conventional `[ -f ~/.bashrc ] && . ~/.bashrc` line, once, and skips it if your `~/.bash_profile` already sources `~/.bashrc`.
+
+fish gets native files rather than a profile because fish is not POSIX — `export VAR=x` and POSIX function syntax are both syntax errors there. The snippet written for every other shell is checked with `shellcheck -s sh` and executed under each installed POSIX shell in CI.
+
 ### bash version
 
 macOS ships bash 3.2.57 as `/bin/bash` and cannot ship newer for licensing reasons, so `#!/usr/bin/env bash` lands on 3.2 whenever no newer bash is ahead of it on `PATH` — the default state on a clean Mac, and what GitHub's macOS runners provide.
