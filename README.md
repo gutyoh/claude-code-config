@@ -642,34 +642,36 @@ Add this to `~/.claude/settings.json`:
 - You want visibility into token consumption
 - You want to pace your usage throughout the day
 
-### 6. Cross-Machine Session Sync (claude-sync)
+### 6. Cross-Device Sessions (Claude Remote Control)
 
-Syncs your `~/.claude/` (sessions, projects, settings) across machines via encrypted cloud storage. Optional — requires the [claude-sync](https://github.com/tawanorg/claude-sync) tool installed on every machine you want synced (`npm install -g @tawandotorg/claude-sync`, then `claude-sync init`).
+Use Claude Code's native [Remote Control](https://code.claude.com/docs/en/remote-control) instead of synchronizing the live `~/.claude/` data directory. Remote Control keeps the session and tools on the originating machine while Claude's web and mobile clients provide a synchronized interface over TLS.
 
-**Locations:** `.claude/hooks/cc-sync-pull.sh` (SessionStart) and `.claude/hooks/cc-sync-push.sh` (SessionEnd)
+```bash
+# Start one local session that can also be controlled from web or mobile
+claude --remote-control "My Project"
 
-**How it works:**
+# Or enable an existing interactive session
+/remote-control My Project
 
-1. **SessionStart** → `cc-sync-pull.sh` detaches `claude-sync pull -q --force`, then optionally `~/.claude/cc-sync-remap.sh` for per-machine path rewrites (e.g., `/Users/<user>` → `/home/<user>` when crossing macOS↔Linux)
-2. **SessionEnd** → `cc-sync-push.sh` detaches `claude-sync push` to upload changes for the next machine
-3. **Fail-safe** — both hooks `set +e` and always `exit 0`. Errors land in `~/.claude/cc-sync-pull.log` / `cc-sync-push.log`
+# Scalable server mode: isolate concurrent sessions in Git worktrees
+claude remote-control --spawn worktree --capacity 8
+```
 
-**Both transfers are detached, and that is load-bearing:**
+Claude Code 2.1.51 or later is required. Pro, Max, Team, and Enterprise plans are supported; a Team or Enterprise Owner must enable Remote Control in Claude Code admin settings. See the official documentation for authentication and policy requirements.
 
-- **SessionStart runs synchronously.** Whatever the pull spends is added to the time before you get a prompt, and a pull is a network round trip over the whole tracked file set. Detaching returns the hook in milliseconds; the transfer lands in time for the next session. Both hook entries also carry `"timeout": 10` as a backstop — a hook without one is unbounded.
-- **The bound applies to the hook, never to a detached transfer.** `CC_SYNC_TIMEOUT_SEC` caps `CC_SYNC_BLOCKING=1` only. A detached pull blocks nothing, and a full pull over a large tracked set routinely outlasts any bound short enough to be useful at startup — capping it there kills every transfer just before it finishes and leaves the remote permanently unmerged, which is the failure this hook exists to prevent.
-- **SessionEnd cannot wait.** An inline push is killed the moment Claude Code exits, so the upload dies mid-flight and the remote never advances. A remote frozen behind local state is what makes the next pull diverge and write `.conflict.<timestamp>` copies — which then become newly tracked files and compound every session. The detached child outlives the parent and finishes the upload.
+Use the direct `claude` launcher for Remote Control, not the `clp` model-proxy shortcut. Remote Control requires a claude.ai subscription login and the official Anthropic API endpoint; API-key, Bedrock, Vertex, Foundry, and custom `ANTHROPIC_BASE_URL` sessions are not supported.
 
-To confirm pushes are landing, compare the `push start` and `push exit=` lines in `~/.claude/cc-sync-push.log`; every start should have a matching exit.
+#### Why automatic file sync is retired
 
-**Env overrides:**
+This repository deliberately does **not** install SessionStart/SessionEnd hooks that pull or push `~/.claude/`:
 
-| Variable | Default | Effect |
-|---|---|---|
-| `CC_SYNC_BLOCKING` | `0` | `1` waits for the transfer instead of detaching |
-| `CC_SYNC_TIMEOUT_SEC` | `10` | Wall-clock bound in blocking mode (needs GNU `timeout`) |
+- `history.jsonl` and `projects/**/*.jsonl` are live, append-oriented journals, not merge-safe configuration files.
+- Simultaneous or interrupted writers can create repeated `.conflict.*` snapshots, overwrite a fuller transcript with a shorter copy, or lose prompt history through last-writer-wins behavior. These are known upstream failure modes: [false prefix conflicts](https://github.com/tawanorg/claude-sync/issues/69), [truncated transcript overwrite](https://github.com/tawanorg/claude-sync/issues/70), and [history loss](https://github.com/tawanorg/claude-sync/issues/72).
+- Hook-triggered background transfers have no safe transaction boundary with Claude Code processes that are actively mutating the same files.
 
-**No-op when `claude-sync` isn't installed.** Safe to ship enabled by default. To opt in, install `claude-sync` via its repo instructions on each machine.
+Git remains the source of truth for declarative configuration in this repository: hooks, skills, agents, scripts, and documented settings. Runtime histories stay local. Re-running `./setup.sh` removes legacy `cc-sync-pull.sh` and `cc-sync-push.sh` entries from `~/.claude/settings.json` while preserving unrelated hooks.
+
+The historical `--no-claude-sync` option is accepted as a compatibility no-op. `--with-claude-sync` now exits with migration guidance rather than reinstalling unsafe automatic hooks. This migration does not delete existing conflicts, backups, cloud data, or credentials.
 
 ## Shell + Terminal Configuration
 

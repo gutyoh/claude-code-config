@@ -562,113 +562,12 @@ PYTHON_SCRIPT
     fi
 }
 
-configure_claude_sync_hooks() {
-    # Resolves INSTALL_CLAUDE_SYNC=auto by detecting `claude-sync` on PATH.
-    # Idempotently adds SessionStart (cc-sync-pull) and SessionEnd
-    # (cc-sync-push) hook entries to ${SETTINGS_JSON}, or removes them
-    # when INSTALL_CLAUDE_SYNC=no.
-    local mode="${INSTALL_CLAUDE_SYNC:-auto}"
-
-    if [[ "${mode}" == "auto" ]]; then
-        if command -v claude-sync >/dev/null 2>&1; then
-            mode="yes"
-        else
-            mode="no"
-        fi
-    fi
-
-    if [[ "${mode}" == "yes" ]]; then
-        if python3 - "${SETTINGS_JSON}" <<'PYTHON_CHECK' 2>/dev/null; then
-import json
-import sys
-try:
-    with open(sys.argv[1]) as f:
-        data = json.load(f)
-    hooks = data.get('hooks', {})
-    start = hooks.get('SessionStart', [])
-    end = hooks.get('SessionEnd', [])
-    # A hook without an explicit timeout is unbounded: Claude Code waits on it
-    # for as long as it runs. Treat a timeout-less entry as needing an upgrade
-    # so re-running setup repairs configs written by older versions.
-    pull_present = any(
-        h.get('command') == '~/.claude/hooks/cc-sync-pull.sh' and 'timeout' in h
-        for entry in start for h in entry.get('hooks', [])
-    )
-    push_present = any(
-        h.get('command') == '~/.claude/hooks/cc-sync-push.sh' and 'timeout' in h
-        for entry in end for h in entry.get('hooks', [])
-    )
-    sys.exit(0 if pull_present and push_present else 1)
-except Exception:
-    sys.exit(1)
-PYTHON_CHECK
-            echo "  ✓ Claude-sync session hooks already configured"
-        else
-            echo "  Adding claude-sync session hooks to settings..."
-            python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
-import json
-import sys
-
-settings_file = sys.argv[1]
-
-try:
-    with open(settings_file) as f:
-        data = json.load(f)
-
-    data.setdefault('hooks', {})
-
-    # Both hooks detach their transfer, so they return in milliseconds. The
-    # timeout is a backstop against a hook that somehow blocks anyway — without
-    # it Claude Code waits indefinitely and session startup stalls.
-    HOOK_TIMEOUT_SEC = 10
-
-    def entry(command):
-        return {
-            "hooks": [
-                {
-                    "type": "command",
-                    "command": command,
-                    "timeout": HOOK_TIMEOUT_SEC
-                }
-            ]
-        }
-
-    def upgrade(entries, command):
-        """Add a timeout to a pre-existing entry, or append a new one."""
-        for group in entries:
-            for hook in group.get('hooks', []):
-                if hook.get('command') == command:
-                    hook.setdefault('timeout', HOOK_TIMEOUT_SEC)
-                    return
-        entries.append(entry(command))
-
-    upgrade(
-        data['hooks'].setdefault('SessionStart', []),
-        '~/.claude/hooks/cc-sync-pull.sh',
-    )
-    upgrade(
-        data['hooks'].setdefault('SessionEnd', []),
-        '~/.claude/hooks/cc-sync-push.sh',
-    )
-
-    with open(settings_file, 'w') as f:
-        json.dump(data, f, indent=2)
-
-    print("  ✓ Claude-sync session hooks configured")
-    sys.exit(0)
-except Exception as e:
-    print(f"  ⚠ Failed to add claude-sync hooks: {e}", file=sys.stderr)
-    sys.exit(1)
-PYTHON_SCRIPT
-        fi
-
-        if ! command -v claude-sync >/dev/null 2>&1; then
-            echo "  ⚠ claude-sync not found on PATH — hooks will no-op until installed"
-            echo "    Install with: npm install -g @tawandotorg/claude-sync"
-            echo "    Then run: claude-sync init"
-        fi
-    else
-        python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
+remove_legacy_claude_sync_hooks() {
+    # ~/.claude contains live, mutable session journals. Bidirectional file
+    # sync is not a safe merge protocol for that data, so setup permanently
+    # removes hook entries installed by older releases. Declarative config is
+    # still distributed through Git; cross-device sessions use Remote Control.
+    python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
 import json
 import sys
 
@@ -688,12 +587,13 @@ try:
         entries = hooks.get(event, [])
         kept = []
         for entry in entries:
-            sub = [h for h in entry.get('hooks', []) if h.get('command') != target]
+            original = entry.get('hooks', [])
+            sub = [h for h in original if h.get('command') != target]
+            if len(sub) != len(original):
+                changed = True
             if sub:
                 entry['hooks'] = sub
                 kept.append(entry)
-            else:
-                changed = True
         if kept != entries:
             changed = True
             if kept:
@@ -708,13 +608,12 @@ try:
             data.pop('hooks', None)
         with open(settings_file, 'w') as f:
             json.dump(data, f, indent=2)
-        print("  ✓ Claude-sync session hooks removed")
+        print("  ✓ Retired claude-sync session hooks removed")
     else:
-        print("  ⊘ Claude-sync session hooks not present (nothing to remove)")
+        print("  ⊘ Retired claude-sync session hooks not present")
     sys.exit(0)
 except Exception as e:
-    print(f"  ⚠ Failed to remove claude-sync hooks: {e}", file=sys.stderr)
+    print(f"  ⚠ Failed to remove retired claude-sync hooks: {e}", file=sys.stderr)
     sys.exit(1)
 PYTHON_SCRIPT
-    fi
 }

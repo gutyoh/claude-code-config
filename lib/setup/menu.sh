@@ -41,19 +41,7 @@ show_install_menu() {
         *) opencode_label="auto ($(opencode_detect_label))" ;;
     esac
     echo "  OpenCode parallel install:        ${opencode_label}"
-    local claude_sync_label
-    case "${INSTALL_CLAUDE_SYNC}" in
-        yes) claude_sync_label="yes" ;;
-        no) claude_sync_label="no" ;;
-        *)
-            if command -v claude-sync >/dev/null 2>&1; then
-                claude_sync_label="auto (claude-sync detected)"
-            else
-                claude_sync_label="auto (claude-sync not installed — skip)"
-            fi
-            ;;
-    esac
-    echo "  claude-sync session hooks:        ${claude_sync_label}"
+    echo "  cross-device sessions:            Claude Remote Control (native)"
     echo "  settings.json:                    ${settings_label}"
     echo "  statusline color theme:           ${STATUSLINE_THEME}"
     echo "  statusline components:            ${comp_display}"
@@ -174,34 +162,6 @@ customize_installation() {
         INSTALL_OPENCODE="yes"
     else
         INSTALL_OPENCODE="no"
-    fi
-
-    # --- claude-sync session hooks ---
-    # The summary above already lists this, but without a prompt there was no
-    # way to change it from the TUI: an interactive user who did not want
-    # cross-machine sync had to know about --no-claude-sync and re-run.
-    local claude_sync_default="no"
-    case "${INSTALL_CLAUDE_SYNC}" in
-        yes) claude_sync_default="yes" ;;
-        no) claude_sync_default="no" ;;
-        auto)
-            if command -v claude-sync >/dev/null 2>&1; then
-                claude_sync_default="yes"
-            else
-                claude_sync_default="no"
-            fi
-            ;;
-    esac
-    local claude_sync_prompt="Install claude-sync session hooks? (syncs ~/.claude across machines"
-    if command -v claude-sync >/dev/null 2>&1; then
-        claude_sync_prompt="${claude_sync_prompt} — claude-sync detected)"
-    else
-        claude_sync_prompt="${claude_sync_prompt} — claude-sync not installed)"
-    fi
-    if tui_confirm "${claude_sync_prompt}" "${claude_sync_default}"; then
-        INSTALL_CLAUDE_SYNC="yes"
-    else
-        INSTALL_CLAUDE_SYNC="no"
     fi
 
     # --- Settings mode ---
