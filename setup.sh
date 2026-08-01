@@ -13,8 +13,6 @@
 #   --agent-teams          Enable agent teams (experimental)
 #   --no-agent-teams       Disable agent teams
 #   --no-proxy-path        Skip proxy launcher PATH and shell shortcut setup
-#   --with-claude-sync     Force-install SessionStart/SessionEnd hooks for cross-machine sync
-#   --no-claude-sync       Skip claude-sync session hooks (auto-detected by default)
 #   --shell PATH           Install shortcuts for this login shell (default: auto-detect
 #                          from the password database, NOT $SHELL — see detect_login_shell)
 #   --mcp LIST             Comma-separated MCP servers to install
@@ -22,7 +20,7 @@
 #   --with-opencode        Force OpenCode parallel install (default: auto-detect)
 #   --no-opencode          Skip OpenCode setup
 #   --no-weekly-show-reset Hide weekly reset countdown (default)
-#   --minimal              Core only (no agents, skills, MCP, agent teams, proxy PATH, shell shortcuts, or claude-sync hooks)
+#   --minimal              Core only (no agents, skills, MCP, agent teams, proxy PATH, or shell shortcuts)
 #   --overwrite-settings   Replace settings.json with repo defaults
 #   --skip-settings        Don't modify settings.json
 #   --theme THEME          Statusline color theme (dark|light|colorblind|none)
@@ -67,8 +65,7 @@ STATUSLINE_CC_STATUS_VISIBILITY="always" # always | problem_only
 STATUSLINE_CC_STATUS_COLOR="full"        # none | full | status_only
 INSTALL_AGENT_TEAMS="true"
 INSTALL_PROXY_PATH="true"
-INSTALL_OPENCODE="auto"    # "auto" | "yes" | "no" — auto = detect_opencode result
-INSTALL_CLAUDE_SYNC="auto" # "auto" | "yes" | "no" — auto = enable when claude-sync is on PATH
+INSTALL_OPENCODE="auto" # "auto" | "yes" | "no" — auto = detect_opencode result
 ACCEPT_DEFAULTS="false"
 USER_CUSTOMIZED_STATUSLINE="false" # Set to true when user goes through TUI statusline customization
 
@@ -231,10 +228,10 @@ main() {
         echo ""
 
         step=$((step + 1))
-        echo "Step ${step}: Configuring claude-sync session hooks..."
+        echo "Step ${step}: Removing retired claude-sync session hooks..."
         echo ""
 
-        configure_claude_sync_hooks
+        remove_legacy_claude_sync_hooks
 
         echo ""
 
@@ -314,10 +311,10 @@ EOF
         echo ""
 
         step=$((step + 1))
-        echo "Step ${step}: Configuring claude-sync session hooks..."
+        echo "Step ${step}: Removing retired claude-sync session hooks..."
         echo ""
 
-        configure_claude_sync_hooks
+        remove_legacy_claude_sync_hooks
 
     else
         step=$((step + 1))
