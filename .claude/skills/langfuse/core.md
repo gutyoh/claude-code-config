@@ -6,10 +6,10 @@ All Langfuse operations go through `langfuse-cli`. Never hardcode API keys, host
 
 ```bash
 # CORRECT: CLI manages auth via environment variables
-npx langfuse-cli api traces list --limit 10 --json
+npx langfuse-cli api observations list --limit 10 --json
 
 # CORRECT: Auth via env file
-npx langfuse-cli --env .env api traces list --limit 10 --json
+npx langfuse-cli --env .env api observations list --limit 10 --json
 
 # WRONG: Hardcoded credentials
 curl -u "pk-lf-xxx:sk-lf-xxx" https://cloud.langfuse.com/api/public/traces
@@ -22,7 +22,7 @@ The CLI supports three auth methods, in priority order:
 ### Method 1: `.env` file (recommended, takes precedence)
 
 ```bash
-npx langfuse-cli --env .env api traces list --json
+npx langfuse-cli --env .env api observations list --json
 ```
 
 `.env` contents:
@@ -39,20 +39,20 @@ LANGFUSE_HOST=http://localhost:3000
 export LANGFUSE_PUBLIC_KEY=pk-lf-...
 export LANGFUSE_SECRET_KEY=sk-lf-...
 export LANGFUSE_HOST=http://localhost:3000
-npx langfuse-cli api traces list --json
+npx langfuse-cli api observations list --json
 ```
 
 ### Method 3: Inline flags
 
 ```bash
 npx langfuse-cli --public-key pk-lf-... --secret-key sk-lf-... --host http://localhost:3000 \
-  api traces list --json
+  api observations list --json
 ```
 
 ### Verifying Connectivity
 
 ```bash
-npx langfuse-cli api healths list --json
+npx langfuse-cli api health get --json
 ```
 
 If auth fails, instruct the user to create API keys in the Langfuse UI (Settings → API Keys) and configure them locally (shell export, `.env` file, or `.claude/settings.local.json`). Never request or accept raw key values in chat.
@@ -71,48 +71,62 @@ Only then write code using the patterns from the current docs.
 
 ---
 
-## 4. Resource Discovery — 26 Resources, Progressive Disclosure
+## 4. Resource Discovery — 34 Resources, Progressive Disclosure
 
-The CLI wraps the entire Langfuse OpenAPI spec. Start broad, drill down:
+The CLI wraps the entire Langfuse OpenAPI spec and pins an API snapshot. Start
+broad, drill down:
 
 ```bash
-# Step 1: List all resources
-npx langfuse-cli api __schema
+# Step 1: List all resources. Ones carrying dead actions are marked
+npx langfuse-cli api help
 
 # Step 2: List actions for a resource
-npx langfuse-cli api traces --help
+npx langfuse-cli api help observations
 
 # Step 3: Show flags for a specific action
-npx langfuse-cli api traces list --help
+npx langfuse-cli api help observations list
 
 # Step 4: Preview the curl command
-npx langfuse-cli api traces list --limit 5 --curl
+npx langfuse-cli api observations list --limit 5 --curl
+
+# Machine-readable schema
+npx langfuse-cli api schema --json
 ```
 
-### Available Resources (26 total)
+### Deprecation is enforced, not advisory
+
+Against a v4 snapshot the CLI **refuses** to call a deprecated operation and
+prints the replacement. A deprecated resource is also renamed: `traces list`
+resolves as `legacy-traces list`. Read span and trace data from
+`observations list` (`GET /api/public/v2/observations`) instead.
+
+For a self-hosted deployment still on v3, pin the snapshot rather than avoiding
+the CLI: `--api-version 3`, or `--api-version auto` to detect it from
+`/api/public/health`.
+
+### Available Resources
 
 | Resource | Key Actions | Notes |
 |----------|-------------|-------|
-| `traces` | list, get, delete-public | Core — query and inspect traces |
-| `sessions` | list, get | Group multi-turn conversations |
-| `observations-v2s` | list | **Prefer over `observations`** — richer data |
-| `prompts` | list, get, create, update | Prompt management (CRUD) |
-| `prompt-versions` | list | Version history for prompts |
-| `datasets` | list, get, create, update, delete, run | Dataset management |
-| `dataset-items` | list, get, create, update | Items within datasets |
-| `dataset-run-items` | list, get | Run results for dataset items |
-| `score-v2s` | list, get | **Prefer over `scores`** — list and get support |
-| `scores` | create, delete | v1 — only create/delete, use v2 for queries |
+| `observations` | list | Span and trace data. `list` is v2 and current |
+| `traces` | delete, delete-many | `list` and `get` are deprecated — read observations |
+| `scores` | list, create, delete | `list` is v3 and current |
+| `scores-v2` | list, get | Deprecated — use `scores` |
 | `score-configs` | list, get, create, update | Score configuration templates |
-| `metrics-v2s` | list | **Prefer over `metrics`** — richer data |
-| `metrics` | list | v1 — basic metrics |
-| `annotation-queues` | list, get, create, update, delete + items | Human review queues |
+| `prompts` | list, get, create, update | Prompt management (CRUD) |
+| `datasets` | list, get, create | Dataset management |
+| `dataset-items` | list, get, create | Items within datasets |
+| `experiments` / `experiment-items` | list, get | Experiment runs |
+| `annotation-queues` | list, get, create + items | Human review queues |
 | `comments` | list, get, create | Comments on traces/observations |
 | `models` | list, get, create, delete | Model definitions and pricing |
-| `healths` | list | Health check endpoint |
-| `ingestions` | create | Batch ingestion endpoint |
-| `organizations` | list + membership management | Org-level operations |
-| `projects` | list + membership management | Project-level operations |
+| `metrics` | list | Aggregated metrics |
+| `health` | get | Health check endpoint |
+| `media`, `otel`, `integrations`, `llm-connections` | varies | Ingest and integration surfaces |
+| `organizations`, `projects`, `scim` | list + membership | Tenancy administration |
+| `feedback` | create | Feedback submission |
+| `unstable-*` | varies | Dashboards and evaluators; interface may change |
+| `legacy-*` | varies | v3 shapes, reachable only via `--api-version 3` |
 
 ---
 
@@ -122,27 +136,35 @@ npx langfuse-cli api traces list --limit 5 --curl
 
 ```bash
 # CORRECT: Structured JSON output
-npx langfuse-cli api traces list --limit 5 --json
+npx langfuse-cli api observations list --limit 5 --json
 
 # WRONG: Default text output (harder to parse)
-npx langfuse-cli api traces list --limit 5
+npx langfuse-cli api observations list --limit 5
 ```
 
-### Pagination
+### Pagination — two styles, not one
+
+`observations` is cursor-based; most other lists are offset-based. Using the
+wrong one silently returns the first page forever.
 
 ```bash
-# First page, 20 items
-npx langfuse-cli api traces list --limit 20 --page 1 --json
+# Cursor-based (observations): let the CLI walk the pages
+npx langfuse-cli api observations list --limit 100 --all --max-items 500 --json
 
-# Second page
-npx langfuse-cli api traces list --limit 20 --page 2 --json
+# Cursor-based, one page at a time
+npx langfuse-cli api observations list --limit 20 --cursor "<cursor-from-previous>" --json
+
+# Offset-based (prompts, datasets, models, ...)
+npx langfuse-cli api prompts list --limit 20 --page 2 --json
 ```
+
+`--all` fetches every page and therefore cannot be combined with `--curl`.
 
 ### Preview Mode
 
 ```bash
 # See the curl command without executing
-npx langfuse-cli api traces list --limit 5 --curl
+npx langfuse-cli api observations list --limit 5 --curl
 ```
 
 ---
@@ -202,8 +224,8 @@ API Error: 401 Unauthorized
 1. **Hardcoded credentials**: Never embed API keys in commands — use env vars or `.env` files
 2. **Memory-based implementation**: Never write integration code without fetching current docs first
 3. **Missing `--json`**: Always use `--json` for parseable output
-4. **Using v1 endpoints when v2 exists**: Prefer `observations-v2s`, `metrics-v2s`, `score-v2s`
-5. **Using `scores` for queries**: v1 `scores` only supports create/delete — use `score-v2s` for list/get
+4. **Assuming a `-v2` resource is the newer one**: it is not. `scores list` is v3 and current; `scores-v2` is deprecated. Check `api help` for the `[deprecated]` marker
+5. **Reading traces from `traces list`**: deprecated and refused on v4 — read `observations list` instead
 6. **Blind mutations**: Never create/update/delete without user confirmation
 7. **Missing `--limit`**: Always paginate list operations to avoid excessive data transfer
 8. **Polling loops**: If an operation takes time, inform the user and let them decide when to check

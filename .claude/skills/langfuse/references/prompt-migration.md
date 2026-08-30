@@ -140,10 +140,10 @@ prompt = client.get_prompt("my-assistant", label="production")
 npx langfuse-cli api prompts get "my-assistant" --json
 
 # Check all versions
-npx langfuse-cli api prompt-versions list --name "my-assistant" --json
+npx langfuse-cli api prompts list --name "my-assistant" --json
 
-# Verify traces are using the prompt
-npx langfuse-cli api traces list --limit 5 --json \
+# Verify observations are using the prompt
+npx langfuse-cli api observations list --limit 5 --fields core,basic,prompt --json \
   --filter '[{"type":"string","column":"name","operator":"contains","value":"my-assistant"}]'
 ```
 

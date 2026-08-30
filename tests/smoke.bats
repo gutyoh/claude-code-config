@@ -53,7 +53,7 @@ assert_setup_ok() {
     require_cmd python3
     require_cmd jq
 
-    run "$SETUP" -y --minimal --no-claude-sync --no-opencode
+    run "$SETUP" -y --minimal --no-opencode
     assert_setup_ok
     [[ "$output" == *"Setup complete!"* ]]
 }
@@ -63,7 +63,7 @@ assert_setup_ok() {
     require_cmd python3
     require_cmd jq
 
-    run "$SETUP" -y --minimal --no-claude-sync --no-opencode
+    run "$SETUP" -y --minimal --no-opencode
     assert_setup_ok
 
     local settings="${HOME}/.claude/settings.json"
@@ -72,11 +72,11 @@ assert_setup_ok() {
 }
 
 # bats test_tags=smoke
-@test "setup.sh --minimal installs no claude-sync hooks" {
+@test "setup.sh --minimal installs no automatic session-sync hooks" {
     require_cmd python3
     require_cmd jq
 
-    run "$SETUP" -y --minimal --no-claude-sync --no-opencode
+    run "$SETUP" -y --minimal --no-opencode
     assert_setup_ok
 
     local settings="${HOME}/.claude/settings.json"
@@ -90,34 +90,15 @@ assert_setup_ok() {
     require_cmd python3
     require_cmd jq
 
-    run "$SETUP" -y --minimal --no-claude-sync --no-opencode
+    run "$SETUP" -y --minimal --no-opencode
     assert_setup_ok
-    run "$SETUP" -y --minimal --no-claude-sync --no-opencode
+    run "$SETUP" -y --minimal --no-opencode
     assert_setup_ok
 
     jq -e '.' "${HOME}/.claude/settings.json" >/dev/null
 }
 
 # bats test_tags=smoke
-@test "setup.sh with claude-sync wires bounded hooks end to end" {
-    require_cmd python3
-    require_cmd jq
-    stub_bin claude-sync 'exit 0'
-
-    run "$SETUP" -y --minimal --with-claude-sync --no-opencode
-    assert_setup_ok
-
-    local settings="${HOME}/.claude/settings.json"
-    local timeout
-    timeout=$(jq -r '
-        .hooks.SessionStart[]?.hooks[]?
-        | select(.command | test("cc-sync-pull"))
-        | .timeout // "MISSING"
-    ' "$settings")
-    [ "$timeout" != "MISSING" ]
-    [ "$timeout" -gt 0 ]
-}
-
 # bats test_tags=smoke
 @test "the shipped settings.json template is valid JSON" {
     require_cmd jq

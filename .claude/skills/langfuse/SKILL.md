@@ -14,7 +14,7 @@ You are a senior LLM observability engineer who uses Langfuse to debug, analyze,
 The `langfuse-cli` runs via npx (no install required). Verify connectivity:
 
 ```bash
-npx langfuse-cli api healths list --json
+npx langfuse-cli api health get --json
 ```
 
 Authentication requires three environment variables:
@@ -51,81 +51,96 @@ Load additional files based on task context:
 ### CLI Discovery
 
 ```bash
-# List all 26 resources
-npx langfuse-cli api __schema
+# Every resource, and which ones still carry deprecated actions
+npx langfuse-cli api help
 
-# List actions for a resource
-npx langfuse-cli api traces --help
+# Actions for one resource
+npx langfuse-cli api help observations
 
-# Show args/options for a specific action
-npx langfuse-cli api traces list --help
+# Args and options for one action
+npx langfuse-cli api help observations list
 
-# Preview the curl command without executing
-npx langfuse-cli api traces list --limit 5 --curl
+# Machine-readable command schema
+npx langfuse-cli api schema --json
+
+# Preview the curl without executing it
+npx langfuse-cli api observations list --limit 5 --curl
+```
+
+### Reading trace data
+
+Langfuse v4 serves span and trace data from `/api/public/v2/observations`. The
+older `traces list`, `traces get` and `sessions list` are deprecated and the CLI
+refuses to call them against a v4 snapshot, so read observations instead.
+
+```bash
+# Recent observations (spans, generations, events)
+npx langfuse-cli api observations list --limit 10 --json
+
+# Everything belonging to one trace
+npx langfuse-cli api observations list --trace-id <trace-id> --json
+
+# Only the logical roots, which is the closest thing to "list traces"
+npx langfuse-cli api observations list --is-root-observation --limit 10 --json
 ```
 
 ### Common Operations
 
 ```bash
-# List recent traces
-npx langfuse-cli api traces list --limit 10 --json
+# Scores (v3)
+npx langfuse-cli api scores list --limit 10 --json
 
-# Get a specific trace by ID
-npx langfuse-cli api traces get <trace-id> --json
-
-# List sessions
-npx langfuse-cli api sessions list --limit 10 --json
-
-# Get a session by ID
-npx langfuse-cli api sessions get <session-id> --json
-
-# List observations (prefer v2)
-npx langfuse-cli api observations-v2s list --limit 10 --json
-
-# List prompts
+# Prompts
 npx langfuse-cli api prompts list --json
-
-# Get a prompt by name
 npx langfuse-cli api prompts get <prompt-name> --json
 
-# List scores (prefer v2)
-npx langfuse-cli api score-v2s list --limit 10 --json
-
-# List datasets
+# Datasets
 npx langfuse-cli api datasets list --json
+npx langfuse-cli api dataset-items list --dataset-name <name> --json
 
 # Health check
-npx langfuse-cli api healths list --json
+npx langfuse-cli api health get --json
 ```
 
-### Filtering Traces
+### Filtering observations
 
 ```bash
-# By user
-npx langfuse-cli api traces list --user-id "user-123" --limit 10 --json
+# By user or session
+npx langfuse-cli api observations list --user-id "user-123" --limit 10 --json
+npx langfuse-cli api observations list --session-id "session-abc" --limit 10 --json
 
-# By session
-npx langfuse-cli api traces list --session-id "session-abc" --limit 10 --json
-
-# By time range
-npx langfuse-cli api traces list \
-  --from-timestamp "2026-03-01T00:00:00Z" \
-  --to-timestamp "2026-03-03T23:59:59Z" \
+# By time range — start_time, ISO 8601
+npx langfuse-cli api observations list \
+  --from-start-time "2026-03-01T00:00:00Z" \
+  --to-start-time "2026-03-03T23:59:59Z" \
   --limit 20 --json
 
-# By tags
-npx langfuse-cli api traces list --tags "production" --limit 10 --json
+# By name, type, or level
+npx langfuse-cli api observations list --name "my-span" --limit 10 --json
+npx langfuse-cli api observations list --type GENERATION --level ERROR --limit 10 --json
 
-# By name
-npx langfuse-cli api traces list --name "my-trace-name" --limit 10 --json
-
-# Advanced JSON filter (errors only)
-npx langfuse-cli api traces list --limit 10 --json \
-  --filter '[{"type":"number","column":"errorCount","operator":">","value":0}]'
-
-# Expensive traces
-npx langfuse-cli api traces list --limit 10 --json \
+# Structured filter; takes precedence over the flags above
+npx langfuse-cli api observations list --limit 10 --json \
   --filter '[{"type":"number","column":"totalCost","operator":">=","value":0.01}]'
+
+# Field groups: core and basic come back by default, ask for the rest
+npx langfuse-cli api observations list --fields core,basic,usage,metrics --limit 10 --json
+
+# Every page, bounded. Cursor-based, and not combinable with --curl
+npx langfuse-cli api observations list --all --max-items 500 --json
+```
+
+### Older self-hosted deployments
+
+A self-hosted Langfuse still on v3 keeps the endpoints v4 dropped. Pin the API
+snapshot rather than avoiding the CLI.
+
+```bash
+# Pin explicitly
+npx langfuse-cli --api-version 3 api traces list --limit 10 --json
+
+# Or detect the server version through /api/public/health
+npx langfuse-cli --api-version auto api observations list --limit 10 --json
 ```
 
 ### Documentation Access
@@ -144,8 +159,8 @@ curl -s "https://langfuse.com/api/search-docs?query=opentelemetry"
 ## When Invoked
 
 1. **Check credentials** — Verify `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and `LANGFUSE_HOST` are set
-2. **Health check** — Run `npx langfuse-cli api healths list --json` to verify connectivity
-3. **Discover resources** — Use `__schema` and `--help` to find the right resource and action
-4. **Query data** — Always use `--json` for structured output, `--limit` for pagination
+2. **Health check** — Run `npx langfuse-cli api health get --json` to verify connectivity
+3. **Discover resources** — Use `api help` and `api schema --json` to find the right resource and action; `api help` marks resources that still carry deprecated actions
+4. **Query data** — Always use `--json` for structured output, `--limit` for page size, `--all --max-items` to walk every page
 5. **Present results** — Format as markdown tables with counts and relevant metadata
 6. **Fetch docs if needed** — Use llms.txt or direct page fetch for integration guidance
