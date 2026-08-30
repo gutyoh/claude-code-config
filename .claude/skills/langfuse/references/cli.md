@@ -16,7 +16,8 @@ langfuse api <resource> <action>
 
 ```bash
 # List all resources and auth info
-npx langfuse-cli api __schema
+npx langfuse-cli api help
+npx langfuse-cli api schema --json
 
 # List actions for a resource
 npx langfuse-cli api <resource> --help
@@ -47,13 +48,13 @@ Alternative: pass `--env .env` to load from a file (takes precedence over env va
 
 ```bash
 # Get the trace
-npx langfuse-cli api traces get <trace-id> --json
+npx langfuse-cli api observations list --trace-id <trace-id> --json
 
 # Get all observations in the trace (prefer v2)
-npx langfuse-cli api observations-v2s list --trace-id <trace-id> --json
+npx langfuse-cli api observations list --trace-id <trace-id> --fields core,basic,io,usage --json
 
 # Get scores for the trace
-npx langfuse-cli api score-v2s list --json \
+npx langfuse-cli api scores list --json \
   --filter '[{"type":"string","column":"traceId","operator":"=","value":"<trace-id>"}]'
 ```
 
@@ -61,11 +62,11 @@ npx langfuse-cli api score-v2s list --json \
 
 ```bash
 # Traces with errors
-npx langfuse-cli api traces list --limit 20 --json \
+npx langfuse-cli api observations list --limit 20 --json \
   --filter '[{"type":"number","column":"errorCount","operator":">","value":0}]'
 
 # High-latency traces (>10s)
-npx langfuse-cli api traces list --limit 20 --json \
+npx langfuse-cli api observations list --limit 20 --json \
   --filter '[{"type":"number","column":"latency","operator":">","value":10}]'
 ```
 
@@ -73,25 +74,25 @@ npx langfuse-cli api traces list --limit 20 --json \
 
 ```bash
 # Most expensive traces
-npx langfuse-cli api traces list --limit 20 --json \
+npx langfuse-cli api observations list --limit 20 --json \
   --order-by "timestamp.desc" \
   --filter '[{"type":"number","column":"totalCost","operator":">=","value":0.01}]'
 
-# Daily metrics (v2)
-npx langfuse-cli api metrics-v2s list --json
+# Aggregated metrics (v2). The action is `get`, not `list`
+npx langfuse-cli api metrics get --json
 ```
 
 ### Session Analysis
 
 ```bash
 # List sessions
-npx langfuse-cli api sessions list --limit 20 --json
+npx langfuse-cli api observations list --limit 20 --fields core,basic --json
 
 # Get a specific session
-npx langfuse-cli api sessions get <session-id> --json
+npx langfuse-cli api observations list --session-id <session-id> --json
 
 # All traces in a session
-npx langfuse-cli api traces list --session-id <session-id> --json
+npx langfuse-cli api observations list --session-id <session-id> --json
 ```
 
 ### Prompt Management
@@ -134,7 +135,7 @@ npx langfuse-cli api dataset-items list --dataset-name <dataset-name> --json
 
 ```bash
 # List scores (use v2 — v1 only has create/delete)
-npx langfuse-cli api score-v2s list --limit 20 --json
+npx langfuse-cli api scores list --limit 20 --json
 
 # Create a score
 npx langfuse-cli api scores create --json \
@@ -145,11 +146,11 @@ npx langfuse-cli api scores create --json \
 
 ## Advanced Filtering
 
-The `traces list` command supports a powerful `--filter` JSON parameter:
+The `observations list` command supports a powerful `--filter` JSON parameter, which takes precedence over the individual query flags:
 
 ```bash
 # Multiple conditions (AND)
-npx langfuse-cli api traces list --limit 10 --json \
+npx langfuse-cli api observations list --limit 10 --json \
   --filter '[
     {"type":"datetime","column":"timestamp","operator":">=","value":"2026-03-01T00:00:00Z"},
     {"type":"number","column":"errorCount","operator":">","value":0},
@@ -157,7 +158,7 @@ npx langfuse-cli api traces list --limit 10 --json \
   ]'
 
 # Filter by metadata key
-npx langfuse-cli api traces list --limit 10 --json \
+npx langfuse-cli api observations list --limit 10 --json \
   --filter '[
     {"type":"stringObject","column":"metadata","key":"customer_tier","operator":"=","value":"enterprise"}
   ]'
@@ -186,9 +187,9 @@ npx langfuse-cli api traces list --limit 10 --json \
 
 - Use `--json` for machine-readable output
 - Use `--curl` to preview the HTTP request without executing
-- Pagination: use `--limit` and `--page` on list endpoints
+- Pagination: `observations` is cursor-based (`--cursor`, or `--all --max-items`); most other lists are offset-based (`--limit` with `--page`)
 - All list commands support filtering — check `<resource> <action> --help` for available options
-- Prefer `observations-v2s` over `observations` — the v2 endpoint returns richer data
-- Prefer `metrics-v2s` over `metrics` — the v2 endpoint returns richer data
-- Prefer `score-v2s` over `scores` — the v1 `scores` resource only supports create/delete; use `score-v2s` for list and get operations
+- `observations list` is the v2 endpoint (`/api/public/v2/observations`) and the supported way to read span and trace data
+- `metrics get` is the v2 metrics endpoint (`/api/public/v2/metrics`); there is no `metrics list`
+- `scores list` is v3 and current; `scores-v2` is deprecated. A `-v2` suffix does not mean newer — check `api help` for the `[deprecated]` marker
 - Ordering: `--order-by "timestamp.desc"` for newest-first
