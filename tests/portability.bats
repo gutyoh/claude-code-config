@@ -103,6 +103,53 @@ all_shipped() {
     }
 }
 
+# --- Private identifiers ----------------------------------------------------
+
+# Everything whose text ships or gets copied onto a machine. Wider than
+# `all_shipped` on purpose: a leaked employer name in a doc is still a leak,
+# and docs/ carries runnable scripts as well as prose.
+scannable_files() {
+    git -C "$REPO_ROOT" ls-files -z --cached --others --exclude-standard 2>/dev/null |
+        tr '\0' '\n' |
+        grep -vE '^\.idea/|\.lock$|\.png$|\.jpg$|\.gif$|\.ico$' || true
+}
+
+# bats test_tags=unit,portability
+@test "no shipped file names a private employer or work account" {
+    # This repo is public and installed on other people's machines. An employer
+    # name or a work address in it is a leak, and a config directory named after
+    # one is also a portability bug: it only resolves on its author's machine.
+    # The repo's own GitHub slug is a different thing and stays.
+    local pattern hits
+    # Built from fragments so this guard does not match itself.
+    pattern="tafi""tech|assa""net"
+    hits="$(cd "$REPO_ROOT" && scannable_files | while read -r f; do
+        [[ -f "$f" ]] || continue
+        grep -nIiE "$pattern" "$f" 2>/dev/null | sed "s|^|$f:|"
+    done)"
+    [ -z "$hits" ] || {
+        echo "Private identifiers found in shipped files:"
+        echo "$hits"
+        false
+    }
+}
+
+# bats test_tags=unit,portability
+@test "no commit is authored with a work address" {
+    # The repo is published under a personal account; a work address in the
+    # history is not removable after a push without rewriting public history.
+    local pattern hits
+    pattern="tafi""tech|assa""net"
+    hits="$(git -C "$REPO_ROOT" log --all --format='%h %ae %ce' |
+        grep -iE "$pattern" |
+        grep -viE 'liturralde' || true)"
+    [ -z "$hits" ] || {
+        echo "Commits authored or committed with a work address:"
+        echo "$hits"
+        false
+    }
+}
+
 # --- Ghostty presets --------------------------------------------------------
 
 # bats test_tags=unit,portability

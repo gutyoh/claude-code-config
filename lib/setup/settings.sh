@@ -177,6 +177,74 @@ PYTHON_SCRIPT
     fi
 }
 
+# The Bash tool executes zsh whatever the login shell is, and zsh does not
+# word-split unquoted parameters the way bash does, so a bash-shaped command
+# collapses into one argument instead of erroring. Pinning the shell removes it.
+#
+# Unix only, deliberately: on Windows the tool always uses Git Bash and ignores
+# this variable, so the exec shell is already bash and there is nothing to pin.
+configure_bash_shell() {
+    python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
+import json
+import os
+import subprocess
+import sys
+
+settings_file = sys.argv[1]
+
+# Apple freezes /bin/bash at 3.2 for licensing, so prefer a newer one if present.
+CANDIDATES = (
+    '/opt/homebrew/bin/bash',
+    '/usr/local/bin/bash',
+    '/usr/bin/bash',
+    '/bin/bash',
+)
+
+
+def best_bash():
+    best = None
+    for path in CANDIDATES:
+        if not os.access(path, os.X_OK):
+            continue
+        try:
+            out = subprocess.run(
+                [path, '-c', 'echo $BASH_VERSION'],
+                capture_output=True, text=True, timeout=10,
+            ).stdout.strip()
+        except Exception:
+            continue
+        major = int(out.split('.')[0]) if out[:1].isdigit() else 0
+        if best is None or major > best[1]:
+            best = (path, major)
+    return best[0] if best else None
+
+
+try:
+    shell = best_bash()
+    if shell is None:
+        print("  ⊘ No bash on this machine; leaving the exec shell as-is")
+        sys.exit(0)
+
+    with open(settings_file) as f:
+        data = json.load(f)
+
+    env = data.setdefault('env', {})
+    if env.get('CLAUDE_CODE_SHELL') == shell:
+        print(f"  ✓ Bash tool shell already pinned to {shell}")
+        sys.exit(0)
+
+    env['CLAUDE_CODE_SHELL'] = shell
+    with open(settings_file, 'w') as f:
+        json.dump(data, f, indent=2)
+
+    print(f"  ✓ Bash tool shell pinned to {shell}")
+    sys.exit(0)
+except Exception as e:
+    print(f"  ⚠ Failed to pin the Bash tool shell: {e}", file=sys.stderr)
+    sys.exit(1)
+PYTHON_SCRIPT
+}
+
 # Resolve the user's LOGIN shell — the one whose rc file they actually use.
 #
 # $SHELL is the obvious candidate and the wrong one: it is an ordinary

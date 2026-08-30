@@ -228,6 +228,14 @@ main() {
         echo ""
 
         step=$((step + 1))
+        echo "Step ${step}: Pinning the Bash tool shell..."
+        echo ""
+
+        configure_bash_shell
+
+        echo ""
+
+        step=$((step + 1))
         echo "Step ${step}: Removing retired claude-sync session hooks..."
         echo ""
 
@@ -307,6 +315,14 @@ EOF
         echo ""
 
         configure_agent_teams
+
+        echo ""
+
+        step=$((step + 1))
+        echo "Step ${step}: Pinning the Bash tool shell..."
+        echo ""
+
+        configure_bash_shell
 
         echo ""
 
