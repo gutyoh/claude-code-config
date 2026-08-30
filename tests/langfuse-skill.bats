@@ -106,7 +106,7 @@ setup_npx() {
 }
 
 @test "skill: SKILL.md contains health check command" {
-    grep -q "healths list" "$SKILL_DIR/SKILL.md"
+    grep -q "api health get" "$SKILL_DIR/SKILL.md"
 }
 
 # ==========================================================================
@@ -119,10 +119,12 @@ setup_npx() {
     [ "$count" -eq 3 ]
 }
 
-@test "core: documents v2 endpoint preference" {
-    grep -q "observations-v2s" "$SKILL_DIR/core.md"
-    grep -q "metrics-v2s" "$SKILL_DIR/core.md"
-    grep -q "score-v2s" "$SKILL_DIR/core.md"
+# A `-v2` suffix does not mean newer: `scores list` is v3 while `scores-v2` is
+# deprecated. The skill must teach the current endpoints, not a version rule.
+@test "core: documents the current read endpoints" {
+    grep -q "observations list" "$SKILL_DIR/core.md"
+    grep -q "scores list" "$SKILL_DIR/core.md"
+    grep -q "api-version 3" "$SKILL_DIR/core.md"
 }
 
 @test "core: documents safety guardrails" {
@@ -144,8 +146,8 @@ setup_npx() {
 }
 
 @test "cli ref: documents session analysis" {
-    grep -q "sessions list" "$SKILL_DIR/references/cli.md"
-    grep -q "sessions get" "$SKILL_DIR/references/cli.md"
+    grep -q -- "--session-id" "$SKILL_DIR/references/cli.md"
+    grep -q "observations list" "$SKILL_DIR/references/cli.md"
 }
 
 @test "cli ref: documents prompt management" {
@@ -233,9 +235,9 @@ setup_npx() {
     grep -q "langfuse-cli" "$AGENT_FILE"
 }
 
-@test "agent: body references v2 endpoints" {
-    grep -q "observations-v2s" "$AGENT_FILE"
-    grep -q "score-v2s" "$AGENT_FILE"
+@test "agent: body references the current read endpoints" {
+    grep -q "observations list" "$AGENT_FILE"
+    grep -q "scores list" "$AGENT_FILE"
 }
 
 # ==========================================================================
@@ -288,9 +290,9 @@ setup_npx() {
     [[ "$output" == *"langfuse"* ]]
 }
 
-@test "integration: langfuse-cli api __schema lists resources" {
+@test "integration: langfuse-cli api help lists resources" {
     setup_npx
-    run npx -y langfuse-cli api __schema
+    run npx -y langfuse-cli api help
     [ "$status" -eq 0 ]
     [[ "$output" == *"Resources:"* ]]
     [[ "$output" == *"traces"* ]]
@@ -315,24 +317,24 @@ setup_npx() {
     [[ "$output" == *"create"* ]]
 }
 
-@test "integration: langfuse-cli api traces list --help shows filter options" {
+@test "integration: langfuse-cli api help observations list shows filter options" {
     setup_npx
-    run npx -y langfuse-cli api traces list --help
+    run npx -y langfuse-cli api help observations list
     [ "$status" -eq 0 ]
     [[ "$output" == *"--limit"* ]]
     [[ "$output" == *"--filter"* ]]
     [[ "$output" == *"--json"* ]]
 }
 
-@test "integration: langfuse-cli api traces list --curl generates valid curl" {
+@test "integration: langfuse-cli api observations list --curl generates valid curl" {
     setup_npx
     # Use dummy credentials to generate curl preview without executing
     run npx -y langfuse-cli \
         --host https://example.com --public-key pk-test --secret-key sk-test \
-        api traces list --limit 1 --curl
+        api observations list --limit 1 --curl
     [ "$status" -eq 0 ]
     [[ "$output" == *"curl"* ]]
-    [[ "$output" == *"traces"* ]]
+    [[ "$output" == *"/api/public/v2/observations"* ]]
 }
 
 # ==========================================================================
@@ -352,17 +354,17 @@ langfuse_available() {
     if ! langfuse_available; then
         skip "Langfuse not available (set LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_HOST)"
     fi
-    run npx -y langfuse-cli api healths list --json
+    run npx -y langfuse-cli api health get --json
     [ "$status" -eq 0 ]
     [[ "$output" == *"status"* ]]
 }
 
-@test "integration-live: traces list returns valid JSON (requires running Langfuse)" {
+@test "integration-live: observations list returns valid JSON (requires running Langfuse)" {
     setup_npx
     if ! langfuse_available; then
         skip "Langfuse not available (set LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_HOST)"
     fi
-    run npx -y langfuse-cli api traces list --limit 3 --json
+    run npx -y langfuse-cli api observations list --limit 3 --json
     [ "$status" -eq 0 ]
     # Validate it's JSON (starts with { or [)
     [[ "$output" =~ ^[\{\[] ]]
@@ -378,29 +380,29 @@ langfuse_available() {
     [[ "$output" =~ ^[\{\[] ]]
 }
 
-@test "integration-live: sessions list returns valid JSON (requires running Langfuse)" {
+@test "integration-live: observations list by session returns valid JSON (requires running Langfuse)" {
     setup_npx
     if ! langfuse_available; then
         skip "Langfuse not available (set LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_HOST)"
     fi
-    run npx -y langfuse-cli api sessions list --limit 3 --json
+    run npx -y langfuse-cli api observations list --limit 3 --session-id "" --json
     [ "$status" -eq 0 ]
     [[ "$output" =~ ^[\{\[] ]]
 }
 
-@test "integration-live: trace get by ID works (requires running Langfuse with traces)" {
+@test "integration-live: observations by trace id work (requires running Langfuse with traces)" {
     setup_npx
     if ! langfuse_available; then
         skip "Langfuse not available (set LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_HOST)"
     fi
-    # Get the first trace ID
+    # Take a trace id from an observation, then read that trace's observations
     local trace_id
-    trace_id=$(npx -y langfuse-cli api traces list --limit 1 --json 2>/dev/null \
-        | "${_PY}" -c "import json,sys; d=json.load(sys.stdin); print(d['data'][0]['id'])" 2>/dev/null || echo "")
+    trace_id=$(npx -y langfuse-cli api observations list --limit 1 --json 2>/dev/null \
+        | "${_PY}" -c "import json,sys; d=json.load(sys.stdin); print(d['data'][0]['traceId'])" 2>/dev/null || echo "")
     if [ -z "$trace_id" ]; then
-        skip "No traces found in Langfuse instance"
+        skip "No observations found in Langfuse instance"
     fi
-    run npx -y langfuse-cli api traces get "$trace_id" --json
+    run npx -y langfuse-cli api observations list --trace-id "$trace_id" --json
     [ "$status" -eq 0 ]
     [[ "$output" == *"$trace_id"* ]]
 }

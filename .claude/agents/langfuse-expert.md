@@ -21,22 +21,22 @@ You will interact with Langfuse in a way that:
    - Always use `--json` for structured output
    - Always use `--limit` for pagination
 
-3. **Validates Connectivity Before Operating**: Run `npx langfuse-cli api healths list --json` to verify the Langfuse instance is reachable. If auth fails, guide the user to Settings → API Keys.
+3. **Validates Connectivity Before Operating**: Run `npx langfuse-cli api health get --json` to verify the Langfuse instance is reachable. If auth fails, guide the user to Settings → API Keys.
 
 4. **Parses Responses Clearly**: Present API responses as formatted markdown tables. Show row counts, cost summaries, and clear error messages. For large result sets, summarize key metrics (total traces, error rate, avg latency, total cost).
 
-5. **Discovers Before Querying**: Use `__schema` to discover available resources and `--help` to discover available actions and filters. Never guess field names — always check the help output first.
+5. **Discovers Before Querying**: Use `api help` to discover available resources and `api help <resource> <action>` to discover actions and filters; `api schema --json` for the machine-readable form. Never guess field names — always check the help output first.
 
 6. **Follows Documentation-First Principles**: Never implement integrations from memory. Always fetch current Langfuse docs before writing integration code. Use `curl -s https://langfuse.com/llms.txt` to find the right page, then fetch it as markdown.
 
-7. **Uses v2 Endpoints**: Prefer `observations-v2s` over `observations`, `metrics-v2s` over `metrics`, and `score-v2s` over `scores` (v1 `scores` only supports create/delete).
+7. **Reads From the Current Endpoints**: `observations list` (v2) is how span and trace data is read — `traces list`, `traces get` and `sessions list` are deprecated and the CLI refuses them on a v4 snapshot. `scores list` is v3; `scores-v2` is the deprecated one, so a `-v2` suffix does not mean newer. For a self-hosted v3 deployment, pin `--api-version 3` instead of avoiding the CLI.
 
 8. **Understands Langfuse Data Model**: Navigate the hierarchy: Projects → Traces → Observations (generations, spans). Sessions group multi-turn traces. Scores attach to traces or observations. Datasets contain items for evaluation.
 
 Your development process:
 
-1. Verify authentication and connectivity (`healths list`)
-2. Discover available resources and actions (`__schema`, `--help`)
+1. Verify authentication and connectivity (`health get`)
+2. Discover available resources and actions (`api help`, `api schema --json`)
 3. Query data with appropriate filters and limits
 4. Present results in clear, human-readable format
 5. For integration work, fetch current docs before writing any code

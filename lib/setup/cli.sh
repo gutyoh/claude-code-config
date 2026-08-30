@@ -32,8 +32,6 @@ show_usage() {
     echo "  --no-proxy-path        Skip proxy launcher PATH and shell shortcut setup"
     echo "  --with-opencode        Force OpenCode parallel install (default: auto-detect)"
     echo "  --no-opencode          Skip OpenCode setup (default: auto-detect)"
-    echo "  --with-claude-sync     Force-install SessionStart/SessionEnd hooks for cross-machine sync"
-    echo "  --no-claude-sync       Skip claude-sync session hooks (default: auto-detect)"
     echo "  --shell PATH           Install shortcuts for this login shell (default: auto-detect)"
     echo "  -h, --help             Show this help message"
     echo ""
@@ -127,7 +125,6 @@ parse_arguments() {
                 INSTALL_AGENT_TEAMS="false"
                 INSTALL_PROXY_PATH="false"
                 INSTALL_OPENCODE="no"
-                INSTALL_CLAUDE_SYNC="no"
                 shift
                 ;;
             --overwrite-settings)
@@ -246,11 +243,13 @@ parse_arguments() {
                 shift
                 ;;
             --with-claude-sync)
-                INSTALL_CLAUDE_SYNC="yes"
-                shift
+                echo "Error: --with-claude-sync was retired because automatic ~/.claude file sync can corrupt or multiply session history."
+                echo "Use Claude Code Remote Control instead: claude --remote-control"
+                exit 1
                 ;;
             --no-claude-sync)
-                INSTALL_CLAUDE_SYNC="no"
+                # Backward-compatible no-op. Automatic session-file sync is
+                # permanently disabled and setup removes legacy hook entries.
                 shift
                 ;;
             --shell)
