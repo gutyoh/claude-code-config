@@ -145,10 +145,10 @@ main() {
     step=$((step + 1))
     mkdir -p "${CLAUDE_DIR}"
 
-    echo "Step ${step}: Creating symlinks..."
+    echo "Step ${step}: Installing managed entries..."
 
-    create_symlink "${REPO_DIR}/.claude/hooks" "${CLAUDE_DIR}/hooks" "hooks"
-    create_symlink "${REPO_DIR}/.claude/scripts" "${CLAUDE_DIR}/scripts" "scripts"
+    install_managed_entries "${REPO_DIR}/.claude/hooks" "${CLAUDE_DIR}/hooks" "hooks"
+    install_managed_entries "${REPO_DIR}/.claude/scripts" "${CLAUDE_DIR}/scripts" "scripts"
 
     # --- Install bin/ utilities to PATH ---
     local bin_dir="${HOME}/.local/bin"
@@ -178,8 +178,8 @@ main() {
     fi
 
     if [[ "${INSTALL_AGENTS_SKILLS}" == "true" ]]; then
-        create_symlink "${REPO_DIR}/.claude/skills" "${CLAUDE_DIR}/skills" "skills"
-        create_symlink "${REPO_DIR}/.claude/agents" "${CLAUDE_DIR}/agents" "agents"
+        install_managed_entries "${REPO_DIR}/.claude/skills" "${CLAUDE_DIR}/skills" "skills"
+        install_managed_entries "${REPO_DIR}/.claude/agents" "${CLAUDE_DIR}/agents" "agents"
     else
         echo "  ⊘ Skipping agents & skills (not selected)"
     fi

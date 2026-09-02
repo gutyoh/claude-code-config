@@ -204,7 +204,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   ├── setup/                   # Setup modules (sourced by setup.sh)
 │   │   ├── tui.sh               # tui_readkey, tui_select, tui_multiselect, tui_confirm
 │   │   ├── preview.sh           # render_bar_preview, show_statusline_preview, show_preview_box
-│   │   ├── filesystem.sh        # create_symlink, check_prerequisite
+│   │   ├── filesystem.sh        # install_managed_entries, check_prerequisite
 │   │   ├── settings.sh          # configure_ide_hook, configure_file_suggestion, configure_statusline, configure_agent_teams
 │   │   ├── statusline-conf.sh   # configure_statusline_conf
 │   │   ├── mcp.sh               # configure_mcp_servers
