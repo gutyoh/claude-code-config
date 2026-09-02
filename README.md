@@ -1078,6 +1078,39 @@ When the same item exists at multiple scopes, Claude Code uses this priority:
 1. **Project** overrides **User** (for project-specific needs)
 2. **User** provides defaults (for personal preferences)
 
+### Sharing `~/.claude` with other installers
+
+`~/.claude` is not ours alone. Other tools install into it — a remote-session
+manager may add `skills/`, a terminal integration may add a `hooks/` script and
+register it in `settings.json`. So `setup.sh` installs **one symlink per repo
+entry**, never one symlink for a whole directory:
+
+```
+~/.claude/hooks/refresh-usage-cache.sh -> <repo>/.claude/hooks/refresh-usage-cache.sh
+~/.claude/hooks/their-hook.sh              (real file, untouched)
+```
+
+Entries this repo does not ship are left exactly as they are. An entry that
+collides with one of ours is moved aside to a timestamped `.bak.<date>` and
+never deleted. Removing an entry from the repo prunes its link on the next run;
+foreign entries are never pruned.
+
+**Why not one symlink for the directory.** It hides every foreign entry at once,
+and it welds live Claude behaviour to a git working tree: once `~/.claude/hooks`
+*is* the repo directory, another installer's file lands inside the checkout as
+an untracked file, and the next `git switch` deletes it — the hook silently
+stops running, with only a `SessionStart hook error` to show for it.
+
+`setup.sh` migrates that older layout automatically: the directory symlink
+becomes a real directory of per-entry links, and any untracked file found inside
+the repo's `.claude/` tree is moved back out to `~/.claude/` where it belongs.
+
+**Running under a remote session manager.** If one is launching Claude for you,
+it owns its own flags and lifecycle hooks — this repo does not try to reproduce
+them. Install the repo for its agents, skills, hooks, MCP registration, status
+line, and shell tooling; let the session manager keep its own settings entries
+and its own permission mode. Both survive `setup.sh`.
+
 ---
 
 ## Adding New MCP Servers

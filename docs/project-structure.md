@@ -49,7 +49,7 @@ Sourced by `setup.sh`. Each module exports functions used during interactive set
 |------|-----------|---------|
 | `tui.sh` | `tui_readkey`, `tui_select`, `tui_multiselect`, `tui_confirm` | Terminal UI widgets |
 | `preview.sh` | `render_bar_preview`, `show_statusline_preview`, `show_preview_box` | Live statusline preview |
-| `filesystem.sh` | `create_symlink`, `check_prerequisite` | Symlink creation with conflict handling |
+| `filesystem.sh` | `install_managed_entries`, `check_prerequisite` | Per-entry symlinks that coexist with other installers |
 | `settings.sh` | `configure_ide_hook`, `configure_file_suggestion`, `configure_statusline`, `configure_agent_teams`, `configure_proxy_path` | settings.json manipulation |
 | `statusline-conf.sh` | `configure_statusline_conf` | `~/.claude/statusline.conf` management |
 | `mcp.sh` | `mcp_get`, `detect_mcp_backend`, `configure_mcp_servers` | MCP server registration |
