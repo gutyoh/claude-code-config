@@ -148,6 +148,9 @@ Add your API keys to your shell profile (`~/.bashrc`, `~/.zshrc`, or `~/.profile
 # Required for Brave Search
 export BRAVE_API_KEY="your-brave-api-key-here"
 
+# Optional for Tavily Search
+export TAVILY_API_KEY="your-tavily-api-key-here"
+
 # Optional for SonarQube integration
 export SONARQUBE_TOKEN="your-sonarqube-token-here"
 export SONARQUBE_URL="https://your-sonarqube-server.com"
