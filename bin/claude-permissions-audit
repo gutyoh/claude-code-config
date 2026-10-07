@@ -1,0 +1,316 @@
+#!/usr/bin/env bash
+# claude-permissions-audit
+# Path: claude-code-config/bin/claude-permissions-audit
+#
+# Audits Claude Code permission allow rules for the patterns that accumulate
+# through "Yes, don't ask again": mid-command wildcards, embedded secrets,
+# overly broad allows and exact duplicates.
+#
+# Usage:
+#   claude-permissions-audit [options] [ROOT...]
+#
+# Scans ~/.claude/settings.json plus every .claude/settings.json and
+# .claude/settings.local.json under each ROOT (default: $CLAUDE_PERMS_ROOTS,
+# colon-separated, else $HOME).
+#
+# Options:
+#   -v, --verbose   List each finding under its file
+#   --json          Machine-readable output
+#   --fix           Back up, then remove mid-wildcard, secret-like and
+#                   duplicate rules (broad rules are only reported)
+#   --dry-run       Show what --fix would remove without writing anything
+#   -h, --help      Show this help
+#
+# Exit: 0 clean, 1 findings (after --fix: broad rules remain), 2 usage/IO error.
+# Requires: jq
+
+set -euo pipefail
+
+# Backups and temp files carry rule text, which can include credentials.
+umask 077
+
+readonly CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}"
+readonly BACKUP_ROOT="${CLAUDE_DIR}/backups/permissions"
+
+usage() {
+    sed -n '/^# Usage:/,/^# Requires:/s/^# \{0,1\}//p' "${BASH_SOURCE[0]}"
+}
+
+# --- jq programs ----------------------------------------------------------
+
+# One record per settings file. Every rule text it emits is already masked
+# when it looks like a secret, so nothing downstream can leak one.
+JQ_ANALYZE="$(
+    cat <<'JQ'
+def secret_patterns: [
+  ["(?:password|passwd|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|auth[_-]?key|private[_-]?key)[\"'\\\\]{0,4}\\s*[:=]\\s*[\"'\\\\]{0,4}([^\\s\"'`$*<{%/~.\\\\()][^\\s\"'`;&|()]{5,})", "i"],
+  ["(?:^|[\\s(\"'])--?(?:password|passwd|pass|token|api[-_]?key|apikey|secret|client[-_]secret|access[-_]token|auth[-_]token)(?:\\s+|=)[\"'\\\\]{0,4}([^\\s\"'`$*<{%/~.\\\\()-][^\\s\"'`;&|()]{5,})", "i"],
+  ["(?:^|[\\s(\"'])[A-Z0-9_]*(?:_KEY|_PASS|_PASSPHRASE|_CREDENTIALS?)=[\"'\\\\]{0,4}([^\\s\"'`$*<{%/~.\\\\()][^\\s\"'`;&|()]{11,})", null],
+  ["[a-z][a-z0-9+.-]*://[^\\s/:@\"'$]+:([^\\s/@\"'`$*<{][^\\s/@\"']*)@", "i"],
+  ["\\b(?:curl|wget|http|https|xh)\\b[^|;&]*\\s(?:-u|--user)(?:\\s+|=)?[\"']?[^\\s:\"'$]+:([^\\s\"'`$*<{][^\\s\"']*)", null],
+  ["(?:authorization|x-api-key|api-key|x-auth-token|private-token|x-access-token)\\s*:\\s*(?:bearer\\s+|basic\\s+|token\\s+)?([^\\s\"'`$*<{][^\\s\"'`]{7,})", "i"],
+  ["\\bbearer\\s+([A-Za-z0-9._~+/=-]{16,})", "i"],
+  ["(?<![A-Za-z0-9_])((?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{16,}|sk-(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{20,}|xox[abposr]-[A-Za-z0-9-]{10,}|A[KS]IA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,}|npm_[A-Za-z0-9]{30,}|hf_[A-Za-z0-9]{30,}|dp\\.(?:st|pt|sa|ct)\\.[A-Za-z0-9_.-]{20,}|AGE-SECRET-KEY-1[0-9A-Z]{20,}|eyJ[A-Za-z0-9_-]{8,}\\.eyJ[A-Za-z0-9_-]{8,}))", null],
+  ["(-----BEGIN [A-Z ]*PRIVATE KEY-----)", null],
+  ["[?&](?:access_token|api_key|apikey|token|key|password|secret|sig|client_secret)=([^\\s&\"'`$*<{#]{8,})", "i"],
+  ["\\b(?:mysql|mariadb|mysqldump|mysqladmin|mysqlsh)\\b[^|;&]*\\s-p([^\\s\"'`$*<{][^\\s\"']*)", null],
+  ["\\b(?:sshpass|login)\\b[^|;&]*\\s-p\\s*[\"']?([^\\s\"'`$*<{/~.-][^\\s\"']*)", null],
+  ["\\bsecrets?\\s+set\\b[^|;&]*\\s(?:--value|--body|-b)(?:\\s+|=)[\"']?([^\\s\"'`$*<{-][^\\s\"']*)", "i"]
+];
+def broad_re: "^Bash\\((?:sudo|doas|rm|curl|wget|ssh|scp|bash|sh|zsh|fish|dash|ksh|eval|exec|env|xargs|python[0-9.]*|node|nodejs|deno|bun|ruby|perl|php|lua|pwsh|powershell|osascript)(?:\\s+-[cCe])?(?::\\*|\\s+\\*|\\*)\\)$";
+def is_mid: type == "string" and startswith("Bash(") and endswith(")") and (.[5:-1] | test("\\*[\\s\\S]"));
+def is_broad: type == "string" and (test("^Bash(?:\\(\\s*\\*\\s*\\))?$") or test(broad_re));
+def secret_offset:
+  if type != "string" then null
+  else . as $r | [secret_patterns[] as $p | $r | match($p[0]; $p[1]) | .captures[0].offset | select(. >= 0)] | min
+  end;
+def show($off):
+  if $off != null then .[0:([$off, 24] | min)] + "\u2026[masked]"
+  elif type == "string" then .
+  else tojson end;
+
+((try .permissions.allow catch null) // []) as $raw
+| (if ($raw | type) == "array" then $raw else [] end) as $a
+| [range(0; $a | length) as $i
+   | $a[$i] as $r
+   | ($r | secret_offset) as $off
+   | {i: $i,
+      rule: ($r | show($off)),
+      mid: ($r | is_mid),
+      secret: ($off != null),
+      broad: ($r | is_broad),
+      dup: ($i > 0 and (($a[0:$i] | index([$r])) != null))}
+   | .drop = (.mid or .secret or .dup)] as $rows
+| {path: $path,
+   rules: ($a | length),
+   mid_wildcard: [$rows[] | select(.mid) | .rule],
+   secret_like: [$rows[] | select(.secret) | .rule],
+   broad: [$rows[] | select(.broad) | .rule],
+   duplicates: [$rows[] | select(.dup) | .rule],
+   removed: [$rows[] | select(.drop)
+             | {category: (if .secret then "secret-like" elif .mid then "mid-wildcard" else "duplicate" end), rule}],
+   remove_idx: [$rows[] | select(.drop) | .i],
+   broad_kept: ([$rows[] | select(.broad and (.drop | not))] | length)}
+JQ
+)"
+readonly JQ_ANALYZE
+
+# Rewrites only permissions.allow; every other key keeps its value and order.
+readonly JQ_REMOVE='.permissions.allow |= [range(0; length) as $i | select(any($rm[]; . == $i) | not) | .[$i]]'
+
+JQ_RENDER_TEXT="$(
+    cat <<'JQ'
+def tilde: if startswith($home + "/") then "~" + .[($home | length):] else . end;
+def oneline: gsub("\n"; "\\n") | if length > 160 then .[0:160] + "\u2026" else . end;
+def counts: "rules=\(.rules) mid_wildcard=\(.mid_wildcard | length) secret_like=\(.secret_like | length) broad=\(.broad | length) duplicates=\(.duplicates | length)";
+map(select(.error == null)) as $ok
+| ($ok[]
+   | "\(.path | tilde): \(counts)",
+     (if $verbose then
+        (.mid_wildcard[] | "  mid-wildcard  \(oneline)"),
+        (.secret_like[] | "  secret-like   \(oneline)"),
+        (.broad[] | "  broad         \(oneline)"),
+        (.duplicates[] | "  duplicate     \(oneline)")
+      else empty end),
+     (if $mode != "audit" and (.removed | length) > 0 then
+        (if $mode == "fix" then "  removed \(.removed | length) (backup: \(.backup | tilde))"
+         else "  would remove \(.removed | length):" end),
+        (.removed[] | "    - \(.category): \(.rule | oneline)")
+      else empty end)),
+  "total: files=\($ok | length) rules=\($ok | map(.rules) | add // 0) mid_wildcard=\($ok | map(.mid_wildcard | length) | add // 0) secret_like=\($ok | map(.secret_like | length) | add // 0) broad=\($ok | map(.broad | length) | add // 0) duplicates=\($ok | map(.duplicates | length) | add // 0)"
+  + (if $mode == "fix" then " removed=\($ok | map(.removed | length) | add // 0)"
+     elif $mode == "dry-run" then " would_remove=\($ok | map(.removed | length) | add // 0)"
+     else "" end)
+JQ
+)"
+readonly JQ_RENDER_TEXT
+
+JQ_RENDER_JSON="$(
+    cat <<'JQ'
+map(select(.error == null)) as $ok
+| {mode: $mode,
+   files: [$ok[] | del(.remove_idx, .broad_kept) | if $mode == "audit" then del(.removed) else . end],
+   errors: [.[] | select(.error != null) | {path, error}],
+   totals: ({files: ($ok | length),
+             rules: ($ok | map(.rules) | add // 0),
+             mid_wildcard: ($ok | map(.mid_wildcard | length) | add // 0),
+             secret_like: ($ok | map(.secret_like | length) | add // 0),
+             broad: ($ok | map(.broad | length) | add // 0),
+             duplicates: ($ok | map(.duplicates | length) | add // 0)}
+            + (if $mode == "audit" then {} else {removed: ($ok | map(.removed | length) | add // 0)} end))}
+JQ
+)"
+readonly JQ_RENDER_JSON
+
+# --- Helpers --------------------------------------------------------------
+
+die_usage() {
+    printf 'claude-permissions-audit: %s\n' "$1" >&2
+    printf "Run 'claude-permissions-audit --help' for usage.\n" >&2
+    exit 2
+}
+
+tilde() {
+    case "$1" in
+        "${HOME}"/*) printf '~%s\n' "${1#"${HOME}"}" ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
+
+# find's default -P never follows symlinked directories, so loops are safe.
+# Pruning .claude subdirectories skips session transcripts under ~/.claude;
+# when scanning $HOME itself, its dot-dirs and ~/Library hold tool state, not
+# projects, and dominate the walk time.
+discover() {
+    local root home_only
+    if [[ -f "${CLAUDE_DIR}/settings.json" ]]; then
+        printf '%s\n' "${CLAUDE_DIR}/settings.json"
+    fi
+    for root in "${ROOTS[@]}"; do
+        home_only=()
+        if [[ "${root}" == "${HOME}" ]]; then
+            home_only=(-o -path "${HOME}/.*" -o -path "${HOME}/Library")
+        fi
+        find "${root}" -type d \( -name node_modules -o -name .git -o -name .worktrees \
+            -o -name .venv -o -name venv -o -name __pycache__ -o -name site-packages \
+            -o -name .Trash -o -name .cache -o -path '*/.claude/*' ${home_only[@]+"${home_only[@]}"} \) -prune \
+            -o \( -type f -o -type l \) \
+            \( -path '*/.claude/settings.json' -o -path '*/.claude/settings.local.json' \) -print \
+            2>/dev/null || true
+    done
+}
+
+# Backup first, then rewrite through `cat >` so a symlinked settings file
+# stays a symlink and keeps its mode. Prints the backup path.
+fix_file() {
+    local file="$1" idx="$2" dest tmp="${WORK}/rewrite.json"
+    mkdir -p "${BACKUP_DIR}" || return 1
+    chmod 700 "${BACKUP_ROOT}" "${BACKUP_DIR}" || return 1
+    dest="${BACKUP_DIR}/$(printf '%s' "${file#/}" | tr '/' '_')"
+    cp "${file}" "${dest}" || return 1
+    chmod 600 "${dest}" || return 1
+    jq --argjson rm "${idx}" "${JQ_REMOVE}" "${file}" >"${tmp}" || return 1
+    jq empty "${tmp}" || return 1
+    cat "${tmp}" >"${file}" || return 1
+    printf '%s\n' "${dest}"
+}
+
+# --- Arguments ------------------------------------------------------------
+
+FIX=false
+DRY_RUN=false
+JSON=false
+VERBOSE=false
+ROOTS=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --fix) FIX=true ;;
+        --dry-run | -n) DRY_RUN=true ;;
+        --json) JSON=true ;;
+        -v | --verbose) VERBOSE=true ;;
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            while [[ $# -gt 0 ]]; do
+                ROOTS+=("$1")
+                shift
+            done
+            break
+            ;;
+        -*) die_usage "unknown option: $1" ;;
+        *) ROOTS+=("$1") ;;
+    esac
+    shift
+done
+
+MODE="audit"
+if [[ "${DRY_RUN}" == "true" ]]; then
+    MODE="dry-run"
+elif [[ "${FIX}" == "true" ]]; then
+    MODE="fix"
+fi
+readonly MODE
+
+command -v jq >/dev/null 2>&1 || die_usage "jq is required (https://jqlang.org)"
+
+if [[ ${#ROOTS[@]} -eq 0 ]]; then
+    if [[ -n "${CLAUDE_PERMS_ROOTS:-}" ]]; then
+        IFS=: read -r -a ROOTS <<<"${CLAUDE_PERMS_ROOTS}"
+    else
+        ROOTS=("${HOME}")
+    fi
+fi
+
+# Absolute roots give stable display paths and collision-free backup names.
+ABS_ROOTS=()
+for root in "${ROOTS[@]}"; do
+    [[ -n "${root}" ]] || continue
+    [[ -d "${root}" ]] || die_usage "not a directory: ${root}"
+    ABS_ROOTS+=("$(cd "${root}" && pwd)")
+done
+[[ ${#ABS_ROOTS[@]} -gt 0 ]] || die_usage "no root directory to scan"
+ROOTS=("${ABS_ROOTS[@]}")
+
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/claude-perms.XXXXXX")"
+readonly WORK
+trap 'rm -rf "${WORK}"' EXIT
+
+BACKUP_DIR="${BACKUP_ROOT}/$(date -u +%Y%m%dT%H%M%SZ)"
+readonly BACKUP_DIR
+
+# --- Scan -----------------------------------------------------------------
+
+RECORDS="${WORK}/records.jsonl"
+: >"${RECORDS}"
+IO_ERROR=0
+
+while IFS= read -r file; do
+    [[ -n "${file}" ]] || continue
+    rec="$(jq -c --arg path "${file}" "${JQ_ANALYZE}" "${file}" 2>/dev/null || true)"
+    if [[ -z "${rec}" ]]; then
+        printf 'warning: %s: unreadable or invalid JSON, skipped\n' "$(tilde "${file}")" >&2
+        jq -nc --arg path "${file}" '{path: $path, error: "unreadable or invalid JSON"}' >>"${RECORDS}"
+        IO_ERROR=1
+        continue
+    fi
+    if [[ "${MODE}" == "fix" ]]; then
+        idx="$(jq -c '.remove_idx' <<<"${rec}")"
+        if [[ "${idx}" != "[]" ]]; then
+            if backup="$(fix_file "${file}" "${idx}")"; then
+                rec="$(jq -c --arg b "${backup}" '. + {backup: $b}' <<<"${rec}")"
+            else
+                printf 'error: %s: could not back up or rewrite, left unchanged\n' "$(tilde "${file}")" >&2
+                rec="$(jq -c '. + {removed: [], error_fix: true}' <<<"${rec}")"
+                IO_ERROR=1
+            fi
+        fi
+    fi
+    printf '%s\n' "${rec}" >>"${RECORDS}"
+done < <(discover | sort -u)
+
+# --- Report ---------------------------------------------------------------
+
+if [[ "${JSON}" == "true" ]]; then
+    jq -s --arg mode "${MODE}" "${JQ_RENDER_JSON}" "${RECORDS}"
+else
+    jq -rs --arg mode "${MODE}" --arg home "${HOME}" --argjson verbose "${VERBOSE}" \
+        "${JQ_RENDER_TEXT}" "${RECORDS}"
+fi
+
+# After --fix only broad rules (never removed) or failed rewrites remain.
+remaining="$(jq -s --arg mode "${MODE}" '
+    map(select(.error == null))
+    | if $mode == "fix" then map(if .error_fix then (.mid_wildcard + .secret_like + .duplicates | length) + (.broad | length) else .broad_kept end)
+      else map(.mid_wildcard + .secret_like + .broad + .duplicates | length) end
+    | add // 0' "${RECORDS}")"
+
+if [[ ${IO_ERROR} -ne 0 ]]; then
+    exit 2
+elif [[ ${remaining} -gt 0 ]]; then
+    exit 1
+fi
+exit 0

@@ -324,7 +324,7 @@ if (-not (Test-Path $binDir)) {
     New-Item -ItemType Directory -Path $binDir -Force | Out-Null
 }
 
-foreach ($util in @("mcp-key-rotate", "mcp-env-inject")) {
+foreach ($util in @("mcp-key-rotate", "mcp-env-inject", "claude-permissions-audit")) {
     $source = Join-Path (Join-Path $script:RepoDir "bin") $util
     if (Test-Path $source) {
         Copy-Item -LiteralPath $source -Destination (Join-Path $binDir $util) -Force

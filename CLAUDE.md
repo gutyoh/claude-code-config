@@ -13,6 +13,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 ├── .mcp.json                    # MCP server configurations (portable)
 ├── bin/                                # Utility scripts (installed to PATH by setup.sh)
 │   ├── mcp-key-rotate                  # MCP API key rotation (Brave, Tavily, etc.)
+│   ├── claude-permissions-audit        # Audit/fix risky allow rules in settings files
 │   ├── claude-proxy                    # Single entry point for all proxy profiles
 │   ├── proxy-start-codex.sh            # Profile: CLIProxyAPI + OpenAI Codex
 │   └── proxy-start-antigravity.sh      # Profile: Antigravity (Google Cloud Code)

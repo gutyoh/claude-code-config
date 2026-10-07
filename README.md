@@ -24,6 +24,7 @@ A portable, Git-versioned configuration repository for Claude Code that works se
   - [Unified Database Guardrail](#3-unified-database-guardrail)
   - [Fast File Suggestion](#4-fast-file-suggestion-optional-performance-enhancement)
   - [Statusline with Billing Tracking](#5-statusline-with-billing-tracking)
+- [Permission Rule Audit](#permission-rule-audit)
 - [Proxy Launcher](#proxy-launcher)
   - [How It Works](#how-the-proxy-launcher-works)
   - [Quick Start](#proxy-quick-start)
@@ -321,7 +322,8 @@ claude-code-config/
 ├── setup.sh                       # Setup script for macOS/Linux
 ├── setup.ps1                      # Setup script for Windows
 ├── .mcp.json                      # MCP server configurations
-├── bin/                                # Proxy launcher scripts
+├── bin/                                # Utility scripts (installed to ~/.local/bin)
+│   ├── claude-permissions-audit        # Audit/fix risky permission allow rules
 │   ├── claude-proxy                    # Single entry point for all proxy profiles
 │   ├── proxy-start-codex.sh            # Profile: CLIProxyAPI + OpenAI Codex
 │   └── proxy-start-antigravity.sh      # Profile: Antigravity (Google Cloud Code)
@@ -678,6 +680,30 @@ This repository deliberately does **not** install SessionStart/SessionEnd hooks 
 Git remains the source of truth for declarative configuration in this repository: hooks, skills, agents, scripts, and documented settings. Runtime histories stay local. Re-running `./setup.sh` removes legacy `cc-sync-pull.sh` and `cc-sync-push.sh` entries from `~/.claude/settings.json` while preserving unrelated hooks.
 
 The historical `--no-claude-sync` option is accepted as a compatibility no-op. `--with-claude-sync` now exits with migration guidance rather than reinstalling unsafe automatic hooks. This migration does not delete existing conflicts, backups, cloud data, or credentials.
+
+## Permission Rule Audit
+
+Every "Yes, and don't ask again" answer saves the exact command as an allow rule in that repository's git-ignored `.claude/settings.local.json` ([Configure permissions](https://code.claude.com/docs/en/permissions)). Over time those files collect rules that allow more than they appear to:
+
+- **Mid-command wildcards** such as `Bash(git * main)`. A `*` matches any text, including options inserted at that position, so this rule also allows `git -c core.fsmonitor=<script> diff main`. Since v2.1.246 Claude Code prints a startup warning for each one ("has a wildcard before the rest of the command"); a trailing `*` or `:*` is fine.
+- **Embedded credentials.** A command approved with `PGPASSWORD=…`, `curl -u user:pass` or an `Authorization` header is saved verbatim, in plaintext.
+- **Overly broad allows** such as `Bash`, `Bash(sudo *)` or `Bash(python3:*)`.
+- **Exact duplicates.**
+
+This matters even if you usually run with `--dangerously-skip-permissions`. Allow rules have no effect in `bypassPermissions` mode, but the files are still loaded at startup, which is where the warning comes from, and the credentials stay on disk. In auto mode, an action that matches an allow rule skips the classifier. Auto mode drops broad interpreter rules when it starts ([permission modes](https://code.claude.com/docs/en/permission-modes)), but it keeps mid-command wildcards.
+
+```bash
+claude-permissions-audit                  # ~/.claude/settings.json + every project under $HOME
+claude-permissions-audit ~/code ~/work    # narrower and faster: specific roots (or CLAUDE_PERMS_ROOTS=dir1:dir2)
+claude-permissions-audit --verbose        # list each finding; secrets are always masked
+claude-permissions-audit --json           # machine-readable
+claude-permissions-audit --dry-run        # show what --fix would remove
+claude-permissions-audit --fix            # back up, then remove
+```
+
+`--fix` removes mid-wildcard, secret-like and duplicate rules and leaves every other key untouched. Broad rules are reported but never removed, because removing one changes how you work. Before rewriting a file, `--fix` copies it to `~/.claude/backups/permissions/<UTC-timestamp>/` (directory mode `700`, file mode `600`). Removing a rule does not revoke the credential it contained, so rotate that credential too.
+
+Secret detection is a heuristic. It flags literal values after password, token and key names, URL userinfo, `curl -u`, auth headers, `mysql -p…`, and common token prefixes. Values written as `$VAR` or `$(…)` are not flagged. The scan skips `node_modules`, `.git`, `.worktrees`, virtualenvs and caches. When `$HOME` is the root, it also skips `~/Library` and the dot-directories directly under `$HOME`. It does not read managed settings. Exit codes: `0` clean, `1` findings (after `--fix`, broad rules remain), `2` usage or I/O error. Requires `jq`; on Windows it runs under Git Bash.
 
 ## Shell + Terminal Configuration
 
