@@ -72,10 +72,6 @@ $ErrorActionPreference = "Stop"
 # --- Constants ---
 
 $script:RepoDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$script:ClaudeDir = "$env:USERPROFILE\.claude"
-$script:SettingsJson = "$env:USERPROFILE\.claude\settings.json"
-$script:ClaudeJson = "$env:USERPROFILE\.claude.json"
-$script:StatuslineConf = "$env:USERPROFILE\.claude\statusline.conf"
 
 # --- Component Registry ---
 
@@ -131,6 +127,7 @@ $script:UserCustomizedStatusline = $false
 # Two-argument Join-Path only: the -AdditionalChildPath form needs PowerShell 6+.
 $setupPsDir = Join-Path (Join-Path $script:RepoDir "lib") "setup-ps"
 . (Join-Path $setupPsDir "fileio.ps1")
+. (Join-Path $setupPsDir "paths.ps1")
 . (Join-Path $setupPsDir "output.ps1")
 . (Join-Path $setupPsDir "tui.ps1")
 . (Join-Path $setupPsDir "preview.ps1")
@@ -139,6 +136,14 @@ $setupPsDir = Join-Path (Join-Path $script:RepoDir "lib") "setup-ps"
 . (Join-Path $setupPsDir "statusline-conf.ps1")
 . (Join-Path $setupPsDir "mcp.ps1")
 . (Join-Path $setupPsDir "menu.ps1")
+
+# --- Paths (CLAUDE_CONFIG_DIR when set, else ~/.claude) ---
+
+$script:ClaudeDir = Get-ClaudeConfigDir
+$script:ClaudeDirRef = Get-ClaudeConfigDirRef
+$script:SettingsJson = Join-Path $script:ClaudeDir "settings.json"
+$script:ClaudeJson = Get-ClaudeJsonPath
+$script:StatuslineConf = Join-Path $script:ClaudeDir "statusline.conf"
 
 # --- Apply CLI Flags ---
 
@@ -283,7 +288,7 @@ Initialize-Symlink -Source "$($script:RepoDir)\.claude\hooks" -Target "$($script
 Initialize-Symlink -Source "$($script:RepoDir)\.claude\scripts" -Target "$($script:ClaudeDir)\scripts" -Name "scripts"
 
 # --- Install bin/ utilities ---
-$binDir = "$env:USERPROFILE\.local\bin"
+$binDir = Join-Path (Join-Path $HOME ".local") "bin"
 if (-not (Test-Path $binDir)) {
     New-Item -ItemType Directory -Path $binDir -Force | Out-Null
 }
@@ -333,7 +338,7 @@ exec "$bashPath" "`$@"
 [CmdletBinding()]
 param([Parameter(ValueFromRemainingArguments = $true)] $ClaudeProxyArgs)
 
-$bashShim = Join-Path $env:USERPROFILE '.local\bin\claude-proxy'
+$bashShim = Join-Path (Join-Path (Join-Path $HOME '.local') 'bin') 'claude-proxy'
 if (-not (Test-Path $bashShim)) {
     Write-Error "claude-proxy bash shim not found at $bashShim. Run setup.ps1 first."
     exit 1
@@ -380,7 +385,7 @@ if ($script:SettingsMode -eq "overwrite") {
     Write-Status "Step ${step}: Overwriting settings.json with repo defaults..." -Color Yellow
     Write-Status ""
 
-    Copy-Item "$($script:RepoDir)\.claude\settings.json" $script:SettingsJson -Force
+    Copy-RepoSetting
     Write-Status "  + settings.json replaced with repo defaults" -Color Green
 
     Write-Status ""
@@ -419,7 +424,7 @@ elseif ($script:SettingsMode -eq "merge") {
     Write-Status ""
 
     if (-not (Test-Path $script:SettingsJson)) {
-        Write-Status "  Creating ~/.claude/settings.json with default hooks..."
+        Write-Status "  Creating $($script:ClaudeDirRef)/settings.json with default hooks..."
         $hookConfig = [PSCustomObject]@{
             hooks = [PSCustomObject]@{
                 PreToolUse = @(
@@ -428,7 +433,7 @@ elseif ($script:SettingsMode -eq "merge") {
                         hooks   = @(
                             [PSCustomObject]@{
                                 type    = "command"
-                                command = "~/.claude/hooks/open-file-in-ide.sh"
+                                command = "$($script:ClaudeDirRef)/hooks/open-file-in-ide.sh"
                             }
                         )
                     }

@@ -41,7 +41,7 @@ function Update-IdeHook {
                 hooks   = @(
                     [PSCustomObject]@{
                         type    = "command"
-                        command = "~/.claude/hooks/open-file-in-ide.sh"
+                        command = "$(Get-ClaudeConfigDirRef)/hooks/open-file-in-ide.sh"
                     }
                 )
             }
@@ -73,9 +73,13 @@ function Update-FileSuggestion {
         else {
             Write-Status "  Adding file suggestion to settings..."
 
+            # Windows always has powershell.exe; elsewhere only pwsh exists.
+            $shell = "pwsh"
+            if (Test-WindowsHost) { $shell = "powershell.exe" }
+
             $settings | Add-Member -NotePropertyName "fileSuggestion" -NotePropertyValue ([PSCustomObject]@{
                     type    = "command"
-                    command = "powershell.exe -NoProfile -File `"~/.claude/scripts/file-suggestion.ps1`""
+                    command = "${shell} -NoProfile -File `"$(Get-ClaudeConfigDirRef)/scripts/file-suggestion.ps1`""
                 }) -Force
 
             Write-JsonFile -Path $script:SettingsJson -InputObject $settings
@@ -103,7 +107,7 @@ function Update-Statusline {
 
             $settings | Add-Member -NotePropertyName "statusLine" -NotePropertyValue ([PSCustomObject]@{
                     type    = "command"
-                    command = "~/.claude/scripts/statusline.sh"
+                    command = "$(Get-ClaudeConfigDirRef)/scripts/statusline.sh"
                     padding = 0
                 }) -Force
 
@@ -162,6 +166,20 @@ function Update-AgentTeam {
     catch {
         Write-Status "  ! Failed to configure agent teams: $_" -Color Yellow
     }
+}
+
+function Copy-RepoSetting {
+    <#
+    .SYNOPSIS
+    Replace settings.json with the repo defaults (overwrite mode).
+    Command paths are rewritten when CLAUDE_CONFIG_DIR moves the config dir.
+    #>
+    $text = Read-Utf8Text (Join-Path (Join-Path $script:RepoDir ".claude") "settings.json")
+    $ref = Get-ClaudeConfigDirRef
+    if ($ref -ne "~/.claude") {
+        $text = $text.Replace("~/.claude/", "${ref}/")
+    }
+    Write-Utf8Text -Path $script:SettingsJson -Content $text
 }
 
 function Update-ProxyPath {

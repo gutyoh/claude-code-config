@@ -30,7 +30,7 @@ $script:McpServerKeys = @("brave-search", "tavily")
 
 $script:DopplerProject = if ($env:MCP_DOPPLER_PROJECT) { $env:MCP_DOPPLER_PROJECT } else { "claude-code-config" }
 $script:DopplerConfig = if ($env:MCP_DOPPLER_CONFIG) { $env:MCP_DOPPLER_CONFIG } else { "dev" }
-$script:McpKeysEnvFile = if ($env:MCP_KEYS_ENV_FILE) { $env:MCP_KEYS_ENV_FILE } else { "$env:USERPROFILE\.claude\mcp-keys.env" }
+$script:McpKeysEnvFile = if ($env:MCP_KEYS_ENV_FILE) { $env:MCP_KEYS_ENV_FILE } else { Join-Path (Get-ClaudeConfigDir) "mcp-keys.env" }
 
 # --- Backend Detection ---
 
@@ -134,7 +134,7 @@ function Install-SingleMcp {
     $package = $server.package
 
     # Remove existing config to re-register with correct backend
-    $claudeJsonPath = "$env:USERPROFILE\.claude.json"
+    $claudeJsonPath = Get-ClaudeJsonPath
     if (Test-Path $claudeJsonPath) {
         try {
             $claudeJson = Read-Utf8Text $claudeJsonPath | ConvertFrom-Json

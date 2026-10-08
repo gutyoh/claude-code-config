@@ -19,6 +19,7 @@ BeforeAll {
 
     # Dot-source all modules (same as setup.ps1 does)
     . (Join-Path $setupPsDir "fileio.ps1")
+    . (Join-Path $setupPsDir "paths.ps1")
     . (Join-Path $setupPsDir "output.ps1")
     . (Join-Path $setupPsDir "tui.ps1")
     . (Join-Path $setupPsDir "preview.ps1")
@@ -393,6 +394,143 @@ Describe "Merge-PctInside" {
 }
 
 # ============================================================================
+# Paths: CLAUDE_CONFIG_DIR
+# ============================================================================
+
+Describe "Claude config directory resolution" {
+    BeforeAll {
+        $script:FakeHome = Join-Path $TestDrive "home"
+        $script:OutsideDir = Join-Path $TestDrive "elsewhere"
+    }
+
+    Context "Get-ClaudeConfigDir" {
+        It "defaults to ~/.claude when CLAUDE_CONFIG_DIR is unset" {
+            Get-ClaudeConfigDir -ConfigDir "" -HomeDir $script:FakeHome |
+                Should -Be (Join-Path $script:FakeHome ".claude")
+        }
+
+        It "uses CLAUDE_CONFIG_DIR without its trailing separators" {
+            Get-ClaudeConfigDir -ConfigDir "/opt/cfg/claude//" -HomeDir $script:FakeHome | Should -Be "/opt/cfg/claude"
+            Get-ClaudeConfigDir -ConfigDir "C:\cfg\claude\" -HomeDir $script:FakeHome | Should -Be "C:\cfg\claude"
+        }
+    }
+
+    Context "Get-ClaudeJsonPath" {
+        It "sits beside ~/.claude in HOME by default" {
+            Get-ClaudeJsonPath -ConfigDir "" -HomeDir $script:FakeHome |
+                Should -Be (Join-Path $script:FakeHome ".claude.json")
+        }
+
+        It "moves inside CLAUDE_CONFIG_DIR when set" {
+            Get-ClaudeJsonPath -ConfigDir $script:OutsideDir -HomeDir $script:FakeHome |
+                Should -Be (Join-Path $script:OutsideDir ".claude.json")
+        }
+    }
+
+    Context "Get-ClaudeConfigDirRef" {
+        It "is ~/.claude when unset, so existing settings do not change" {
+            Get-ClaudeConfigDirRef -ConfigDir "" -HomeDir "/h/user" | Should -Be "~/.claude"
+        }
+
+        It "is ~/<relative> for a directory under HOME" {
+            Get-ClaudeConfigDirRef -ConfigDir "/h/user/.claude-work" -HomeDir "/h/user" | Should -Be "~/.claude-work"
+            Get-ClaudeConfigDirRef -ConfigDir "/h/user/cfg/claude/" -HomeDir "/h/user/" | Should -Be "~/cfg/claude"
+        }
+
+        It "uses forward slashes for Windows paths" {
+            Get-ClaudeConfigDirRef -ConfigDir "C:\Users\dev\.claude-work" -HomeDir "C:\Users\dev" |
+                Should -Be "~/.claude-work"
+            Get-ClaudeConfigDirRef -ConfigDir "D:\cfg\claude" -HomeDir "C:\Users\dev" | Should -Be "D:/cfg/claude"
+        }
+
+        It "keeps the absolute path outside HOME" {
+            Get-ClaudeConfigDirRef -ConfigDir "/opt/claude" -HomeDir "/h/user" | Should -Be "/opt/claude"
+        }
+
+        It "does not treat a sibling with the same prefix as being under HOME" {
+            Get-ClaudeConfigDirRef -ConfigDir "/h/user2/claude" -HomeDir "/h/user" | Should -Be "/h/user2/claude"
+        }
+
+        It "keeps the absolute path when CLAUDE_CONFIG_DIR is HOME itself" {
+            Get-ClaudeConfigDirRef -ConfigDir "/h/user" -HomeDir "/h/user" | Should -Be "/h/user"
+        }
+    }
+
+    Context "settings.json commands follow the config directory" {
+        BeforeEach {
+            $script:SavedConfigDir = $env:CLAUDE_CONFIG_DIR
+            $script:SettingsJson = Join-Path $TestDrive "settings-ref.json"
+            Write-Utf8Text -Path $script:SettingsJson -Content "{}"
+        }
+
+        AfterEach {
+            $env:CLAUDE_CONFIG_DIR = $script:SavedConfigDir
+        }
+
+        It "writes ~/.claude commands when CLAUDE_CONFIG_DIR is unset" {
+            $env:CLAUDE_CONFIG_DIR = ""
+            Update-IdeHook
+            Update-Statusline
+            Update-FileSuggestion
+            $settings = Read-Utf8Text $script:SettingsJson | ConvertFrom-Json
+            $settings.hooks.PreToolUse[0].hooks[0].command | Should -Be "~/.claude/hooks/open-file-in-ide.sh"
+            $settings.statusLine.command | Should -Be "~/.claude/scripts/statusline.sh"
+            $settings.fileSuggestion.command | Should -Match ([regex]::Escape('"~/.claude/scripts/file-suggestion.ps1"'))
+        }
+
+        It "writes the CLAUDE_CONFIG_DIR prefix when set" {
+            $env:CLAUDE_CONFIG_DIR = Join-Path $HOME ".claude-alt"
+            Update-IdeHook
+            Update-Statusline
+            Update-FileSuggestion
+            $settings = Read-Utf8Text $script:SettingsJson | ConvertFrom-Json
+            $settings.hooks.PreToolUse[0].hooks[0].command | Should -Be "~/.claude-alt/hooks/open-file-in-ide.sh"
+            $settings.statusLine.command | Should -Be "~/.claude-alt/scripts/statusline.sh"
+            $settings.fileSuggestion.command | Should -Match ([regex]::Escape('"~/.claude-alt/scripts/file-suggestion.ps1"'))
+        }
+
+        It "Copy-RepoSetting keeps the repo file byte-identical when unset" {
+            $env:CLAUDE_CONFIG_DIR = ""
+            $script:RepoDir = $repoRoot
+            Copy-RepoSetting
+            $repoFile = Join-Path (Join-Path $repoRoot ".claude") "settings.json"
+            Read-Utf8Text $script:SettingsJson | Should -BeExactly (Read-Utf8Text $repoFile)
+        }
+
+        It "Copy-RepoSetting rewrites every command into CLAUDE_CONFIG_DIR when set" {
+            $env:CLAUDE_CONFIG_DIR = Join-Path $HOME ".claude-alt"
+            $script:RepoDir = $repoRoot
+            Copy-RepoSetting
+            $text = Read-Utf8Text $script:SettingsJson
+            $text | Should -Not -Match ([regex]::Escape("~/.claude/"))
+            $text | Should -Match ([regex]::Escape("~/.claude-alt/hooks/"))
+            { $text | ConvertFrom-Json } | Should -Not -Throw
+        }
+    }
+
+    Context "mcp-keys.env follows the config directory" {
+        AfterEach {
+            Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue
+            Remove-Item Env:MCP_KEYS_ENV_FILE -ErrorAction SilentlyContinue
+            . (Join-Path $setupPsDir "mcp.ps1")
+        }
+
+        It "lives under CLAUDE_CONFIG_DIR when set" {
+            $env:CLAUDE_CONFIG_DIR = $script:OutsideDir
+            . (Join-Path $setupPsDir "mcp.ps1")
+            $script:McpKeysEnvFile | Should -Be (Join-Path $script:OutsideDir "mcp-keys.env")
+        }
+
+        It "MCP_KEYS_ENV_FILE still wins" {
+            $env:CLAUDE_CONFIG_DIR = $script:OutsideDir
+            $env:MCP_KEYS_ENV_FILE = Join-Path $TestDrive "keys.env"
+            . (Join-Path $setupPsDir "mcp.ps1")
+            $script:McpKeysEnvFile | Should -Be (Join-Path $TestDrive "keys.env")
+        }
+    }
+}
+
+# ============================================================================
 # File I/O: UTF-8 without a byte order mark on every edition
 # ============================================================================
 
@@ -530,7 +668,7 @@ Describe "Windows PowerShell 5.1 compatibility" {
 
 Describe "Module files exist" {
     # -ForEach, not a foreach loop: discovery-time variables do not reach It blocks.
-    It "lib/setup-ps/<_> exists" -ForEach @("fileio.ps1", "output.ps1", "tui.ps1", "preview.ps1",
+    It "lib/setup-ps/<_> exists" -ForEach @("fileio.ps1", "paths.ps1", "output.ps1", "tui.ps1", "preview.ps1",
         "filesystem.ps1", "settings.ps1", "statusline-conf.ps1", "mcp.ps1", "menu.ps1") {
         Test-Path (Join-Path $setupPsDir $_) | Should -BeTrue
     }
