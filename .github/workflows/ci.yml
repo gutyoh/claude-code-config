@@ -55,6 +55,27 @@ jobs:
       - name: Audit workflows
         run: just lint-workflows
 
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Pinned by SHA, not tag: a tag is mutable, so a compromised or moved
+      # tag silently changes what runs with access to the runner.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Every commit on every ref, not just the tip: a secret deleted in a
+          # later commit is still published by the earlier one.
+          fetch-depth: 0
+
+      - uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4
+        with:
+          install_args: --locked
+
+      - name: betterleaks (tree and full history)
+        run: just secrets
+
   test:
     name: Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
