@@ -17,13 +17,15 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
+# Nothing by default; each job asks for exactly what it reads.
+permissions: {}
 
 jobs:
   static:
     name: Lint + format
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 10
     steps:
       # Pinned by SHA, not tag: a tag is mutable, so a compromised or moved
@@ -58,6 +60,8 @@ jobs:
   secrets:
     name: Secret scan
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 10
     steps:
       # Pinned by SHA, not tag: a tag is mutable, so a compromised or moved
@@ -79,6 +83,8 @@ jobs:
   powershell:
     name: PowerShell (${{ matrix.os }}, ${{ matrix.shell }})
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -107,6 +113,8 @@ jobs:
   test:
     name: Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     timeout-minutes: 25
     strategy:
       # Never mask a macOS-only failure by cancelling the job the moment Linux
@@ -156,3 +164,26 @@ jobs:
 
       - name: Smoke lane
         run: just smoke
+
+  # The one check to require on main. Required checks match job names, so a
+  # matrix leg added later would otherwise be optional; `always()` keeps this
+  # job from being skipped, which branch protection would count as passing.
+  ci-ok:
+    name: CI ok
+    if: always()
+    needs: [static, secrets, powershell, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Every job succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: ${RESULTS}"
+          for result in ${RESULTS}; do
+            if [ "${result}" != "success" ]; then
+              echo "a job ended as ${result}"
+              exit 1
+            fi
+          done

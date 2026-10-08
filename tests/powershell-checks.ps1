@@ -77,6 +77,16 @@ Remove-Module Pester -ErrorAction SilentlyContinue
 Import-Module Pester -RequiredVersion 6.2.0
 $config = New-PesterConfiguration
 $config.Run.Path = Join-Path $repo 'tests'
-$config.Run.Exit = $true
+$config.Run.PassThru = $true
 $config.Output.Verbosity = 'Detailed'
-Invoke-Pester -Configuration $config
+$result = Invoke-Pester -Configuration $config
+$analyzer = 'clean'
+if ($SkipAnalyzer) { $analyzer = 'skipped' }
+
+if ($env:GITHUB_STEP_SUMMARY) {
+    $edition = "PowerShell $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))"
+    $line = "| $edition | analyzer $analyzer | $($result.PassedCount) passed | $($result.FailedCount) failed | $($result.SkippedCount) skipped |"
+    $text = "| Host | Analyzer | Passed | Failed | Skipped |`n|---|---|---|---|---|`n$line`n"
+    [System.IO.File]::AppendAllText($env:GITHUB_STEP_SUMMARY, $text, (New-Object System.Text.UTF8Encoding $false))
+}
+if ($result.FailedCount -gt 0 -or $result.Result -ne 'Passed') { exit 1 }
