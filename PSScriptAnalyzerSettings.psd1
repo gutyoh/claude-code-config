@@ -33,4 +33,30 @@
         'PSAvoidUsingWriteHost'
         'PSUseShouldProcessForStateChangingFunctions'
     )
+
+    # setup.ps1 must run under the Windows PowerShell 5.1 a stock Windows opens
+    # it with, and under PowerShell 7 everywhere. These rules check commands,
+    # parameters, types and syntax against both, so a 7-only call fails on any OS.
+    Rules = @{
+        PSUseCompatibleSyntax   = @{
+            Enable         = $true
+            TargetVersions = @('5.1', '7.0')
+        }
+        PSUseCompatibleCommands = @{
+            Enable         = $true
+            TargetProfiles = @(
+                'win-48_x64_10.0.17763.0_5.1.17763.316_x64_4.0.30319.42000_framework'
+                'win-4_x64_10.0.18362.0_7.0.0_x64_3.1.2_core'
+                'ubuntu_x64_18.04_7.0.0_x64_3.1.2_core'
+            )
+        }
+        PSUseCompatibleTypes    = @{
+            Enable         = $true
+            TargetProfiles = @(
+                'win-48_x64_10.0.17763.0_5.1.17763.316_x64_4.0.30319.42000_framework'
+                'win-4_x64_10.0.18362.0_7.0.0_x64_3.1.2_core'
+                'ubuntu_x64_18.04_7.0.0_x64_3.1.2_core'
+            )
+        }
+    }
 }

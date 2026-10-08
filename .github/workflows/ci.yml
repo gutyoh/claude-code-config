@@ -76,6 +76,34 @@ jobs:
       - name: betterleaks (tree and full history)
         run: just secrets
 
+  powershell:
+    name: PowerShell (${{ matrix.os }}, ${{ matrix.shell }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, shell: pwsh }
+          - { os: macos-latest, shell: pwsh }
+          - { os: windows-latest, shell: pwsh }
+          # What a stock Windows opens setup.ps1 with.
+          - { os: windows-latest, shell: powershell }
+          - { os: windows-11-arm, shell: pwsh }
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Report PowerShell
+        run: $PSVersionTable | Format-Table -AutoSize | Out-String -Width 200
+
+      - name: PSScriptAnalyzer and Pester
+        run: ./tests/powershell-checks.ps1
+
   test:
     name: Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
