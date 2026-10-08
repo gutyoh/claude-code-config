@@ -131,8 +131,20 @@ verify-clean-machine:
     rm -rf "$tmp"
     exit $rc
 
+# Scan the working tree, then every commit on every ref, for secrets.
+secrets:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v betterleaks >/dev/null 2>&1; then
+        echo "betterleaks not installed - run 'just install-tools'"
+        exit 1
+    fi
+    betterleaks dir --redact --no-banner .
+    betterleaks git --redact --no-banner --log-opts=--all .
+    echo "betterleaks: no secrets in the tree or the history"
+
 # Everything the merge gate runs.
-check: lint lint-workflows format-check test
+check: lint lint-workflows format-check secrets test
     @echo ""
     @echo "All checks passed"
 

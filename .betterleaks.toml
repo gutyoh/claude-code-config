@@ -1,0 +1,23 @@
+# .betterleaks.toml
+# Vendor rules over the working tree and every commit. Exceptions name exact
+# placeholder values from the docs and tests, never whole paths.
+title = "claude-code-config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Placeholder credentials in skill docs and test fixtures"
+regexTarget = "secret"
+regexes = [
+  '''^pass$''',
+  '''^password$''',
+  '''^secret123$''',
+  '''^hunter2-example-pw$''',
+  '''^…\[masked\]$''',
+  '''^"pk-lf-xxx:sk-lf-xxx"$''',
+]
+
+[[allowlists]]
+description = "A truncated, unusable token in an anti-pattern example, removed since"
+commits = ["87a9795ea3da4432e189b83af67e59a9d0e1865b"]

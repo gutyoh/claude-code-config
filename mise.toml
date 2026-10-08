@@ -24,6 +24,10 @@ bats = "1.14.0"
 # Static analysis for the workflows themselves.
 zizmor = "1.28.0"
 
+# Secret scanning over the tree and every commit. A public repo cannot take a
+# leaked key back, so the gate runs before the push as well as in CI.
+betterleaks = "1.9.0"
+
 # Local hook runner. CI does not run pre-commit — it runs `just check` directly
 # — so this is purely for catching things before they leave the machine.
 pre-commit = "4.6.0"
@@ -36,5 +40,6 @@ pre-commit = "4.6.0"
 # Maintain mise.lock (committed) so `mise install` resolves tools from pinned
 # URLs + checksums instead of the GitHub API. That makes installs reproducible
 # and integrity-verified, and keeps CI off the unauthenticated 60 req/h rate
-# limit. The lock covers both CI platforms: linux-x64 and macos-arm64.
+# limit. The lock covers every Unix platform a contributor or runner uses, so
+# running a tool never rewrites it: linux and macOS, x64 and arm64.
 lockfile = true
