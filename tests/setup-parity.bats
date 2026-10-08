@@ -24,6 +24,11 @@ bash_options() {
         tr -d '-' | sort -u
 }
 
+# A version-manager shim can exist and still fail to start, so probe it.
+require_pwsh() {
+    pwsh -NoProfile -NonInteractive -Command 'exit 0' >/dev/null 2>&1 || skip "pwsh not runnable"
+}
+
 # Parameters setup.ps1 declares, from its AST so common parameters stay out.
 ps_options() {
     pwsh -NoProfile -NonInteractive -Command "
@@ -34,7 +39,7 @@ ps_options() {
 
 # bats test_tags=unit,portability
 @test "setup.sh and setup.ps1 accept the same options" {
-    require_cmd pwsh
+    require_pwsh
     local diff_out
     diff_out="$(diff <(bash_options) <(ps_options) || true)"
     [ -z "$diff_out" ] || {
@@ -46,7 +51,7 @@ ps_options() {
 
 # bats test_tags=smoke
 @test "setup.ps1 -Help exits 0 under pwsh on this platform" {
-    require_cmd pwsh
+    require_pwsh
     run pwsh -NoProfile -NonInteractive -File "$REPO_ROOT/setup.ps1" -Help
     [ "$status" -eq 0 ]
     [[ "$output" == *"setup.ps1"* ]]

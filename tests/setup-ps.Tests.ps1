@@ -1333,9 +1333,9 @@ Describe "Claude config directory resolution" {
         }
 
         It "uses forward slashes for Windows paths" {
-            Get-ClaudeConfigDirRef -ConfigDir "C:\Users\dev\.claude-work" -HomeDir "C:\Users\dev" |
+            Get-ClaudeConfigDirRef -ConfigDir "C:\Users\you\.claude-work" -HomeDir "C:\Users\you" |
                 Should -Be "~/.claude-work"
-            Get-ClaudeConfigDirRef -ConfigDir "D:\cfg\claude" -HomeDir "C:\Users\dev" | Should -Be "D:/cfg/claude"
+            Get-ClaudeConfigDirRef -ConfigDir "D:\cfg\claude" -HomeDir "C:\Users\you" | Should -Be "D:/cfg/claude"
         }
 
         It "keeps the absolute path outside HOME" {

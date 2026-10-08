@@ -136,7 +136,7 @@ tracked_text_files() {
     hits="$(cd "$REPO_ROOT" && tracked_text_files | while read -r f; do
         [[ -f "$f" ]] || continue
         grep -nIoE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' "$f" 2>/dev/null |
-            grep -viE '@(([a-z0-9-]+\.)*example\.(com|org|net)|ex\.com|email\.com|company\.com|([a-z0-9-]+\.)*mongodb\.net|users\.noreply\.github\.com|github\.com)$' |
+            grep -viE '@(([a-z0-9-]+\.)*example\.(com|org|net)|([a-z0-9-]+\.)*(example|invalid|test|localhost)|ex\.com|email\.com|company\.com|([a-z0-9-]+\.)*mongodb\.net|users\.noreply\.github\.com|github\.com)$' |
             grep -viE ':noreply@anthropic\.com$' |
             sed "s|^|$f:|"
     done)"
