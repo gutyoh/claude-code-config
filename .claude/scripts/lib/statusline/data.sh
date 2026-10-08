@@ -180,7 +180,7 @@ get_native_usage_data() {
 HOOK_STALE_THRESHOLD="${HOOK_STALE_THRESHOLD:-300}"
 
 get_hook_usage_data() {
-    local cache_file="${HOOK_USAGE_CACHE:-${HOME}/.claude/cache/claude-usage.json}"
+    local cache_file="${HOOK_USAGE_CACHE:-${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/cache/claude-usage.json}"
     [[ ! -f "${cache_file}" ]] && return 1
 
     local pct reset_epoch
@@ -259,10 +259,15 @@ collect_data() {
     # Current working directory from stdin JSON
     DATA_CWD=$(echo "${input}" | jq -r '.cwd // empty')
 
-    # Account email. `|| true` because jq exits non-zero when ~/.claude.json is
+    # Account email. `|| true` because jq exits non-zero when .claude.json is
     # missing — which is the normal state on a fresh install — and a bare
-    # assignment would abort any caller running under `set -e`.
-    DATA_EMAIL=$(jq -r '.oauthAccount.emailAddress // empty' ~/.claude.json 2>/dev/null || true)
+    # assignment would abort any caller running under `set -e`. Claude Code keeps
+    # that file inside CLAUDE_CONFIG_DIR when set, beside ~/.claude otherwise.
+    local claude_json="${HOME}/.claude.json"
+    if [[ -n "${CLAUDE_CONFIG_DIR:-}" ]]; then
+        claude_json="${CLAUDE_CONFIG_DIR}/.claude.json"
+    fi
+    DATA_EMAIL=$(jq -r '.oauthAccount.emailAddress // empty' "${claude_json}" 2>/dev/null || true)
     DATA_EMAIL="${DATA_EMAIL:-N/A}"
     debug_var "DATA_EMAIL" "${DATA_EMAIL}"
 
@@ -277,7 +282,7 @@ collect_data() {
     else
         debug "Trying source 2: hook cache..."
         if get_hook_usage_data; then
-            debug "Source: hook cache (~/.claude/cache/claude-usage.json)"
+            debug "Source: hook cache (claude-usage.json)"
         else
             debug "Trying source 3: OAuth API..."
             if get_oauth_usage_data; then

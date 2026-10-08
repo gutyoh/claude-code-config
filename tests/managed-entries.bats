@@ -278,3 +278,26 @@ install_hooks() {
     [[ "$output" == *"same as repo"* ]]
     [ ! -L "${REPO_DIR}/.claude/hooks/a.sh" ]
 }
+
+@test "a profile linked to the repo through another profile is converted, not backed up" {
+    seed_repo skills a b
+    make_git_repo
+    # First profile: the legacy whole-directory link straight into the repo.
+    mkdir -p "${HOME}/.claude-first"
+    ln -s "${REPO_DIR}/.claude/skills" "${HOME}/.claude-first/skills"
+    # A foreign file the first profile wrote into the repo through its link.
+    echo "# foreign" >"${REPO_DIR}/.claude/skills/foreign"
+    # Second profile (the one being installed) links to the first.
+    mkdir -p "${CLAUDE_DIR}"
+    ln -s "${HOME}/.claude-first/skills" "${CLAUDE_DIR}/skills"
+
+    install_managed_entries "${REPO_DIR}/.claude/skills" "${CLAUDE_DIR}/skills" "skills"
+
+    [ -d "${CLAUDE_DIR}/skills" ] && [ ! -L "${CLAUDE_DIR}/skills" ]
+    [ "$(readlink "${CLAUDE_DIR}/skills/a")" = "${REPO_DIR}/.claude/skills/a" ]
+    # No backup: the chain ended in the repo, so it was ours.
+    ! ls "${CLAUDE_DIR}" | grep -q 'skills.bak'
+    # The first profile still sees its foreign file where it left it.
+    [ -f "${REPO_DIR}/.claude/skills/foreign" ]
+    [ -L "${HOME}/.claude-first/skills" ]
+}

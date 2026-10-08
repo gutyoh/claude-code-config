@@ -56,21 +56,33 @@ _timestamped_backup() {
 # foreign files that were written into the repo through it.
 _migrate_directory_symlink() {
     local source_dir="$1" target_dir="$2" name="$3"
-    local dest
+    local dest dest_real source_real
     dest=$(readlink "${target_dir}")
+    dest_real=$(cd "${target_dir}" 2>/dev/null && pwd -P) || dest_real=""
+    source_real=$(cd "${source_dir}" && pwd -P)
+
+    # A second profile can link to the first profile's directory, which links
+    # to the repo. That chain is ours too, but its untracked files are seen by
+    # the first profile, so they stay put until that profile is installed.
+    if [[ "${dest}" != "${source_dir}" && -n "${dest_real}" && "${dest_real}" == "${source_real}" ]]; then
+        rm -f "${target_dir}"
+        mkdir -p "${target_dir}"
+        echo "  ⚠ ${CLAUDE_DIR_REF:-~/.claude}/${name} linked to the repo through ${dest} — converting to per-entry links"
+        return 0
+    fi
 
     if [[ "${dest}" != "${source_dir}" ]]; then
         # Points somewhere that is not this repo. Not ours to take apart.
         local moved
         moved=$(_timestamped_backup "${target_dir}")
-        echo "  ⚠ ~/.claude/${name} pointed at ${dest} — link kept as ${moved}"
+        echo "  ⚠ ${CLAUDE_DIR_REF:-~/.claude}/${name} pointed at ${dest} — link kept as ${moved}"
         mkdir -p "${target_dir}"
         return 0
     fi
 
     rm -f "${target_dir}"
     mkdir -p "${target_dir}"
-    echo "  ⚠ ~/.claude/${name} was a whole-directory symlink — converting to per-entry links"
+    echo "  ⚠ ${CLAUDE_DIR_REF:-~/.claude}/${name} was a whole-directory symlink — converting to per-entry links"
 
     # Anything git does not track was written into the working tree by a
     # foreign installer through the link we just removed. Move it back out, or
@@ -94,7 +106,7 @@ install_managed_entries() {
     local name="$3"
 
     if [[ ! -d "${source_dir}" ]]; then
-        echo "  ⊘ ~/.claude/${name} — repo has no .claude/${name}, skipping"
+        echo "  ⊘ ${CLAUDE_DIR_REF:-~/.claude}/${name} — repo has no .claude/${name}, skipping"
         return 0
     fi
 
@@ -102,7 +114,7 @@ install_managed_entries() {
     claude_real=$(cd "${CLAUDE_DIR}" && pwd -P)
     repo_claude_real=$(cd "${REPO_DIR}/.claude" && pwd -P)
     if [[ "${claude_real}" == "${repo_claude_real}" ]]; then
-        echo "  ✓ ~/.claude/${name} (same as repo, no install needed)"
+        echo "  ✓ ${CLAUDE_DIR_REF:-~/.claude}/${name} (same as repo, no install needed)"
         return 0
     fi
 
@@ -111,7 +123,7 @@ install_managed_entries() {
     elif [[ -e "${target_dir}" && ! -d "${target_dir}" ]]; then
         local moved
         moved=$(_timestamped_backup "${target_dir}")
-        echo "  ⚠ ~/.claude/${name} was a file — kept as ${moved}"
+        echo "  ⚠ ${CLAUDE_DIR_REF:-~/.claude}/${name} was a file — kept as ${moved}"
     fi
 
     mkdir -p "${target_dir}"
@@ -133,13 +145,13 @@ install_managed_entries() {
             if _is_managed_link "${target}" "${source_dir}"; then
                 rm -f "${target}" # stale link of ours — refresh it
             else
-                echo "  ⊘ ~/.claude/${name}/${base} — foreign symlink, left as-is"
+                echo "  ⊘ ${CLAUDE_DIR_REF:-~/.claude}/${name}/${base} — foreign symlink, left as-is"
                 skipped=$((skipped + 1))
                 continue
             fi
         elif [[ -e "${target}" ]]; then
             moved=$(_timestamped_backup "${target}")
-            echo "  ⚠ ~/.claude/${name}/${base} existed — kept as ${moved}"
+            echo "  ⚠ ${CLAUDE_DIR_REF:-~/.claude}/${name}/${base} existed — kept as ${moved}"
             replaced=$((replaced + 1))
         fi
 
@@ -172,7 +184,7 @@ install_managed_entries() {
     if [[ ${pruned} -gt 0 ]]; then summary="${summary}, ${pruned} pruned"; fi
     if [[ ${skipped} -gt 0 ]]; then summary="${summary}, ${skipped} skipped"; fi
     if [[ ${foreign} -gt 0 ]]; then summary="${summary}, ${foreign} left untouched"; fi
-    echo "  ✓ ~/.claude/${name}: ${summary}"
+    echo "  ✓ ${CLAUDE_DIR_REF:-~/.claude}/${name}: ${summary}"
 }
 
 check_prerequisite() {

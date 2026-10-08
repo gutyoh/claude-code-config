@@ -156,7 +156,7 @@ secret_set() {
 # --- MCP keys env file sync ---
 # When using the dotenv backend, also update ~/.claude/mcp-keys.env
 # so the mcp-env-inject wrapper picks up the new key on next MCP restart.
-readonly MCP_KEYS_ENV_FILE="${MCP_KEYS_ENV_FILE:-${HOME}/.claude/mcp-keys.env}"
+readonly MCP_KEYS_ENV_FILE="${MCP_KEYS_ENV_FILE:-${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/mcp-keys.env}"
 
 sync_mcp_keys_env() {
     # Only sync for dotenv backend (Doppler injects keys live at MCP launch)
@@ -543,7 +543,7 @@ case "${1:-}" in
         echo "  --status, -s  Show current key and pool"
         echo "  --quota, -q   Show per-key credit usage (live API check)"
         echo "  --add, -a     Add a new key to the pool"
-        echo "  --sync        Sync active key to ~/.claude/mcp-keys.env"
+        echo "  --sync        Sync active key to mcp-keys.env in the Claude config dir"
         echo "  --help, -h    Show this help"
         echo ""
         echo "Services: brave, tavily (or any MCP service with {SERVICE}_API_KEY + {SERVICE}_API_KEY_POOL)"

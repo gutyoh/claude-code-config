@@ -25,7 +25,7 @@ set -uo pipefail
 # Consume stdin (hook receives tool_input JSON — we don't need it)
 cat >/dev/null
 
-CACHE_DIR="${HOME}/.claude/cache"
+CACHE_DIR="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/cache"
 CACHE_FILE="${CACHE_DIR}/claude-usage.json"
 USAGE_CACHE_TTL="${USAGE_CACHE_TTL:-60}"
 KEYCHAIN_SERVICE="Claude Code-credentials"

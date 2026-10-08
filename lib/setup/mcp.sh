@@ -35,7 +35,7 @@ mcp_get() {
 
 readonly DOPPLER_PROJECT="${MCP_DOPPLER_PROJECT:-claude-code-config}"
 readonly DOPPLER_CONFIG="${MCP_DOPPLER_CONFIG:-dev}"
-readonly MCP_KEYS_ENV_FILE="${MCP_KEYS_ENV_FILE:-${HOME}/.claude/mcp-keys.env}"
+readonly MCP_KEYS_ENV_FILE="${MCP_KEYS_ENV_FILE:-${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/mcp-keys.env}"
 
 detect_mcp_backend() {
     # Tier 1: Doppler CLI available and project accessible

@@ -5,7 +5,7 @@
 show_usage() {
     echo "Usage: $(basename "$0") [options]"
     echo ""
-    echo "Creates symlinks from this repo to ~/.claude/ for global Claude Code configuration."
+    echo "Links this repo into ~/.claude (or \$CLAUDE_CONFIG_DIR) for global Claude Code configuration."
     echo ""
     echo "Options:"
     echo "  -y, --yes              Accept all defaults without prompting"
