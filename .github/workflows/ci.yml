@@ -17,13 +17,15 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
+# Nothing by default; each job asks for exactly what it reads.
+permissions: {}
 
 jobs:
   static:
-    name: Lint + format
+    name: lint + format
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 10
     steps:
       # Pinned by SHA, not tag: a tag is mutable, so a compromised or moved
@@ -55,9 +57,64 @@ jobs:
       - name: Audit workflows
         run: just lint-workflows
 
-  test:
-    name: Tests (${{ matrix.os }})
+  secrets:
+    name: secret scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    steps:
+      # Pinned by SHA, not tag: a tag is mutable, so a compromised or moved
+      # tag silently changes what runs with access to the runner.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Every commit on every ref, not just the tip: a secret deleted in a
+          # later commit is still published by the earlier one.
+          fetch-depth: 0
+
+      - uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4
+        with:
+          install_args: --locked
+
+      - name: betterleaks (tree and full history)
+        run: just secrets
+
+  powershell:
+    name: powershell (${{ matrix.os }}, ${{ matrix.shell }})
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, shell: pwsh }
+          - { os: macos-latest, shell: pwsh }
+          - { os: windows-latest, shell: pwsh }
+          # What a stock Windows opens setup.ps1 with.
+          - { os: windows-latest, shell: powershell }
+          - { os: windows-11-arm, shell: pwsh }
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Report PowerShell
+        run: $PSVersionTable | Format-Table -AutoSize | Out-String -Width 200
+
+      - name: PSScriptAnalyzer and Pester
+        run: ./tests/powershell-checks.ps1
+
+  test:
+    name: tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     timeout-minutes: 25
     strategy:
       # Never mask a macOS-only failure by cancelling the job the moment Linux
@@ -107,3 +164,25 @@ jobs:
 
       - name: Smoke lane
         run: just smoke
+
+  # The one check to require on main. Required checks match job names, so a
+  # matrix leg added later would otherwise be optional; `always()` keeps this
+  # job from being skipped, which branch protection would count as passing.
+  ci-status:
+    if: always()
+    needs: [static, secrets, powershell, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Every job succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: ${RESULTS}"
+          for result in ${RESULTS}; do
+            if [ "${result}" != "success" ]; then
+              echo "a job ended as ${result}"
+              exit 1
+            fi
+          done

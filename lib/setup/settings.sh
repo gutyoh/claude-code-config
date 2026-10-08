@@ -2,6 +2,64 @@
 # Path: lib/setup/settings.sh
 # Sourced by setup.sh — do not execute directly.
 
+# Copy over the file's contents instead of renaming onto it: a rename replaces a
+# symlinked rc file (stow, chezmoi, home-manager) with a plain one.
+_replace_contents() {
+    local src="$1" dest="$2"
+    cat "${src}" >"${dest}"
+    rm -f "${src}"
+}
+
+write_default_settings() {
+    python3 - "$1" <<'PYTHON_SCRIPT'
+import json
+import os
+import sys
+
+ref = os.environ.get('CLAUDE_DIR_REF', '~/.claude')
+data = {"hooks": {"PreToolUse": [{
+    "matcher": "mcp__ide__getDiagnostics",
+    "hooks": [{"type": "command", "command": f"{ref}/hooks/open-file-in-ide.sh"}],
+}]}}
+with open(sys.argv[1], 'w') as f:
+    json.dump(data, f, indent=2)
+    f.write('\n')
+PYTHON_SCRIPT
+}
+
+# The repo file doubles as this project's own settings, where the commands must
+# stay "~/.claude/..." so they dedupe with the user's; rewrite only the copy.
+write_repo_settings() {
+    local src="$1" dest="$2"
+    if [[ "${CLAUDE_DIR_REF}" == "~/.claude" ]]; then
+        cat "${src}" >"${dest}"
+        return
+    fi
+    python3 - "${src}" "${dest}" <<'PYTHON_SCRIPT'
+import json
+import os
+import sys
+
+ref = os.environ['CLAUDE_DIR_REF']
+
+
+def rewrite(node):
+    if isinstance(node, dict):
+        return {k: (ref + v[len('~/.claude'):] if k == 'command' and isinstance(v, str)
+                    and v.startswith('~/.claude/') else rewrite(v)) for k, v in node.items()}
+    if isinstance(node, list):
+        return [rewrite(v) for v in node]
+    return node
+
+
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+with open(sys.argv[2], 'w') as f:
+    json.dump(rewrite(data), f, indent=2)
+    f.write('\n')
+PYTHON_SCRIPT
+}
+
 configure_ide_hook() {
     if python3 - "${SETTINGS_JSON}" <<'PYTHON_CHECK' 2>/dev/null; then
 import json
@@ -22,9 +80,11 @@ PYTHON_CHECK
         echo "  Adding IDE diagnostics hook to existing settings..."
         python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
 import json
+import os
 import sys
 
 settings_file = sys.argv[1]
+ref = os.environ.get('CLAUDE_DIR_REF', '~/.claude')
 
 try:
     with open(settings_file) as f:
@@ -40,7 +100,7 @@ try:
         "hooks": [
             {
                 "type": "command",
-                "command": "~/.claude/hooks/open-file-in-ide.sh"
+                "command": f"{ref}/hooks/open-file-in-ide.sh"
             }
         ]
     }
@@ -84,9 +144,11 @@ PYTHON_CHECK
         echo "  Adding file suggestion to settings..."
         python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
 import json
+import os
 import sys
 
 settings_file = sys.argv[1]
+ref = os.environ.get('CLAUDE_DIR_REF', '~/.claude')
 
 try:
     with open(settings_file) as f:
@@ -94,7 +156,7 @@ try:
 
     data['fileSuggestion'] = {
         "type": "command",
-        "command": "~/.claude/scripts/file-suggestion.sh"
+        "command": f"{ref}/scripts/file-suggestion.sh"
     }
 
     with open(settings_file, 'w') as f:
@@ -354,7 +416,7 @@ configure_proxy_path() {
                 skip && /^export PATH=/ { skip=0; next }
                 { skip=0; print }
             ' "${shell_profile}" >"${tmp}"
-            mv "${tmp}" "${shell_profile}"
+            _replace_contents "${tmp}" "${shell_profile}"
 
             printf '\n%s\nexport PATH="%s:$PATH"\n' "${marker}" "${bin_dir}" >>"${shell_profile}"
             echo "  ✓ Proxy launcher PATH updated in ${shell_profile}"
@@ -395,7 +457,7 @@ configure_claude_shortcuts() {
                 $0 == end { skip=0; next }
                 !skip { print }
             ' "${shell_profile}" >"${tmp}"
-            mv "${tmp}" "${shell_profile}"
+            _replace_contents "${tmp}" "${shell_profile}"
         else
             local backup="${shell_profile}.claude-code-config.bak"
             cp "${shell_profile}" "${backup}" 2>/dev/null || true
@@ -604,9 +666,11 @@ PYTHON_CHECK
         echo "  Adding statusline to settings..."
         python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
 import json
+import os
 import sys
 
 settings_file = sys.argv[1]
+ref = os.environ.get('CLAUDE_DIR_REF', '~/.claude')
 
 try:
     with open(settings_file) as f:
@@ -614,7 +678,7 @@ try:
 
     data['statusLine'] = {
         "type": "command",
-        "command": "~/.claude/scripts/statusline.sh",
+        "command": f"{ref}/scripts/statusline.sh",
         "padding": 0
     }
 
@@ -637,9 +701,11 @@ remove_legacy_claude_sync_hooks() {
     # still distributed through Git; cross-device sessions use Remote Control.
     python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
 import json
+import os
 import sys
 
 settings_file = sys.argv[1]
+ref = os.environ.get('CLAUDE_DIR_REF', '~/.claude')
 
 try:
     with open(settings_file) as f:
@@ -648,15 +714,16 @@ try:
     hooks = data.get('hooks', {})
     changed = False
 
-    for event, target in (
-        ('SessionStart', '~/.claude/hooks/cc-sync-pull.sh'),
-        ('SessionEnd', '~/.claude/hooks/cc-sync-push.sh'),
+    for event, script in (
+        ('SessionStart', 'cc-sync-pull.sh'),
+        ('SessionEnd', 'cc-sync-push.sh'),
     ):
+        targets = {f'~/.claude/hooks/{script}', f'{ref}/hooks/{script}'}
         entries = hooks.get(event, [])
         kept = []
         for entry in entries:
             original = entry.get('hooks', [])
-            sub = [h for h in original if h.get('command') != target]
+            sub = [h for h in original if h.get('command') not in targets]
             if len(sub) != len(original):
                 changed = True
             if sub:

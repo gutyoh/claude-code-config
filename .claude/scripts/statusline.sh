@@ -71,7 +71,7 @@ readonly LOCK_MAX_AGE_S=30 # Force-remove stale locks from killed processes
 readonly BACKOFF_FILE="${_TMP_DIR}/api-backoff"
 readonly BACKOFF_INITIAL_S=30 # First backoff after 429/failure
 readonly BACKOFF_MAX_S=300    # Cap at 5 minutes
-readonly CONF_FILE="${HOME}/.claude/statusline.conf"
+readonly CONF_FILE="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/statusline.conf"
 
 # --- Config Globals (overridden by load_config) ---
 

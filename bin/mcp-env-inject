@@ -18,7 +18,7 @@
 
 set -euo pipefail
 
-readonly MCP_KEYS_ENV="${MCP_KEYS_ENV_FILE:-${HOME}/.claude/mcp-keys.env}"
+readonly MCP_KEYS_ENV="${MCP_KEYS_ENV_FILE:-${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/mcp-keys.env}"
 
 if [[ -f "${MCP_KEYS_ENV}" ]]; then
     # `set -a` marks every variable assigned as exported (equivalent to `export`)

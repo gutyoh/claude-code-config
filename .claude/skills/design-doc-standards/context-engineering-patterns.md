@@ -75,11 +75,11 @@ Never assume the reader (human or AI) knows your acronyms or domain terms.
 
 ```markdown
 <!-- GOOD: Defined on first use -->
-The DGI (Direccion General de Ingresos, Panama's tax authority) portal
+The TRS (Tax Reporting Service, the national tax authority's API) portal
 returns government-verified invoice data.
 
 <!-- BAD: Assumes knowledge -->
-The DGI portal returns verified data.
+The TRS portal returns verified data.
 ```
 
 ### 5. Make Dependencies Machine-Readable

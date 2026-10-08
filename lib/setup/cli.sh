@@ -5,7 +5,7 @@
 show_usage() {
     echo "Usage: $(basename "$0") [options]"
     echo ""
-    echo "Creates symlinks from this repo to ~/.claude/ for global Claude Code configuration."
+    echo "Links this repo into ~/.claude (or \$CLAUDE_CONFIG_DIR) for global Claude Code configuration."
     echo ""
     echo "Options:"
     echo "  -y, --yes              Accept all defaults without prompting"
@@ -37,7 +37,7 @@ show_usage() {
     echo ""
     echo "Available components:"
     echo "  model, usage, weekly, reset, tokens_in, tokens_out, tokens_cache,"
-    echo "  cost, burn_rate, email, version, lines, session_time, cwd"
+    echo "  cost, burn_rate, email, cc_status, version, lines, session_time, cwd"
     echo ""
     echo "Available MCP servers:"
     echo "  brave-search, tavily"

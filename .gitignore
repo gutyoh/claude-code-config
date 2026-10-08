@@ -235,3 +235,13 @@ temp/
 # Test outputs
 test-results/
 playwright-report/
+
+# Files other installers write into ~/.claude
+#
+# On a machine set up with the older whole-directory symlink, ~/.claude/hooks IS
+# this tree, so another tool's `install` lands its managed file in the checkout
+# as an untracked file — and the next `git switch` deletes it, silently killing
+# a working hook. setup.sh now migrates those files back out to ~/.claude, but
+# ignore them too, so an `git add -A` before that migration cannot commit
+# somebody else's managed file into this repo.
+.claude/hooks/herdr-agent-state.sh

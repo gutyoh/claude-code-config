@@ -131,8 +131,31 @@ verify-clean-machine:
     rm -rf "$tmp"
     exit $rc
 
+# Scan the working tree, then every commit on every ref, for secrets.
+secrets:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v betterleaks >/dev/null 2>&1; then
+        echo "betterleaks not installed - run 'just install-tools'"
+        exit 1
+    fi
+    betterleaks dir --redact --no-banner .
+    betterleaks git --redact --no-banner --log-opts=--all .
+    echo "betterleaks: no secrets in the tree or the history"
+
+# PSScriptAnalyzer and Pester for setup.ps1 and its modules, under pwsh.
+# CI also runs them under Windows PowerShell 5.1; locally pwsh is optional.
+ps-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v pwsh >/dev/null 2>&1; then
+        echo "pwsh not installed - skipping (CI runs it): https://aka.ms/powershell"
+        exit 0
+    fi
+    pwsh -NoProfile -NonInteractive -File tests/powershell-checks.ps1
+
 # Everything the merge gate runs.
-check: lint lint-workflows format-check test
+check: lint lint-workflows format-check secrets test ps-check
     @echo ""
     @echo "All checks passed"
 

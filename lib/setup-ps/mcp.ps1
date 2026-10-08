@@ -30,7 +30,7 @@ $script:McpServerKeys = @("brave-search", "tavily")
 
 $script:DopplerProject = if ($env:MCP_DOPPLER_PROJECT) { $env:MCP_DOPPLER_PROJECT } else { "claude-code-config" }
 $script:DopplerConfig = if ($env:MCP_DOPPLER_CONFIG) { $env:MCP_DOPPLER_CONFIG } else { "dev" }
-$script:McpKeysEnvFile = if ($env:MCP_KEYS_ENV_FILE) { $env:MCP_KEYS_ENV_FILE } else { "$env:USERPROFILE\.claude\mcp-keys.env" }
+$script:McpKeysEnvFile = if ($env:MCP_KEYS_ENV_FILE) { $env:MCP_KEYS_ENV_FILE } else { Join-Path (Get-ClaudeConfigDir) "mcp-keys.env" }
 
 # --- Backend Detection ---
 
@@ -40,6 +40,9 @@ function Get-McpBackend {
     Detect whether to use Doppler or envfile backend.
     Returns "doppler" or "envfile".
     #>
+
+    # On 5.1, redirected native stderr is a terminating error under "Stop".
+    $ErrorActionPreference = "Continue"
 
     # Tier 1: Doppler CLI available and project accessible
     $dopplerCmd = Get-Command doppler -ErrorAction SilentlyContinue
@@ -130,14 +133,15 @@ function Install-SingleMcp {
         [string]$Backend
     )
 
-    $server = $script:McpServers[$Key]
-    $package = $server.package
+    # On 5.1, redirected native stderr is a terminating error under "Stop", so
+    # a warning from claude would be reported as a failed install.
+    $ErrorActionPreference = "Continue"
 
     # Remove existing config to re-register with correct backend
-    $claudeJsonPath = "$env:USERPROFILE\.claude.json"
+    $claudeJsonPath = Get-ClaudeJsonPath
     if (Test-Path $claudeJsonPath) {
         try {
-            $claudeJson = Get-Content $claudeJsonPath -Raw | ConvertFrom-Json
+            $claudeJson = Read-Utf8Text $claudeJsonPath | ConvertFrom-Json
             if ($claudeJson.mcpServers.PSObject.Properties[$Key]) {
                 & claude mcp remove $Key --scope user 2>$null
             }
@@ -211,7 +215,7 @@ function Initialize-McpKeysEnv {
         $dir = Split-Path $script:McpKeysEnvFile -Parent
         if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
 
-        [System.IO.File]::WriteAllText($script:McpKeysEnvFile, $envContent, [System.Text.UTF8Encoding]::new($false))
+        Write-Utf8Text -Path $script:McpKeysEnvFile -Content $envContent
         Write-Status ""
         Write-Status "  + $($script:McpKeysEnvFile) created (${keysWritten} keys)" -Color Green
     }
@@ -234,7 +238,7 @@ function Test-McpEnvVar {
     }
 
     if (Test-Path $script:McpKeysEnvFile) {
-        $content = Get-Content $script:McpKeysEnvFile -Raw
+        $content = Read-Utf8Text $script:McpKeysEnvFile
         foreach ($key in $script:InstallMcpServers) {
             $server = $script:McpServers[$key]
             $varName = $server.env_var

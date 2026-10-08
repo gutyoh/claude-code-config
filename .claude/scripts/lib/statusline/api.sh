@@ -12,15 +12,20 @@ get_oauth_token() {
             creds=$(security find-generic-password -s "${KEYCHAIN_SERVICE}" -w 2>/dev/null) || return 1
             ;;
         linux)
+            # Desktop sessions keep the login in the keyring; headless hosts
+            # (servers, containers) have only the credentials file.
             if command -v secret-tool &>/dev/null; then
-                creds=$(secret-tool lookup service "${KEYCHAIN_SERVICE}" 2>/dev/null) || return 1
-            else
-                return 1
+                creds=$(secret-tool lookup service "${KEYCHAIN_SERVICE}" 2>/dev/null) || creds=""
+            fi
+            if [[ -z "${creds}" ]]; then
+                local creds_file="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/.credentials.json"
+                [[ -f "${creds_file}" ]] && creds=$(cat "${creds_file}" 2>/dev/null)
+                debug "get_oauth_token: linux fallback ${creds_file}"
             fi
             ;;
         windows)
-            # Windows: read from ~/.claude/.credentials.json file
-            local creds_file="${HOME}/.claude/.credentials.json"
+            # Windows: read from the credentials file
+            local creds_file="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/.credentials.json"
             if [[ -f "${creds_file}" ]]; then
                 creds=$(cat "${creds_file}" 2>/dev/null)
                 debug "get_oauth_token: read from ${creds_file}"

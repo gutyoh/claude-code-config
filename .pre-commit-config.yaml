@@ -45,6 +45,12 @@ repos:
         pass_filenames: false
         files: '(\.sh$|^bin/)'
 
+      - id: betterleaks
+        name: betterleaks (no secrets in the staged diff)
+        entry: betterleaks git --pre-commit --staged --redact --no-banner .
+        language: system
+        pass_filenames: false
+
       - id: zizmor
         name: zizmor (via just lint-workflows)
         entry: just lint-workflows

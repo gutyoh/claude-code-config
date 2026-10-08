@@ -25,7 +25,7 @@ set -uo pipefail
 # Consume stdin (hook receives tool_input JSON — we don't need it)
 cat >/dev/null
 
-CACHE_DIR="${HOME}/.claude/cache"
+CACHE_DIR="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/cache"
 CACHE_FILE="${CACHE_DIR}/claude-usage.json"
 USAGE_CACHE_TTL="${USAGE_CACHE_TTL:-60}"
 KEYCHAIN_SERVICE="Claude Code-credentials"
@@ -62,15 +62,18 @@ _get_token() {
             creds=$(security find-generic-password -s "${KEYCHAIN_SERVICE}" -w 2>/dev/null) || return 1
             ;;
         Linux)
+            # Keyring first, then the file headless hosts use (same as api.sh).
             if command -v secret-tool &>/dev/null; then
-                creds=$(secret-tool lookup service "${KEYCHAIN_SERVICE}" 2>/dev/null) || return 1
-            else
-                return 1
+                creds=$(secret-tool lookup service "${KEYCHAIN_SERVICE}" 2>/dev/null) || creds=""
+            fi
+            if [[ -z "${creds}" ]]; then
+                local creds_file="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/.credentials.json"
+                [[ -f "${creds_file}" ]] && creds=$(cat "${creds_file}" 2>/dev/null)
             fi
             ;;
         MSYS* | MINGW* | CYGWIN*)
             # Windows: read from credentials file (same as statusline api.sh)
-            local creds_file="${HOME}/.claude/.credentials.json"
+            local creds_file="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/.credentials.json"
             if [[ -f "${creds_file}" ]]; then
                 creds=$(cat "${creds_file}" 2>/dev/null)
             else

@@ -124,16 +124,22 @@ The setup script creates symlinks and **automatically configures MCP servers** i
 ./setup.sh
 ```
 
-**Windows (PowerShell as Administrator):**
+**Windows (Windows PowerShell 5.1 or PowerShell 7, no Administrator needed):**
 
 ```powershell
 .\setup.ps1
 ```
 
+On Windows the hooks and the status line are bash scripts, so they need
+[Git for Windows](https://gitforwindows.org/); `setup.ps1` warns when it is missing.
+Without Developer Mode, Windows does not let a normal user create symlinks, so
+folders are linked as junctions and files are copied, with the copies tracked in
+`.claude-code-config.managed` so reruns refresh and prune them.
+
 The script will:
-- Create `~/.claude/` if it doesn't exist
-- Symlink `skills/`, `agents/`, `hooks/` to your global config
-- Add `bin/` to PATH and install `claude` / `clp` shell shortcuts
+- Create `~/.claude/` (or `$CLAUDE_CONFIG_DIR`) if it doesn't exist
+- Link each skill, agent, hook and script individually, leaving entries other tools installed untouched
+- Add `bin/` to PATH and install `claude` / `clp` shell shortcuts (on Windows, in `$PROFILE.CurrentUserAllHosts`)
 - **Add Brave Search MCP server to user scope** (available in all projects)
 - **Install in parallel for OpenCode** if `opencode` is detected on PATH (translates agents, generates `~/.config/opencode/opencode.json`, symlinks `AGENTS.md`)
 - Check for required environment variables
@@ -1009,7 +1015,7 @@ The main benefit of this repo is **portability**. Here's how to sync your config
 2. Run the setup script:
    ```bash
    ./setup.sh        # macOS/Linux
-   .\setup.ps1       # Windows (as Admin)
+   .\setup.ps1       # Windows
    ```
 
 3. Add MCP servers and environment variables (Steps 3-4 from Global Installation)
@@ -1077,6 +1083,39 @@ When the same item exists at multiple scopes, Claude Code uses this priority:
 
 1. **Project** overrides **User** (for project-specific needs)
 2. **User** provides defaults (for personal preferences)
+
+### Sharing `~/.claude` with other installers
+
+`~/.claude` is not ours alone. Other tools install into it — a remote-session
+manager may add `skills/`, a terminal integration may add a `hooks/` script and
+register it in `settings.json`. So `setup.sh` installs **one symlink per repo
+entry**, never one symlink for a whole directory:
+
+```
+~/.claude/hooks/refresh-usage-cache.sh -> <repo>/.claude/hooks/refresh-usage-cache.sh
+~/.claude/hooks/their-hook.sh              (real file, untouched)
+```
+
+Entries this repo does not ship are left exactly as they are. An entry that
+collides with one of ours is moved aside to a timestamped `.bak.<date>` and
+never deleted. Removing an entry from the repo prunes its link on the next run;
+foreign entries are never pruned.
+
+**Why not one symlink for the directory.** It hides every foreign entry at once,
+and it welds live Claude behaviour to a git working tree: once `~/.claude/hooks`
+*is* the repo directory, another installer's file lands inside the checkout as
+an untracked file, and the next `git switch` deletes it — the hook silently
+stops running, with only a `SessionStart hook error` to show for it.
+
+`setup.sh` migrates that older layout automatically: the directory symlink
+becomes a real directory of per-entry links, and any untracked file found inside
+the repo's `.claude/` tree is moved back out to `~/.claude/` where it belongs.
+
+**Running under a remote session manager.** If one is launching Claude for you,
+it owns its own flags and lifecycle hooks — this repo does not try to reproduce
+them. Install the repo for its agents, skills, hooks, MCP registration, status
+line, and shell tooling; let the session manager keep its own settings entries
+and its own permission mode. Both survive `setup.sh`.
 
 ---
 
@@ -1152,11 +1191,11 @@ git push -u origin hotfix/critical-bug
 
 ## Testing and Portability
 
-> **Platform scope.** The bash installer (`setup.sh`) is the supported path and is exercised on
-> macOS and Linux in CI. The PowerShell installer (`setup.ps1`) still works for the features it
-> shipped with, but predates claude-sync hooks, OpenCode setup, the `claude`/`clp` shortcuts,
-> fish support, XDG paths and login-shell detection, and no CI job runs it. On Windows, prefer
-> `setup.sh` under Git Bash or WSL.
+> **Platform scope.** Both installers are gated in CI. `setup.sh` runs on macOS and Linux;
+> `setup.ps1` runs its analyzer and tests under Windows PowerShell 5.1 and PowerShell 7 on
+> Windows x64 and arm64, macOS and Linux, and a test fails if the two accept different options.
+> fish support and login-shell detection are Unix-only by nature. The hooks and the statusline
+> are bash scripts, so on Windows they need [Git for Windows](https://gitforwindows.org/).
 
 This repo installs onto other people's machines, so nothing shipped may depend on one developer's paths, shell, package manager, or OS version. Two things enforce that: a cross-platform CI matrix, and a set of static portability guards in the test suite.
 
@@ -1167,8 +1206,10 @@ This repo installs onto other people's machines, so nothing shipped may depend o
 | `just unit` | Fast, hermetic — stubbed boundaries, no network | ~20s |
 | `just integration` | Drives real scripts end to end, still offline | ~35s |
 | `just smoke` | Runs `setup.sh` itself against a throwaway `HOME` | ~5s |
-| `just test` | Everything (the merge gate) | ~45s |
-| `just check` | `lint` + `format-check` + `test` | ~50s |
+| `just test` | Every bats lane | ~45s |
+| `just secrets` | betterleaks over the tree and every commit on every ref | ~60s |
+| `just ps-check` | PSScriptAnalyzer + Pester for `setup.ps1` (skips without `pwsh`) | ~30s |
+| `just check` | The merge gate: `lint` + `lint-workflows` + `format-check` + `secrets` + `test` + `ps-check` | ~3m |
 | `just verify-clean-machine` | The whole suite as CI sees it | ~60s |
 
 **Run `just verify-clean-machine` before pushing.** A developer machine lies in

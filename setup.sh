@@ -42,9 +42,36 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 readonly REPO_DIR
-readonly CLAUDE_DIR="${HOME}/.claude"
+
+# Claude Code moves its whole home, .claude.json included, to CLAUDE_CONFIG_DIR
+# when that is set; installing anywhere else leaves that profile unconfigured.
+CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}"
+while [[ "${CLAUDE_DIR}" == */ && "${CLAUDE_DIR}" != "/" ]]; do
+    CLAUDE_DIR="${CLAUDE_DIR%/}"
+done
+readonly CLAUDE_DIR
 readonly SETTINGS_JSON="${CLAUDE_DIR}/settings.json"
-readonly CLAUDE_JSON="${HOME}/.claude.json"
+if [[ -n "${CLAUDE_CONFIG_DIR:-}" ]]; then
+    readonly CLAUDE_JSON="${CLAUDE_DIR}/.claude.json"
+else
+    readonly CLAUDE_JSON="${HOME}/.claude.json"
+fi
+
+# How settings.json commands spell the config dir. The default stays the literal
+# "~/.claude" so existing settings files see no churn, and ~ keeps them portable.
+claude_dir_ref() {
+    if [[ -z "${CLAUDE_CONFIG_DIR:-}" ]]; then
+        # shellcheck disable=SC2088 # Claude Code expands the tilde, not the shell.
+        printf '%s' '~/.claude'
+    elif [[ "${CLAUDE_DIR}" == "${HOME}/"* ]]; then
+        printf '~/%s' "${CLAUDE_DIR#"${HOME}/"}"
+    else
+        printf '%s' "${CLAUDE_DIR}"
+    fi
+}
+CLAUDE_DIR_REF="$(claude_dir_ref)"
+readonly CLAUDE_DIR_REF
+export CLAUDE_DIR_REF
 
 # --- Installation Options (defaults) ---
 
@@ -145,10 +172,10 @@ main() {
     step=$((step + 1))
     mkdir -p "${CLAUDE_DIR}"
 
-    echo "Step ${step}: Creating symlinks..."
+    echo "Step ${step}: Installing managed entries..."
 
-    create_symlink "${REPO_DIR}/.claude/hooks" "${CLAUDE_DIR}/hooks" "hooks"
-    create_symlink "${REPO_DIR}/.claude/scripts" "${CLAUDE_DIR}/scripts" "scripts"
+    install_managed_entries "${REPO_DIR}/.claude/hooks" "${CLAUDE_DIR}/hooks" "hooks"
+    install_managed_entries "${REPO_DIR}/.claude/scripts" "${CLAUDE_DIR}/scripts" "scripts"
 
     # --- Install bin/ utilities to PATH ---
     local bin_dir="${HOME}/.local/bin"
@@ -178,8 +205,8 @@ main() {
     fi
 
     if [[ "${INSTALL_AGENTS_SKILLS}" == "true" ]]; then
-        create_symlink "${REPO_DIR}/.claude/skills" "${CLAUDE_DIR}/skills" "skills"
-        create_symlink "${REPO_DIR}/.claude/agents" "${CLAUDE_DIR}/agents" "agents"
+        install_managed_entries "${REPO_DIR}/.claude/skills" "${CLAUDE_DIR}/skills" "skills"
+        install_managed_entries "${REPO_DIR}/.claude/agents" "${CLAUDE_DIR}/agents" "agents"
     else
         echo "  ⊘ Skipping agents & skills (not selected)"
     fi
@@ -192,7 +219,7 @@ main() {
         echo "Step ${step}: Overwriting settings.json with repo defaults..."
         echo ""
 
-        cp "${REPO_DIR}/.claude/settings.json" "${SETTINGS_JSON}"
+        write_repo_settings "${REPO_DIR}/.claude/settings.json" "${SETTINGS_JSON}"
         echo "  ✓ settings.json replaced with repo defaults"
 
         echo ""
@@ -249,24 +276,8 @@ main() {
         echo ""
 
         if [[ ! -f "${SETTINGS_JSON}" ]]; then
-            echo "  Creating ~/.claude/settings.json with default hooks..."
-            cat >"${SETTINGS_JSON}" <<'EOF'
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "mcp__ide__getDiagnostics",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/open-file-in-ide.sh"
-          }
-        ]
-      }
-    ]
-  }
-}
-EOF
+            echo "  Creating ${CLAUDE_DIR_REF}/settings.json with default hooks..."
+            write_default_settings "${SETTINGS_JSON}"
             echo "  ✓ IDE diagnostics hook configured"
         else
             configure_ide_hook

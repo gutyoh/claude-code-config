@@ -208,30 +208,40 @@ STUB
 # setup.ps1 wiring — Windows install path (bash shim + PS1 companion)
 # ============================================================================
 
+# The companion text lives in lib/setup-ps/settings.ps1; setup.ps1 writes it.
+PS_SETTINGS="$BATS_TEST_DIRNAME/../lib/setup-ps/settings.ps1"
+
 @test "setup.ps1: generates a bash shim for claude-proxy" {
-    grep -q "\$shimPath = \"\$binDir\\\\claude-proxy\"" "$SETUP_PS1"
+    grep -q '$shimPath = Join-Path $binDir "claude-proxy"' "$SETUP_PS1"
     # Bash shim must use exec to re-exec the real script
     grep -q "exec \"\$bashPath\" \"\`\$@\"" "$SETUP_PS1"
     # Must write with LF (CRLF breaks bash shebang parsing on Windows)
-    grep -q "\"\`r\`n\", \"\`n\"" "$SETUP_PS1"
+    grep -q '\-replace "`r`n", "`n"' "$SETUP_PS1"
 }
 
 @test "setup.ps1: generates a PowerShell companion (.ps1)" {
-    grep -q "\$ps1Path = \"\$binDir\\\\claude-proxy.ps1\"" "$SETUP_PS1"
+    grep -q '$ps1Path = Join-Path $binDir "claude-proxy.ps1"' "$SETUP_PS1"
+    grep -q '$ps1Body = Get-ClaudeProxyCompanion' "$SETUP_PS1"
     grep -q "PowerShell companion" "$SETUP_PS1"
 }
 
-@test "setup.ps1: PS1 companion body searches PATH before Git Bash install dirs" {
-    grep -q "Get-Command bash -ErrorAction SilentlyContinue" "$SETUP_PS1"
-    grep -q "ProgramFiles\\\\Git\\\\bin\\\\bash.exe" "$SETUP_PS1"
-    grep -q "ProgramFiles(x86)" "$SETUP_PS1"
-    grep -q "LOCALAPPDATA\\\\Programs\\\\Git\\\\bin\\\\bash.exe" "$SETUP_PS1"
+@test "setup.ps1: PS1 companion prefers Git for Windows bash, and never WSL's" {
+    # WSL's System32\bash.exe sits on PATH but cannot see C:/ paths, so the
+    # Git install dirs come first and a PATH bash under System32 is skipped.
+    local git_line path_line
+    git_line=$(grep -nF '"$env:ProgramFiles\Git\bin\bash.exe"' "$PS_SETTINGS" | head -1 | cut -d: -f1)
+    path_line=$(grep -nF 'Get-Command bash -CommandType Application' "$PS_SETTINGS" | head -1 | cut -d: -f1)
+    [ -n "$git_line" ] && [ -n "$path_line" ]
+    [ "$git_line" -lt "$path_line" ]
+    grep -qF '${env:ProgramFiles(x86)}\Git\bin\bash.exe' "$PS_SETTINGS"
+    grep -qF '$env:LOCALAPPDATA\Programs\Git\bin\bash.exe' "$PS_SETTINGS"
+    grep -qF "Where-Object { \$_.Source -notmatch '[\\\\/]System32[\\\\/]' }" "$PS_SETTINGS"
 }
 
 @test "setup.ps1: PS1 companion errors when bash is unfindable" {
     # Must emit a helpful error + nonzero exit if bash isn't present
-    grep -q "Install Git for Windows" "$SETUP_PS1"
-    grep -q "exit 1" "$SETUP_PS1"
+    grep -q "Install Git for Windows" "$PS_SETTINGS"
+    grep -q "exit 1" "$PS_SETTINGS"
 }
 
 # ============================================================================

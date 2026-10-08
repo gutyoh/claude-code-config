@@ -1,7 +1,7 @@
 # setup.ps1
 # Path: claude-code-config/setup.ps1
 #
-# Creates symlinks from this repo to ~/.claude/ for global Claude Code configuration.
+# Links this repo's entries into the Claude config dir (CLAUDE_CONFIG_DIR, else ~/.claude).
 # Optionally configures MCP servers, agents, and skills in user scope.
 # Run this script from inside the repo directory. Safe to re-run if you move the repo.
 #
@@ -14,9 +14,9 @@
 #   -NoAgents              Skip agents & skills installation
 #   -AgentTeams            Enable agent teams (experimental)
 #   -NoAgentTeams          Disable agent teams
-#   -ProxyPath             Add bin/ to PATH (default)
-#   -NoProxyPath           Skip proxy launcher PATH setup
-#   -Minimal               Core only (no agents, skills, MCP, agent teams, or proxy PATH)
+#   -ProxyPath             Add bin/ to PATH and install claude/clp shortcuts (default)
+#   -NoProxyPath           Skip proxy launcher PATH and shortcut setup
+#   -Minimal               Core only (no agents, skills, MCP, agent teams, proxy PATH, or OpenCode)
 #   -OverwriteSettings     Replace settings.json with repo defaults
 #   -SkipSettings          Don't modify settings.json
 #   -Theme THEME           Statusline color theme (dark|light|colorblind|none)
@@ -30,9 +30,16 @@
 #   -IconStyle STYLE       Icon style (plain|bold|bracketed|rounded|reverse|bold-color|angle|double-bracket)
 #   -WeeklyShowReset       Show weekly reset countdown inline
 #   -NoWeeklyShowReset     Hide weekly reset countdown (default)
+#   -WithOpenCode          Force OpenCode parallel install (default: auto-detect)
+#   -NoOpenCode            Skip OpenCode setup (default: auto-detect)
 #   -Help                  Show this help message
 #
+# setup.sh's --shell has no counterpart: shortcuts there edit a Unix login
+# shell's profile, which Windows does not have.
+#
 # Platforms: Windows (PowerShell 5.1+, PowerShell 7+ recommended)
+
+#Requires -Version 5.1
 
 param(
     [switch]$Yes,
@@ -61,6 +68,8 @@ param(
     [string]$IconStyle,
     [switch]$WeeklyShowReset,
     [switch]$NoWeeklyShowReset,
+    [switch]$WithOpenCode,
+    [switch]$NoOpenCode,
     [Alias("h")]
     [switch]$Help
 )
@@ -70,10 +79,6 @@ $ErrorActionPreference = "Stop"
 # --- Constants ---
 
 $script:RepoDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$script:ClaudeDir = "$env:USERPROFILE\.claude"
-$script:SettingsJson = "$env:USERPROFILE\.claude\settings.json"
-$script:ClaudeJson = "$env:USERPROFILE\.claude.json"
-$script:StatuslineConf = "$env:USERPROFILE\.claude\statusline.conf"
 
 # --- Component Registry ---
 
@@ -121,12 +126,16 @@ $script:StatuslineCcStatusVisibility = "always"
 $script:StatuslineCcStatusColor = "full"
 $script:InstallAgentTeamsFlag = $true
 $script:InstallProxyPath = $true
+$script:InstallOpenCode = "auto"                        # auto | yes | no
 $script:AcceptDefaults = $false
 $script:UserCustomizedStatusline = $false
 
 # --- Source Modules ---
 
-$setupPsDir = Join-Path $script:RepoDir "lib" "setup-ps"
+# Two-argument Join-Path only: the -AdditionalChildPath form needs PowerShell 6+.
+$setupPsDir = Join-Path (Join-Path $script:RepoDir "lib") "setup-ps"
+. (Join-Path $setupPsDir "fileio.ps1")
+. (Join-Path $setupPsDir "paths.ps1")
 . (Join-Path $setupPsDir "output.ps1")
 . (Join-Path $setupPsDir "tui.ps1")
 . (Join-Path $setupPsDir "preview.ps1")
@@ -134,7 +143,16 @@ $setupPsDir = Join-Path $script:RepoDir "lib" "setup-ps"
 . (Join-Path $setupPsDir "settings.ps1")
 . (Join-Path $setupPsDir "statusline-conf.ps1")
 . (Join-Path $setupPsDir "mcp.ps1")
+. (Join-Path $setupPsDir "opencode.ps1")
 . (Join-Path $setupPsDir "menu.ps1")
+
+# --- Paths (CLAUDE_CONFIG_DIR when set, else ~/.claude) ---
+
+$script:ClaudeDir = Get-ClaudeConfigDir
+$script:ClaudeDirRef = Get-ClaudeConfigDirRef
+$script:SettingsJson = Join-Path $script:ClaudeDir "settings.json"
+$script:ClaudeJson = Get-ClaudeJsonPath
+$script:StatuslineConf = Join-Path $script:ClaudeDir "statusline.conf"
 
 # --- Apply CLI Flags ---
 
@@ -143,6 +161,7 @@ if ($Minimal) {
     $script:InstallMcpServers = @()
     $script:InstallAgentTeamsFlag = $false
     $script:InstallProxyPath = $false
+    $script:InstallOpenCode = "no"
 }
 if ($NoAgents) { $script:InstallAgentsSkills = $false }
 if ($NoMcp) { $script:InstallMcpServers = @() }
@@ -184,13 +203,15 @@ if ($Icon) {
 if ($IconStyle) { $script:StatuslineIconStyle = $IconStyle }
 if ($WeeklyShowReset) { $script:StatuslineWeeklyShowReset = $true }
 if ($NoWeeklyShowReset) { $script:StatuslineWeeklyShowReset = $false }
+if ($WithOpenCode) { $script:InstallOpenCode = "yes" }
+if ($NoOpenCode) { $script:InstallOpenCode = "no" }
 
 # --- Help ---
 
 if ($Help) {
     Write-Status "Usage: .\setup.ps1 [options]"
     Write-Status ""
-    Write-Status "Creates symlinks from this repo to ~/.claude/ for global Claude Code configuration."
+    Write-Status "Links this repo's entries into the Claude config dir (CLAUDE_CONFIG_DIR, else ~/.claude)."
     Write-Status ""
     Write-Status "Options:"
     Write-Status "  -Yes                   Accept all defaults without prompting"
@@ -199,9 +220,9 @@ if ($Help) {
     Write-Status "  -NoAgents              Skip agents & skills installation"
     Write-Status "  -AgentTeams            Enable agent teams (experimental)"
     Write-Status "  -NoAgentTeams          Disable agent teams"
-    Write-Status "  -ProxyPath             Add bin/ to PATH (default)"
-    Write-Status "  -NoProxyPath           Skip proxy launcher PATH setup"
-    Write-Status "  -Minimal               Core only (no agents, skills, MCP, agent teams, or proxy PATH)"
+    Write-Status "  -ProxyPath             Add bin/ to PATH and install claude/clp shortcuts (default)"
+    Write-Status "  -NoProxyPath           Skip proxy launcher PATH and shortcut setup"
+    Write-Status "  -Minimal               Core only (no agents, skills, MCP, agent teams, proxy PATH, or OpenCode)"
     Write-Status "  -OverwriteSettings     Replace settings.json with repo defaults"
     Write-Status "  -SkipSettings          Don't modify settings.json"
     Write-Status "  -Theme THEME           Statusline color theme (dark|light|colorblind|none)"
@@ -215,6 +236,8 @@ if ($Help) {
     Write-Status "  -IconStyle STYLE       Icon style (plain|bold|bracketed|rounded|reverse|bold-color|angle|double-bracket)"
     Write-Status "  -WeeklyShowReset       Show weekly reset countdown inline"
     Write-Status "  -NoWeeklyShowReset     Hide weekly reset countdown (default)"
+    Write-Status "  -WithOpenCode          Force OpenCode parallel install (default: auto-detect)"
+    Write-Status "  -NoOpenCode            Skip OpenCode setup (default: auto-detect)"
     Write-Status "  -Help                  Show this help message"
     Write-Status ""
     Write-Status "Available components:"
@@ -233,6 +256,8 @@ if ($Help) {
     Write-Status "  .\setup.ps1 -Yes -Theme colorblind  # Full install with colorblind theme"
     Write-Status "  .\setup.ps1 -Yes -BarStyle block -BarPctInside -Components model,usage,cost"
     Write-Status "  .\setup.ps1 -OverwriteSettings  # Interactive, but force-overwrite settings.json"
+    Write-Status "  .\setup.ps1 -Yes -WithOpenCode  # Also set up OpenCode (skills/agents/MCP)"
+    Write-Status "  .\setup.ps1 -Yes -NoOpenCode    # Skip OpenCode even if detected"
     exit 0
 }
 
@@ -254,6 +279,20 @@ Test-Prerequisite "fd" "fd" $false "optional: for faster file suggestions" | Out
 Test-Prerequisite "fzf" "fzf" $false "optional: for faster file suggestions" | Out-Null
 Test-Prerequisite "ccusage" "ccusage" $false "optional: for statusline billing tracking" | Out-Null
 
+# The hooks and the status line are bash scripts; on Windows Claude Code runs
+# them through Git Bash and falls back to PowerShell, which cannot run them.
+if (Test-WindowsHost) {
+    $gitBash = Find-GitBash
+    if ($gitBash) {
+        Write-Status "  + Git Bash installed (${gitBash})" -Color Green
+    }
+    else {
+        Write-Status "  ! Git for Windows not found: hooks and the status line will not run without it" -Color Yellow
+        Write-Status "    Install with: winget install Git.Git" -Color DarkGray
+        Write-Status "    Or point CLAUDE_CODE_GIT_BASH_PATH at an existing bash.exe" -Color DarkGray
+    }
+}
+
 Write-Status ""
 
 # Create ~/.claude if it doesn't exist
@@ -271,23 +310,24 @@ Write-Status ""
 
 $step = 0
 
-# --- Create symlinks ---
+# --- Install managed entries ---
 $step++
-Write-Status "Step ${step}: Creating symlinks..." -Color Yellow
+Write-Status "Step ${step}: Installing managed entries..." -Color Yellow
 
-Initialize-Symlink -Source "$($script:RepoDir)\.claude\hooks" -Target "$($script:ClaudeDir)\hooks" -Name "hooks"
-Initialize-Symlink -Source "$($script:RepoDir)\.claude\scripts" -Target "$($script:ClaudeDir)\scripts" -Name "scripts"
+$repoClaudeDir = Join-Path $script:RepoDir ".claude"
+Install-ManagedEntry -SourceDir (Join-Path $repoClaudeDir "hooks") -TargetDir (Join-Path $script:ClaudeDir "hooks") -Name "hooks"
+Install-ManagedEntry -SourceDir (Join-Path $repoClaudeDir "scripts") -TargetDir (Join-Path $script:ClaudeDir "scripts") -Name "scripts"
 
 # --- Install bin/ utilities ---
-$binDir = "$env:USERPROFILE\.local\bin"
+$binDir = Join-Path (Join-Path $HOME ".local") "bin"
 if (-not (Test-Path $binDir)) {
     New-Item -ItemType Directory -Path $binDir -Force | Out-Null
 }
 
 foreach ($util in @("mcp-key-rotate", "mcp-env-inject")) {
-    $source = "$($script:RepoDir)\bin\${util}"
+    $source = Join-Path (Join-Path $script:RepoDir "bin") $util
     if (Test-Path $source) {
-        Copy-Item $source "$binDir\${util}" -Force
+        Copy-Item -LiteralPath $source -Destination (Join-Path $binDir $util) -Force
         Write-Status "  + ~/.local/bin/${util} -> ${source}" -Color Green
     }
     else {
@@ -302,58 +342,27 @@ foreach ($util in @("mcp-key-rotate", "mcp-env-inject")) {
 #   2. A PowerShell companion at ~/.local/bin/claude-proxy.ps1 (so native
 #      PowerShell / pwsh users can type `claude-proxy` and have it dispatch
 #      to bash automatically)
-# Neither requires admin — same pattern Scoop uses for its shim system.
-$claudeProxySource = "$($script:RepoDir)\bin\claude-proxy"
+# Neither requires admin -- same pattern Scoop uses for its shim system.
+$claudeProxySource = Join-Path (Join-Path $script:RepoDir "bin") "claude-proxy"
 if (Test-Path $claudeProxySource) {
-    $shimPath = "$binDir\claude-proxy"
+    $shimPath = Join-Path $binDir "claude-proxy"
     # Convert Windows path to the forward-slash form bash accepts
     $bashPath = ($claudeProxySource -replace '\\', '/')
     $shimBody = @"
 #!/usr/bin/env bash
-# Auto-generated by setup.ps1 — do not edit. Rerun setup.ps1 to update.
+# Auto-generated by setup.ps1 -- do not edit. Rerun setup.ps1 to update.
 exec "$bashPath" "`$@"
 "@
-    # LF line endings — bash chokes on CRLF
-    [System.IO.File]::WriteAllText($shimPath, ($shimBody -replace "`r`n", "`n"))
+    # LF line endings -- bash chokes on CRLF
+    Write-Utf8Text -Path $shimPath -Content ($shimBody -replace "`r`n", "`n")
     Write-Status "  + ~/.local/bin/claude-proxy (bash shim -> ${claudeProxySource})" -Color Green
 
-    # PowerShell companion — enables `claude-proxy` from PowerShell itself.
+    # PowerShell companion -- enables `claude-proxy` from PowerShell itself.
     # Locates bash (PATH first, then common Git Bash install dirs) and
     # forwards all args to the bash shim.
-    $ps1Path = "$binDir\claude-proxy.ps1"
-    $ps1Body = @'
-<#
-.SYNOPSIS
-  PowerShell companion shim for claude-proxy. Auto-generated by setup.ps1.
-#>
-[CmdletBinding()]
-param([Parameter(ValueFromRemainingArguments = $true)] $ClaudeProxyArgs)
-
-$bashShim = Join-Path $env:USERPROFILE '.local\bin\claude-proxy'
-if (-not (Test-Path $bashShim)) {
-    Write-Error "claude-proxy bash shim not found at $bashShim. Run setup.ps1 first."
-    exit 1
-}
-
-$bash = (Get-Command bash -ErrorAction SilentlyContinue).Source
-if (-not $bash) {
-    foreach ($p in @(
-        "$env:ProgramFiles\Git\bin\bash.exe",
-        "${env:ProgramFiles(x86)}\Git\bin\bash.exe",
-        "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe"
-    )) {
-        if (Test-Path $p) { $bash = $p; break }
-    }
-}
-if (-not $bash) {
-    Write-Error "bash not found. Install Git for Windows (https://git-scm.com/download/win) or WSL."
-    exit 1
-}
-
-& $bash $bashShim @ClaudeProxyArgs
-exit $LASTEXITCODE
-'@
-    [System.IO.File]::WriteAllText($ps1Path, $ps1Body)
+    $ps1Path = Join-Path $binDir "claude-proxy.ps1"
+    $ps1Body = Get-ClaudeProxyCompanion
+    Write-Utf8Text -Path $ps1Path -Content $ps1Body
     Write-Status "  + ~/.local/bin/claude-proxy.ps1 (PowerShell companion)" -Color Green
 }
 else {
@@ -361,8 +370,8 @@ else {
 }
 
 if ($script:InstallAgentsSkills) {
-    Initialize-Symlink -Source "$($script:RepoDir)\.claude\skills" -Target "$($script:ClaudeDir)\skills" -Name "skills"
-    Initialize-Symlink -Source "$($script:RepoDir)\.claude\agents" -Target "$($script:ClaudeDir)\agents" -Name "agents"
+    Install-ManagedEntry -SourceDir (Join-Path $repoClaudeDir "skills") -TargetDir (Join-Path $script:ClaudeDir "skills") -Name "skills"
+    Install-ManagedEntry -SourceDir (Join-Path $repoClaudeDir "agents") -TargetDir (Join-Path $script:ClaudeDir "agents") -Name "agents"
 }
 else {
     Write-Status "  - Skipping agents & skills (not selected)" -Color DarkGray
@@ -376,7 +385,7 @@ if ($script:SettingsMode -eq "overwrite") {
     Write-Status "Step ${step}: Overwriting settings.json with repo defaults..." -Color Yellow
     Write-Status ""
 
-    Copy-Item "$($script:RepoDir)\.claude\settings.json" $script:SettingsJson -Force
+    Copy-RepoSetting
     Write-Status "  + settings.json replaced with repo defaults" -Color Green
 
     Write-Status ""
@@ -415,7 +424,7 @@ elseif ($script:SettingsMode -eq "merge") {
     Write-Status ""
 
     if (-not (Test-Path $script:SettingsJson)) {
-        Write-Status "  Creating ~/.claude/settings.json with default hooks..."
+        Write-Status "  Creating $($script:ClaudeDirRef)/settings.json with default hooks..."
         $hookConfig = [PSCustomObject]@{
             hooks = [PSCustomObject]@{
                 PreToolUse = @(
@@ -424,14 +433,14 @@ elseif ($script:SettingsMode -eq "merge") {
                         hooks   = @(
                             [PSCustomObject]@{
                                 type    = "command"
-                                command = "~/.claude/hooks/open-file-in-ide.sh"
+                                command = "$($script:ClaudeDirRef)/hooks/open-file-in-ide.sh"
                             }
                         )
                     }
                 )
             }
         }
-        $hookConfig | ConvertTo-Json -Depth 10 | Set-Content $script:SettingsJson -Encoding UTF8
+        Write-JsonFile -Path $script:SettingsJson -InputObject $hookConfig
         Write-Status "  + IDE diagnostics hook configured" -Color Green
     }
     else {
@@ -492,14 +501,20 @@ Write-Status ""
 # --- Configure proxy launcher PATH ---
 if ($script:InstallProxyPath) {
     $step++
-    Write-Status "Step ${step}: Configuring proxy launcher PATH..." -Color Yellow
+    Write-Status "Step ${step}: Configuring proxy launcher PATH and shortcuts..." -Color Yellow
     Write-Status ""
 
     Update-ProxyPath
+    Update-ClaudeShortcut -ProfilePath $PROFILE.CurrentUserAllHosts
+    Write-Status ""
+    Write-Status "  Open a new PowerShell window, then:"
+    Write-Status "    claude --help"
+    Write-Status "    claude -a"
+    Write-Status "    clp -a"
 }
 else {
     $step++
-    Write-Status "Step ${step}: Skipping proxy launcher PATH (not selected)" -Color DarkGray
+    Write-Status "Step ${step}: Skipping proxy launcher PATH and shortcuts (not selected)" -Color DarkGray
 }
 
 Write-Status ""
@@ -526,6 +541,26 @@ else {
 }
 
 Write-Status ""
+
+# --- Configure OpenCode parallel install ---
+$openCodeResolved = $false
+switch ($script:InstallOpenCode) {
+    "yes" { $openCodeResolved = $true }
+    "no" { $openCodeResolved = $false }
+    default { $openCodeResolved = Test-OpenCodeInstalled }
+}
+
+$step++
+if ($openCodeResolved) {
+    Write-Status "Step ${step}: Configuring OpenCode (parallel install)..." -Color Yellow
+    Write-Status ""
+    Install-OpenCode
+}
+else {
+    Write-Status "Step ${step}: Skipping OpenCode setup ($(Get-OpenCodeDetectLabel))" -Color DarkGray
+}
+
+Write-Status ""
 Write-Status "========================================" -Color Cyan
 Write-Status "Setup complete!" -Color Green
 Write-Status "========================================" -Color Cyan
@@ -545,4 +580,13 @@ if ($script:InstallMcpServers.Count -gt 0) {
     Write-Status ""
     Write-Status "To check MCP server status:"
     Write-Status "  claude mcp list"
+}
+
+if ($openCodeResolved) {
+    Write-Status ""
+    Write-Status "OpenCode verify:"
+    Write-Status "  cd ~\some-project"
+    Write-Status "  opencode"
+    Write-Status "  Tab to switch agents -- translated subagents available via @"
+    Write-Status "  Config: $(Get-OpenCodeConfigPath)"
 }

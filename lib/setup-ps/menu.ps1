@@ -24,6 +24,11 @@ function Show-InstallMenu {
     $pctLabel = if ($script:StatuslineBarPctInside) { "yes" } else { "no" }
     $iconLabel = if ($script:StatuslineIcon) { $script:StatuslineIcon } else { "none" }
     $weeklyResetLabel = if ($script:StatuslineWeeklyShowReset) { "yes" } else { "no" }
+    $openCodeLabel = switch ($script:InstallOpenCode) {
+        "yes" { "yes" }
+        "no" { "no" }
+        default { "auto ($(Get-OpenCodeDetectLabel))" }
+    }
 
     $compDisplay = $script:StatuslineComponents -replace ',', ', '
     if ($compDisplay.Length -gt 50) { $compDisplay = $compDisplay.Substring(0, 47) + "..." }
@@ -33,7 +38,8 @@ function Show-InstallMenu {
     Write-Status "  agents & skills:                  ${agentsLabel}"
     Write-Status "  MCP search servers:               ${mcpLabel}"
     Write-Status "  agent teams (experimental):       ${teamsLabel}"
-    Write-Status "  proxy launcher PATH:              ${proxyLabel}"
+    Write-Status "  proxy PATH + claude/clp shortcuts: ${proxyLabel}"
+    Write-Status "  OpenCode parallel install:        ${openCodeLabel}"
     Write-Status "  settings.json:                    ${settingsLabel}"
     Write-Status "  statusline color theme:           $($script:StatuslineTheme)"
     Write-Status "  statusline components:            ${compDisplay}"
@@ -106,8 +112,19 @@ function Invoke-CustomizeInstallation {
 
     # --- Proxy Launcher PATH ---
     $script:InstallProxyPath = Confirm-TuiYesNo `
-        -Question "Add proxy launcher (bin/) to PATH? (enables 'claude-proxy' from anywhere)" `
+        -Question "Add proxy PATH + shortcuts? (claude: bypass available, claude -a/clp -a: bypass now)" `
         -Default $(if ($script:InstallProxyPath) { "yes" } else { "no" })
+
+    # --- OpenCode parallel install ---
+    $openCodeDefault = "no"
+    switch ($script:InstallOpenCode) {
+        "yes" { $openCodeDefault = "yes" }
+        "no" { $openCodeDefault = "no" }
+        default { if (Test-OpenCodeInstalled) { $openCodeDefault = "yes" } }
+    }
+    $openCodeYes = Confirm-TuiYesNo -Question "Set up OpenCode? (mirrors skills/agents/MCP -- $(Get-OpenCodeDetectLabel))" `
+        -Default $openCodeDefault
+    $script:InstallOpenCode = if ($openCodeYes) { "yes" } else { "no" }
 
     # --- Settings mode ---
     $settingsChoice = Select-TuiItem -Header "Settings.json mode:" -Options @(

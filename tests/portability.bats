@@ -103,48 +103,60 @@ all_shipped() {
     }
 }
 
-# --- Private identifiers ----------------------------------------------------
+# --- Personal data -----------------------------------------------------------
 
-# Everything whose text ships or gets copied onto a machine. Wider than
-# `all_shipped` on purpose: a leaked employer name in a doc is still a leak,
-# and docs/ carries runnable scripts as well as prose.
-scannable_files() {
-    git -C "$REPO_ROOT" ls-files -z --cached --others --exclude-standard 2>/dev/null |
+# This repo is public and installed on other people's machines, so it must not
+# carry anyone's identity. These checks name nothing: they fail on the shapes a
+# leak takes, so a fork inherits the protection without a word list.
+tracked_text_files() {
+    git -C "$REPO_ROOT" ls-files -z 2>/dev/null |
         tr '\0' '\n' |
-        grep -vE '^\.idea/|\.lock$|\.png$|\.jpg$|\.gif$|\.ico$' || true
+        grep -vE '\.lock$|\.png$|\.jpg$|\.gif$|\.ico$|\.svg$' || true
 }
 
 # bats test_tags=unit,portability
-@test "no shipped file names a private employer or work account" {
-    # This repo is public and installed on other people's machines. An employer
-    # name or a work address in it is a leak, and a config directory named after
-    # one is also a portability bug: it only resolves on its author's machine.
-    # The repo's own GitHub slug is a different thing and stays.
-    local pattern hits
-    # Built from fragments so this guard does not match itself.
-    pattern="tafi""tech|assa""net"
-    hits="$(cd "$REPO_ROOT" && scannable_files | while read -r f; do
+@test "no tracked file names a real home directory" {
+    local hits
+    hits="$(cd "$REPO_ROOT" && tracked_text_files | while read -r f; do
         [[ -f "$f" ]] || continue
-        grep -nIiE "$pattern" "$f" 2>/dev/null | sed "s|^|$f:|"
+        grep -nIoE '(/Users|/home)/[A-Za-z][A-Za-z0-9_.-]*|[A-Za-z]:\\+Users\\+[A-Za-z][A-Za-z0-9_.-]*' "$f" 2>/dev/null |
+            grep -viE '(/Users|/home|Users\\+)/?(you|user|username|me|runner|runneradmin|linuxbrew|example|shared|public|default)$' |
+            sed "s|^|$f:|"
     done)"
     [ -z "$hits" ] || {
-        echo "Private identifiers found in shipped files:"
+        echo "Home directories of a real account (use you, user or <name>):"
         echo "$hits"
         false
     }
 }
 
 # bats test_tags=unit,portability
-@test "no commit is authored with a work address" {
-    # The repo is published under a personal account; a work address in the
-    # history is not removable after a push without rewriting public history.
-    local pattern hits
-    pattern="tafi""tech|assa""net"
-    hits="$(git -C "$REPO_ROOT" log --all --format='%h %ae %ce' |
-        grep -iE "$pattern" |
-        grep -viE 'liturralde' || true)"
+@test "no tracked file carries a real email address" {
+    local hits
+    hits="$(cd "$REPO_ROOT" && tracked_text_files | while read -r f; do
+        [[ -f "$f" ]] || continue
+        grep -nIoE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' "$f" 2>/dev/null |
+            grep -viE '@(([a-z0-9-]+\.)*example\.(com|org|net)|([a-z0-9-]+\.)*(example|invalid|test|localhost)|ex\.com|email\.com|company\.com|([a-z0-9-]+\.)*mongodb\.net|users\.noreply\.github\.com|github\.com)$' |
+            grep -viE ':noreply@anthropic\.com$' |
+            sed "s|^|$f:|"
+    done)"
     [ -z "$hits" ] || {
-        echo "Commits authored or committed with a work address:"
+        echo "Email addresses outside the placeholder domains:"
+        echo "$hits"
+        false
+    }
+}
+
+# bats test_tags=unit,portability
+@test "no tracked file carries a private or tailnet IPv4 address" {
+    local hits
+    hits="$(cd "$REPO_ROOT" && tracked_text_files | while read -r f; do
+        [[ -f "$f" ]] || continue
+        grep -nIoE '(^|[^0-9.])(10\.[0-9]{1,3}|192\.168|172\.(1[6-9]|2[0-9]|3[01])|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7]))\.[0-9]{1,3}\.[0-9]{1,3}($|[^0-9.])' "$f" 2>/dev/null |
+            sed "s|^|$f:|"
+    done)"
+    [ -z "$hits" ] || {
+        echo "Private addresses locate a real network; use 192.0.2.0/24 (RFC 5737):"
         echo "$hits"
         false
     }

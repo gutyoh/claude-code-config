@@ -1,46 +1,190 @@
-# filesystem.sh -- Symlink creation and prerequisite checking
+# filesystem.sh -- Managed entry installation and prerequisite checking
 # Path: lib/setup/filesystem.sh
 # Sourced by setup.sh — do not execute directly.
 
-create_symlink() {
-    local source="$1"
-    local target="$2"
-    local name="$3"
+# ---------------------------------------------------------------------------
+# Why per-entry links and not one directory symlink
+#
+# This used to be `create_symlink`, which pointed ~/.claude/hooks at
+# <repo>/.claude/hooks — one link for the whole directory. That is hostile to
+# every other tool that installs into ~/.claude. Herdr writes
+# hooks/herdr-agent-state.sh; Orca writes skills/orca-cli and
+# skills/orchestration. A directory-level link makes all of them disappear at
+# once, and the old conflict path moved the real directory to a fixed
+# `<name>.bak` that the next run would `rm -rf`.
+#
+# The subtler damage is that it welds live Claude behaviour to a git working
+# tree. Once ~/.claude/hooks IS the repo directory, a foreign installer's file
+# lands inside the checkout as an untracked file, and the next `git switch`
+# deletes it — which is exactly how the Herdr SessionStart hook broke.
+#
+# So: one symlink per repo entry, foreign entries left strictly alone, and a
+# migration that lifts foreign files back out of the working tree.
+# ---------------------------------------------------------------------------
 
-    local claude_real
-    claude_real=$(cd "${CLAUDE_DIR}" && pwd -P)
-    local repo_claude_real
-    repo_claude_real=$(cd "${REPO_DIR}/.claude" && pwd -P)
+# 0 if $1 is a symlink resolving into directory $2 — i.e. one of ours.
+_is_managed_link() {
+    local link="$1" dir="$2" dest
+    [[ -L "${link}" ]] || return 1
+    dest=$(readlink "${link}")
+    [[ "${dest}" == "${dir}/"* ]]
+}
 
-    if [[ "${claude_real}" == "${repo_claude_real}" ]]; then
-        echo "  ✓ ~/.claude/${name} (same as repo, no symlink needed)"
+_repo_is_git() {
+    command -v git >/dev/null 2>&1 \
+        && git -C "${REPO_DIR}" rev-parse --git-dir >/dev/null 2>&1
+}
+
+_repo_tracks() {
+    git -C "${REPO_DIR}" ls-files --error-unmatch -- "$1" >/dev/null 2>&1
+}
+
+_timestamped_backup() {
+    local path="$1" backup
+    backup="${path}.bak.$(date +%Y%m%d-%H%M%S)"
+    # Never clobber: if a backup from this same second exists, add a counter.
+    local n=1
+    while [[ -e "${backup}" ]]; do
+        backup="${path}.bak.$(date +%Y%m%d-%H%M%S).${n}"
+        n=$((n + 1))
+    done
+    mv "${path}" "${backup}"
+    printf '%s' "$(basename "${backup}")"
+}
+
+# Convert a legacy whole-directory symlink into a real directory, rescuing any
+# foreign files that were written into the repo through it.
+_migrate_directory_symlink() {
+    local source_dir="$1" target_dir="$2" name="$3"
+    local dest dest_real source_real
+    dest=$(readlink "${target_dir}")
+    dest_real=$(cd "${target_dir}" 2>/dev/null && pwd -P) || dest_real=""
+    source_real=$(cd "${source_dir}" && pwd -P)
+
+    # A second profile can link to the first profile's directory, which links
+    # to the repo. That chain is ours too, but its untracked files are seen by
+    # the first profile, so they stay put until that profile is installed.
+    if [[ "${dest}" != "${source_dir}" && -n "${dest_real}" && "${dest_real}" == "${source_real}" ]]; then
+        rm -f "${target_dir}"
+        mkdir -p "${target_dir}"
+        echo "  ⚠ ${CLAUDE_DIR_REF:-~/.claude}/${name} linked to the repo through ${dest} — converting to per-entry links"
         return 0
     fi
 
-    if [[ -L "${target}" ]]; then
-        local current_target
-        current_target=$(readlink "${target}")
-        if [[ "${current_target}" == "${source}" ]]; then
-            echo "  ✓ ~/.claude/${name} -> ${source} (already configured)"
-            return 0
-        fi
-        # Existing symlink points elsewhere — safe to replace
-        rm -f "${target}"
-    elif [[ -d "${target}" ]]; then
-        # Real directory exists — back it up before replacing with symlink
-        local backup="${target}.bak"
-        if [[ -e "${backup}" ]]; then
-            rm -rf "${backup}"
-        fi
-        mv "${target}" "${backup}"
-        echo "  ⚠ ~/.claude/${name} was a directory — backed up to ${name}.bak"
-    elif [[ -e "${target}" ]]; then
-        # Regular file — remove it
-        rm -f "${target}"
+    if [[ "${dest}" != "${source_dir}" ]]; then
+        # Points somewhere that is not this repo. Not ours to take apart.
+        local moved
+        moved=$(_timestamped_backup "${target_dir}")
+        echo "  ⚠ ${CLAUDE_DIR_REF:-~/.claude}/${name} pointed at ${dest} — link kept as ${moved}"
+        mkdir -p "${target_dir}"
+        return 0
     fi
 
-    ln -s "${source}" "${target}"
-    echo "  ✓ ~/.claude/${name} -> ${source}"
+    rm -f "${target_dir}"
+    mkdir -p "${target_dir}"
+    echo "  ⚠ ${CLAUDE_DIR_REF:-~/.claude}/${name} was a whole-directory symlink — converting to per-entry links"
+
+    # Anything git does not track was written into the working tree by a
+    # foreign installer through the link we just removed. Move it back out, or
+    # the next branch switch deletes someone else's working hook.
+    _repo_is_git || return 0
+
+    local entry base
+    shopt -s nullglob
+    for entry in "${source_dir}"/*; do
+        base=$(basename "${entry}")
+        _repo_tracks "${entry}" && continue
+        mv "${entry}" "${target_dir}/${base}"
+        echo "    ↩ rescued ${name}/${base} out of the repo working tree"
+    done
+    shopt -u nullglob
+}
+
+install_managed_entries() {
+    local source_dir="$1"
+    local target_dir="$2"
+    local name="$3"
+
+    if [[ ! -d "${source_dir}" ]]; then
+        echo "  ⊘ ${CLAUDE_DIR_REF:-~/.claude}/${name} — repo has no .claude/${name}, skipping"
+        return 0
+    fi
+
+    local claude_real repo_claude_real
+    claude_real=$(cd "${CLAUDE_DIR}" && pwd -P)
+    repo_claude_real=$(cd "${REPO_DIR}/.claude" && pwd -P)
+    if [[ "${claude_real}" == "${repo_claude_real}" ]]; then
+        echo "  ✓ ${CLAUDE_DIR_REF:-~/.claude}/${name} (same as repo, no install needed)"
+        return 0
+    fi
+
+    if [[ -L "${target_dir}" ]]; then
+        _migrate_directory_symlink "${source_dir}" "${target_dir}" "${name}"
+    elif [[ -e "${target_dir}" && ! -d "${target_dir}" ]]; then
+        local moved
+        moved=$(_timestamped_backup "${target_dir}")
+        echo "  ⚠ ${CLAUDE_DIR_REF:-~/.claude}/${name} was a file — kept as ${moved}"
+    fi
+
+    mkdir -p "${target_dir}"
+
+    local linked=0 replaced=0 skipped=0
+    local entry base target moved
+
+    shopt -s nullglob
+    for entry in "${source_dir}"/*; do
+        base=$(basename "${entry}")
+        [[ "${base}" == ".DS_Store" ]] && continue
+        target="${target_dir}/${base}"
+
+        if [[ -L "${target}" ]]; then
+            if [[ "$(readlink "${target}")" == "${entry}" ]]; then
+                linked=$((linked + 1))
+                continue
+            fi
+            if _is_managed_link "${target}" "${source_dir}"; then
+                rm -f "${target}" # stale link of ours — refresh it
+            else
+                echo "  ⊘ ${CLAUDE_DIR_REF:-~/.claude}/${name}/${base} — foreign symlink, left as-is"
+                skipped=$((skipped + 1))
+                continue
+            fi
+        elif [[ -e "${target}" ]]; then
+            moved=$(_timestamped_backup "${target}")
+            echo "  ⚠ ${CLAUDE_DIR_REF:-~/.claude}/${name}/${base} existed — kept as ${moved}"
+            replaced=$((replaced + 1))
+        fi
+
+        ln -s "${entry}" "${target}"
+        linked=$((linked + 1))
+    done
+
+    # Drop links of ours whose repo entry has since been deleted or renamed.
+    # `-e` follows the link, so a dangling one fails it.
+    local pruned=0
+    for target in "${target_dir}"/*; do
+        _is_managed_link "${target}" "${source_dir}" || continue
+        [[ -e "${target}" ]] && continue
+        rm -f "${target}"
+        pruned=$((pruned + 1))
+    done
+
+    # Everything left that is not one of ours belongs to another installer.
+    local foreign=0
+    for target in "${target_dir}"/*; do
+        _is_managed_link "${target}" "${source_dir}" && continue
+        foreign=$((foreign + 1))
+    done
+    shopt -u nullglob
+
+    # Built with `if`, not `((n > 0)) &&` — a false arithmetic test returns
+    # non-zero, and as a bare statement under `set -e` that aborts the install.
+    local summary="${linked} linked"
+    if [[ ${replaced} -gt 0 ]]; then summary="${summary}, ${replaced} replaced"; fi
+    if [[ ${pruned} -gt 0 ]]; then summary="${summary}, ${pruned} pruned"; fi
+    if [[ ${skipped} -gt 0 ]]; then summary="${summary}, ${skipped} skipped"; fi
+    if [[ ${foreign} -gt 0 ]]; then summary="${summary}, ${foreign} left untouched"; fi
+    echo "  ✓ ${CLAUDE_DIR_REF:-~/.claude}/${name}: ${summary}"
 }
 
 check_prerequisite() {
