@@ -1,7 +1,7 @@
 # setup.ps1
 # Path: claude-code-config/setup.ps1
 #
-# Creates symlinks from this repo to ~/.claude/ for global Claude Code configuration.
+# Links this repo's entries into the Claude config dir (CLAUDE_CONFIG_DIR, else ~/.claude).
 # Optionally configures MCP servers, agents, and skills in user scope.
 # Run this script from inside the repo directory. Safe to re-run if you move the repo.
 #
@@ -211,7 +211,7 @@ if ($NoOpenCode) { $script:InstallOpenCode = "no" }
 if ($Help) {
     Write-Status "Usage: .\setup.ps1 [options]"
     Write-Status ""
-    Write-Status "Creates symlinks from this repo to ~/.claude/ for global Claude Code configuration."
+    Write-Status "Links this repo's entries into the Claude config dir (CLAUDE_CONFIG_DIR, else ~/.claude)."
     Write-Status ""
     Write-Status "Options:"
     Write-Status "  -Yes                   Accept all defaults without prompting"

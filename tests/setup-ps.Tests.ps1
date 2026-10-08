@@ -1569,6 +1569,39 @@ Describe "Module files exist" {
     }
 }
 
+Describe "setup.ps1 -Help" {
+    BeforeAll {
+        $script:SetupScript = Join-Path $repoRoot "setup.ps1"
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($script:SetupScript, [ref]$null, [ref]$null)
+        $script:SetupParams = @($ast.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
+        $script:HelpConfigDir = Join-Path $TestDrive "help-config"
+        $savedConfigDir = $env:CLAUDE_CONFIG_DIR
+        try {
+            $env:CLAUDE_CONFIG_DIR = $script:HelpConfigDir
+            $hostExe = (Get-Process -Id $PID).Path
+            $script:HelpOutput = (& $hostExe -NoProfile -NonInteractive -File $script:SetupScript -Help 2>&1) -join "`n"
+            $script:HelpExit = $LASTEXITCODE
+        }
+        finally {
+            $env:CLAUDE_CONFIG_DIR = $savedConfigDir
+        }
+    }
+
+    It "exits 0 on this platform" {
+        $script:HelpExit | Should -Be 0
+    }
+
+    It "documents every parameter" {
+        $script:SetupParams.Count | Should -BeGreaterThan 20
+        $missing = $script:SetupParams | Where-Object { $script:HelpOutput -notmatch "(?m)^\s+-$_\b" }
+        $missing | Should -BeNullOrEmpty
+    }
+
+    It "changes nothing on disk" {
+        Test-Path -LiteralPath $script:HelpConfigDir | Should -BeFalse
+    }
+}
+
 Describe "setup.ps1 exists" {
     It "entry point script exists" {
         Test-Path (Join-Path $repoRoot "setup.ps1") | Should -BeTrue
