@@ -460,6 +460,38 @@ function Install-ManagedEntry {
     Write-Status "  + ${label}: ${summary}" -Color Green
 }
 
+function Find-GitBash {
+    <#
+    .SYNOPSIS
+    Path to Git for Windows' bash.exe, or $null. Claude Code runs hooks and the
+    status line through it; WSL's System32\bash.exe is a different bash.
+    #>
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if ($env:CLAUDE_CODE_GIT_BASH_PATH) { $candidates.Add($env:CLAUDE_CODE_GIT_BASH_PATH) }
+
+    # <Git>\cmd\git.exe and <Git>\bin\git.exe both sit beside <Git>\bin\bash.exe.
+    $git = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($git -and $git.Source) {
+        $gitRoot = Split-Path -Parent (Split-Path -Parent $git.Source)
+        if ($gitRoot) { $candidates.Add((Join-Path (Join-Path $gitRoot "bin") "bash.exe")) }
+    }
+    foreach ($root in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+        if ($root) { $candidates.Add((Join-Path (Join-Path (Join-Path $root "Git") "bin") "bash.exe")) }
+    }
+    if ($env:LOCALAPPDATA) {
+        $candidates.Add((Join-Path (Join-Path (Join-Path (Join-Path $env:LOCALAPPDATA "Programs") "Git") "bin") "bash.exe"))
+    }
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
+    }
+
+    $onPath = Get-Command bash -CommandType Application -ErrorAction SilentlyContinue |
+        Where-Object { $_.Source -notmatch '[\\/]System32[\\/]' } | Select-Object -First 1
+    if ($onPath) { return $onPath.Source }
+    return $null
+}
+
 function Test-Prerequisite {
     <#
     .SYNOPSIS

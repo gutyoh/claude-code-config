@@ -633,6 +633,44 @@ Describe "Link helpers" {
     }
 }
 
+Describe "Find-GitBash" {
+    BeforeEach {
+        $script:SavedGitBash = $env:CLAUDE_CODE_GIT_BASH_PATH
+    }
+
+    AfterEach {
+        $env:CLAUDE_CODE_GIT_BASH_PATH = $script:SavedGitBash
+    }
+
+    It "prefers CLAUDE_CODE_GIT_BASH_PATH when it exists" {
+        $fake = Join-Path $TestDrive "custom-bash.exe"
+        Write-Utf8Text -Path $fake -Content ""
+        $env:CLAUDE_CODE_GIT_BASH_PATH = $fake
+        Find-GitBash | Should -Be $fake
+    }
+
+    It "ignores a CLAUDE_CODE_GIT_BASH_PATH that does not exist" {
+        $env:CLAUDE_CODE_GIT_BASH_PATH = Join-Path $TestDrive "missing-bash.exe"
+        Find-GitBash | Should -Not -Be (Join-Path $TestDrive "missing-bash.exe")
+    }
+
+    It "finds bash.exe beside the git on PATH" {
+        $env:CLAUDE_CODE_GIT_BASH_PATH = ""
+        $gitRoot = Join-Path $TestDrive "PortableGit"
+        New-Item -ItemType Directory -Path (Join-Path $gitRoot "cmd"), (Join-Path $gitRoot "bin") -Force | Out-Null
+        Write-Utf8Text -Path (Join-Path (Join-Path $gitRoot "bin") "bash.exe") -Content ""
+        Mock Get-Command { [PSCustomObject]@{ Source = (Join-Path (Join-Path $gitRoot "cmd") "git.exe") } } -ParameterFilter { $Name -eq "git" }
+        Find-GitBash | Should -Be (Join-Path (Join-Path $gitRoot "bin") "bash.exe")
+    }
+
+    It "never returns WSL's System32 bash" {
+        $env:CLAUDE_CODE_GIT_BASH_PATH = ""
+        Mock Get-Command { $null } -ParameterFilter { $Name -eq "git" }
+        Mock Get-Command { [PSCustomObject]@{ Source = "C:\Windows\System32\bash.exe" } } -ParameterFilter { $Name -eq "bash" }
+        Find-GitBash | Should -Not -Match "System32"
+    }
+}
+
 Describe "Get-UpdatedUserPath" {
     It "prepends the directory" {
         Get-UpdatedUserPath -CurrentPath "C:\a;C:\b" -Directory "C:\repo\bin" -Separator ";" |

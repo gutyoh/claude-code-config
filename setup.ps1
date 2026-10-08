@@ -279,6 +279,20 @@ Test-Prerequisite "fd" "fd" $false "optional: for faster file suggestions" | Out
 Test-Prerequisite "fzf" "fzf" $false "optional: for faster file suggestions" | Out-Null
 Test-Prerequisite "ccusage" "ccusage" $false "optional: for statusline billing tracking" | Out-Null
 
+# The hooks and the status line are bash scripts; on Windows Claude Code runs
+# them through Git Bash and falls back to PowerShell, which cannot run them.
+if (Test-WindowsHost) {
+    $gitBash = Find-GitBash
+    if ($gitBash) {
+        Write-Status "  + Git Bash installed (${gitBash})" -Color Green
+    }
+    else {
+        Write-Status "  ! Git for Windows not found: hooks and the status line will not run without it" -Color Yellow
+        Write-Status "    Install with: winget install Git.Git" -Color DarkGray
+        Write-Status "    Or point CLAUDE_CODE_GIT_BASH_PATH at an existing bash.exe" -Color DarkGray
+    }
+}
+
 Write-Status ""
 
 # Create ~/.claude if it doesn't exist
