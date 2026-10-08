@@ -713,6 +713,140 @@ Describe "claude-proxy PowerShell companion" {
     }
 }
 
+Describe "Update-ClaudeShortcut" {
+    BeforeEach {
+        $script:ProfileFile = Join-Path (Join-Path $TestDrive ("profile-" + [guid]::NewGuid().ToString("N"))) "profile.ps1"
+        $script:Messages = New-Object System.Collections.Generic.List[string]
+        Mock Write-Status { $script:Messages.Add($Message) }
+        $script:Begin = "# claude-code-config: claude launch shortcuts"
+        $script:End = "# claude-code-config: end claude launch shortcuts"
+    }
+
+    It "creates the profile with claude and clp between the markers" {
+        Update-ClaudeShortcut -ProfilePath $script:ProfileFile
+        $text = Read-Utf8Text $script:ProfileFile
+        ([regex]::Matches($text, [regex]::Escape($script:Begin))).Count | Should -Be 1
+        ([regex]::Matches($text, [regex]::Escape($script:End))).Count | Should -Be 1
+        $text | Should -Match "function claude \{"
+        $text | Should -Match "function clp \{"
+    }
+
+    It "is byte-identical across reruns" {
+        Update-ClaudeShortcut -ProfilePath $script:ProfileFile
+        $first = [System.IO.File]::ReadAllBytes($script:ProfileFile)
+        Update-ClaudeShortcut -ProfilePath $script:ProfileFile
+        Update-ClaudeShortcut -ProfilePath $script:ProfileFile
+        [System.IO.File]::ReadAllBytes($script:ProfileFile) | Should -Be $first
+    }
+
+    It "keeps unrelated content around an earlier block and moves the block to the end" {
+        $dir = Split-Path -Parent $script:ProfileFile
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        Write-Utf8Text -Path $script:ProfileFile -Content ("Set-Alias ll Get-ChildItem`n`n" + $script:Begin + "`nold block`n" + $script:End + "`n`$env:EDITOR = 'code'`n")
+        Update-ClaudeShortcut -ProfilePath $script:ProfileFile
+        $text = Read-Utf8Text $script:ProfileFile
+        $text | Should -Match "Set-Alias ll Get-ChildItem"
+        $text | Should -Match ([regex]::Escape("`$env:EDITOR = 'code'"))
+        $text | Should -Not -Match "old block"
+        ([regex]::Matches($text, [regex]::Escape($script:Begin))).Count | Should -Be 1
+        $text.IndexOf("EDITOR") | Should -BeLessThan $text.IndexOf($script:Begin)
+    }
+
+    It "refuses to rewrite a begin marker without an end marker and backs the profile up" {
+        $dir = Split-Path -Parent $script:ProfileFile
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $original = "keep me`n" + $script:Begin + "`nstale`n`$env:IMPORTANT = 1`n"
+        Write-Utf8Text -Path $script:ProfileFile -Content $original
+        Update-ClaudeShortcut -ProfilePath $script:ProfileFile
+        Read-Utf8Text $script:ProfileFile | Should -BeExactly $original
+        Read-Utf8Text "$($script:ProfileFile).claude-code-config.bak" | Should -BeExactly $original
+        ($script:Messages -join "`n") | Should -Match "Refusing to rewrite"
+    }
+
+    It "keeps a CRLF profile CRLF and leaves non-UTF-8 bytes alone" {
+        $dir = Split-Path -Parent $script:ProfileFile
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        # "Write-Host 'cafe'" with a Windows-1252 e-acute, as an ANSI-saved profile has.
+        $original = [byte[]](@([System.Text.Encoding]::ASCII.GetBytes("Write-Host 'caf")) + 0xE9 + @([System.Text.Encoding]::ASCII.GetBytes("'`r`n")))
+        [System.IO.File]::WriteAllBytes($script:ProfileFile, $original)
+        Update-ClaudeShortcut -ProfilePath $script:ProfileFile
+        $after = [System.IO.File]::ReadAllBytes($script:ProfileFile)
+        $after[0..($original.Length - 1)] | Should -Be $original
+        $latin1 = [System.Text.Encoding]::GetEncoding(28591).GetString($after)
+        $latin1 -replace "`r`n", "" | Should -Not -Match "`n"
+    }
+
+    It "writes through a symlinked profile instead of replacing the link" {
+        $real = Join-Path $TestDrive ("real-profile-" + [guid]::NewGuid().ToString("N") + ".ps1")
+        Write-Utf8Text -Path $real -Content "# mine`n"
+        $dir = Split-Path -Parent $script:ProfileFile
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        New-Item -ItemType SymbolicLink -Path $script:ProfileFile -Target $real | Out-Null
+        Update-ClaudeShortcut -ProfilePath $script:ProfileFile
+        Test-LinkItem (Get-EntryItem $script:ProfileFile) | Should -BeTrue
+        Read-Utf8Text $real | Should -Match ([regex]::Escape($script:Begin))
+    }
+
+    Context "the generated functions" {
+        BeforeAll {
+            $script:FakeClaudeDir = Join-Path $TestDrive "fake-claude-bin"
+            New-Item -ItemType Directory -Path $script:FakeClaudeDir -Force | Out-Null
+            if (Test-WindowsHost) {
+                Write-Utf8Text -Path (Join-Path $script:FakeClaudeDir "claude.cmd") -Content "@echo %*`r`n"
+            }
+            else {
+                $fake = Join-Path $script:FakeClaudeDir "claude"
+                Write-Utf8Text -Path $fake -Content "#!/bin/sh`nprintf '%s ' `"`$@`"`necho`n"
+                & chmod +x $fake
+            }
+            $script:SavedPath = $env:PATH
+            $env:PATH = $script:FakeClaudeDir + [System.IO.Path]::PathSeparator + $env:PATH
+        }
+
+        AfterAll {
+            $env:PATH = $script:SavedPath
+        }
+
+        It "claude -a bypasses now and plain claude only offers bypass" {
+            . ([scriptblock]::Create((Get-ClaudeShortcutBlock)))
+            ((claude -a foo bar) -join " ").Trim() | Should -Be "--dangerously-skip-permissions foo bar"
+            ((claude --unsafe x) -join " ").Trim() | Should -Be "--dangerously-skip-permissions x"
+            ((claude baz) -join " ").Trim() | Should -Be "--allow-dangerously-skip-permissions baz"
+            ((claude -A baz) -join " ").Trim() | Should -Be "--allow-dangerously-skip-permissions -A baz"
+        }
+
+        It "clp overrides the built-in clp alias (Clear-ItemProperty)" {
+            . ([scriptblock]::Create((Get-ClaudeShortcutBlock)))
+            (Get-Command clp).CommandType | Should -Be "Function"
+        }
+
+        # Skipped where a real companion is installed: clp would call it.
+        It "clp passes the model and a literal -- to claude-proxy" -Skip:(Test-Path -LiteralPath (Join-Path (Join-Path (Join-Path $HOME ".local") "bin") "claude-proxy.ps1")) {
+            . ([scriptblock]::Create((Get-ClaudeShortcutBlock)))
+            # Defined through the provider: the stand-in needs claude-proxy's name.
+            New-Item -Path Function:\claude-proxy -Value { $script:ProxyArgs = @($args) } -Force | Out-Null
+            # Called by name at runtime, the way a user types it.
+            $clpName = "clp"
+            $savedModel = $env:CLAUDE_PROXY_MODEL
+            try {
+                $env:CLAUDE_PROXY_MODEL = ""
+                & $clpName -a hi
+                $script:ProxyArgs | Should -Be @("--no-validate", "-m", "gpt-5.5(high)", "--", "--dangerously-skip-permissions", "hi")
+                $env:CLAUDE_PROXY_MODEL = "other-model"
+                & $clpName there
+                $script:ProxyArgs | Should -Be @("--no-validate", "-m", "other-model", "--", "--allow-dangerously-skip-permissions", "there")
+            }
+            finally {
+                $env:CLAUDE_PROXY_MODEL = $savedModel
+            }
+        }
+
+        It "the block is ASCII-only" {
+            @([System.Text.Encoding]::UTF8.GetBytes((Get-ClaudeShortcutBlock)) | Where-Object { $_ -gt 0x7F }).Count | Should -Be 0
+        }
+    }
+}
+
 Describe "Get-UpdatedUserPath" {
     It "prepends the directory" {
         Get-UpdatedUserPath -CurrentPath "C:\a;C:\b" -Directory "C:\repo\bin" -Separator ";" |

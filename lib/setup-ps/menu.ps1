@@ -38,7 +38,7 @@ function Show-InstallMenu {
     Write-Status "  agents & skills:                  ${agentsLabel}"
     Write-Status "  MCP search servers:               ${mcpLabel}"
     Write-Status "  agent teams (experimental):       ${teamsLabel}"
-    Write-Status "  proxy launcher PATH:              ${proxyLabel}"
+    Write-Status "  proxy PATH + claude/clp shortcuts: ${proxyLabel}"
     Write-Status "  OpenCode parallel install:        ${openCodeLabel}"
     Write-Status "  settings.json:                    ${settingsLabel}"
     Write-Status "  statusline color theme:           $($script:StatuslineTheme)"
@@ -112,7 +112,7 @@ function Invoke-CustomizeInstallation {
 
     # --- Proxy Launcher PATH ---
     $script:InstallProxyPath = Confirm-TuiYesNo `
-        -Question "Add proxy launcher (bin/) to PATH? (enables 'claude-proxy' from anywhere)" `
+        -Question "Add proxy PATH + shortcuts? (claude: bypass available, claude -a/clp -a: bypass now)" `
         -Default $(if ($script:InstallProxyPath) { "yes" } else { "no" })
 
     # --- OpenCode parallel install ---

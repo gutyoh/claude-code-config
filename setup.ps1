@@ -14,8 +14,8 @@
 #   -NoAgents              Skip agents & skills installation
 #   -AgentTeams            Enable agent teams (experimental)
 #   -NoAgentTeams          Disable agent teams
-#   -ProxyPath             Add bin/ to PATH (default)
-#   -NoProxyPath           Skip proxy launcher PATH setup
+#   -ProxyPath             Add bin/ to PATH and install claude/clp shortcuts (default)
+#   -NoProxyPath           Skip proxy launcher PATH and shortcut setup
 #   -Minimal               Core only (no agents, skills, MCP, agent teams, proxy PATH, or OpenCode)
 #   -OverwriteSettings     Replace settings.json with repo defaults
 #   -SkipSettings          Don't modify settings.json
@@ -220,8 +220,8 @@ if ($Help) {
     Write-Status "  -NoAgents              Skip agents & skills installation"
     Write-Status "  -AgentTeams            Enable agent teams (experimental)"
     Write-Status "  -NoAgentTeams          Disable agent teams"
-    Write-Status "  -ProxyPath             Add bin/ to PATH (default)"
-    Write-Status "  -NoProxyPath           Skip proxy launcher PATH setup"
+    Write-Status "  -ProxyPath             Add bin/ to PATH and install claude/clp shortcuts (default)"
+    Write-Status "  -NoProxyPath           Skip proxy launcher PATH and shortcut setup"
     Write-Status "  -Minimal               Core only (no agents, skills, MCP, agent teams, proxy PATH, or OpenCode)"
     Write-Status "  -OverwriteSettings     Replace settings.json with repo defaults"
     Write-Status "  -SkipSettings          Don't modify settings.json"
@@ -501,14 +501,20 @@ Write-Status ""
 # --- Configure proxy launcher PATH ---
 if ($script:InstallProxyPath) {
     $step++
-    Write-Status "Step ${step}: Configuring proxy launcher PATH..." -Color Yellow
+    Write-Status "Step ${step}: Configuring proxy launcher PATH and shortcuts..." -Color Yellow
     Write-Status ""
 
     Update-ProxyPath
+    Update-ClaudeShortcut -ProfilePath $PROFILE.CurrentUserAllHosts
+    Write-Status ""
+    Write-Status "  Open a new PowerShell window, then:"
+    Write-Status "    claude --help"
+    Write-Status "    claude -a"
+    Write-Status "    clp -a"
 }
 else {
     $step++
-    Write-Status "Step ${step}: Skipping proxy launcher PATH (not selected)" -Color DarkGray
+    Write-Status "Step ${step}: Skipping proxy launcher PATH and shortcuts (not selected)" -Color DarkGray
 }
 
 Write-Status ""
