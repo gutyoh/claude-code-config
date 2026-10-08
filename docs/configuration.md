@@ -14,6 +14,10 @@ All configuration surfaces, settings, environment variables, and CLI flags.
 | `.mcp.json` | Project | Project-scoped MCP servers |
 | `~/.claude/mcp-keys.env` | User (gitignored) | MCP API keys for envfile backend |
 
+Every `~/.claude` path above moves to `$CLAUDE_CONFIG_DIR` when that variable is
+set, and `~/.claude.json` becomes `$CLAUDE_CONFIG_DIR/.claude.json`, which is
+what Claude Code itself does. See [A second profile](#a-second-profile).
+
 ## settings.json
 
 ### hooks
@@ -101,6 +105,21 @@ Both use `${VAR}` syntax for runtime environment variable expansion.
 | `MCP_KEY_ROTATE_CACHE_TTL` | `300` | Cache TTL in seconds for quota checks |
 | `CODEX_TOKEN_MAX_AGE_HOURS` | `48` | Max age for Codex auth token before warning |
 | `HOOK_STALE_THRESHOLD` | `300` | Seconds before hook cache data is marked stale |
+| `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude Code's config dir; setup, the statusline, the hooks and the MCP key tools follow it |
+| `MCP_KEYS_ENV_FILE` | `<config dir>/mcp-keys.env` | Where `mcp-env-inject` and `mcp-key-rotate` read MCP keys |
+
+### A second profile
+
+Claude Code reads everything from `CLAUDE_CONFIG_DIR` when it is set, so one
+machine can keep two independent profiles (for example, two accounts). Install
+into each one by running setup with that variable exported:
+
+```bash
+CLAUDE_CONFIG_DIR=~/.claude-work ./setup.sh
+```
+
+Commands in that profile's `settings.json` then read `~/.claude-work/...`.
+Without the variable they keep the literal `~/.claude/...`, exactly as before.
 
 ## setup.sh CLI flags
 

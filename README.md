@@ -124,16 +124,22 @@ The setup script creates symlinks and **automatically configures MCP servers** i
 ./setup.sh
 ```
 
-**Windows (PowerShell as Administrator):**
+**Windows (Windows PowerShell 5.1 or PowerShell 7, no Administrator needed):**
 
 ```powershell
 .\setup.ps1
 ```
 
+On Windows the hooks and the status line are bash scripts, so they need
+[Git for Windows](https://gitforwindows.org/); `setup.ps1` warns when it is missing.
+Without Developer Mode, Windows does not let a normal user create symlinks, so
+folders are linked as junctions and files are copied, with the copies tracked in
+`.claude-code-config.managed` so reruns refresh and prune them.
+
 The script will:
-- Create `~/.claude/` if it doesn't exist
-- Symlink `skills/`, `agents/`, `hooks/` to your global config
-- Add `bin/` to PATH and install `claude` / `clp` shell shortcuts
+- Create `~/.claude/` (or `$CLAUDE_CONFIG_DIR`) if it doesn't exist
+- Link each skill, agent, hook and script individually, leaving entries other tools installed untouched
+- Add `bin/` to PATH and install `claude` / `clp` shell shortcuts (on Windows, in `$PROFILE.CurrentUserAllHosts`)
 - **Add Brave Search MCP server to user scope** (available in all projects)
 - **Install in parallel for OpenCode** if `opencode` is detected on PATH (translates agents, generates `~/.config/opencode/opencode.json`, symlinks `AGENTS.md`)
 - Check for required environment variables
@@ -1009,7 +1015,7 @@ The main benefit of this repo is **portability**. Here's how to sync your config
 2. Run the setup script:
    ```bash
    ./setup.sh        # macOS/Linux
-   .\setup.ps1       # Windows (as Admin)
+   .\setup.ps1       # Windows
    ```
 
 3. Add MCP servers and environment variables (Steps 3-4 from Global Installation)
@@ -1185,11 +1191,11 @@ git push -u origin hotfix/critical-bug
 
 ## Testing and Portability
 
-> **Platform scope.** The bash installer (`setup.sh`) is the supported path and is exercised on
-> macOS and Linux in CI. The PowerShell installer (`setup.ps1`) still works for the features it
-> shipped with, but predates claude-sync hooks, OpenCode setup, the `claude`/`clp` shortcuts,
-> fish support, XDG paths and login-shell detection, and no CI job runs it. On Windows, prefer
-> `setup.sh` under Git Bash or WSL.
+> **Platform scope.** Both installers are gated in CI. `setup.sh` runs on macOS and Linux;
+> `setup.ps1` runs its analyzer and tests under Windows PowerShell 5.1 and PowerShell 7 on
+> Windows x64 and arm64, macOS and Linux, and a test fails if the two accept different options.
+> fish support and login-shell detection are Unix-only by nature. The hooks and the statusline
+> are bash scripts, so on Windows they need [Git for Windows](https://gitforwindows.org/).
 
 This repo installs onto other people's machines, so nothing shipped may depend on one developer's paths, shell, package manager, or OS version. Two things enforce that: a cross-platform CI matrix, and a set of static portability guards in the test suite.
 
@@ -1200,8 +1206,10 @@ This repo installs onto other people's machines, so nothing shipped may depend o
 | `just unit` | Fast, hermetic — stubbed boundaries, no network | ~20s |
 | `just integration` | Drives real scripts end to end, still offline | ~35s |
 | `just smoke` | Runs `setup.sh` itself against a throwaway `HOME` | ~5s |
-| `just test` | Everything (the merge gate) | ~45s |
-| `just check` | `lint` + `format-check` + `test` | ~50s |
+| `just test` | Every bats lane | ~45s |
+| `just secrets` | betterleaks over the tree and every commit on every ref | ~60s |
+| `just ps-check` | PSScriptAnalyzer + Pester for `setup.ps1` (skips without `pwsh`) | ~30s |
+| `just check` | The merge gate: `lint` + `lint-workflows` + `format-check` + `secrets` + `test` + `ps-check` | ~3m |
 | `just verify-clean-machine` | The whole suite as CI sees it | ~60s |
 
 **Run `just verify-clean-machine` before pushing.** A developer machine lies in

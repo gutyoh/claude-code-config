@@ -15,8 +15,9 @@ claude-code-config/
 ├── CLAUDE.md                              # Project context (shared, checked into repo)
 ├── README.md                              # User documentation
 ├── justfile                               # Quality recipes: lint, format, test, check, ci
-├── mise.toml                              # Pinned toolchain (just, shellcheck, shfmt, bats, zizmor)
-├── mise.lock                              # Resolved URLs + checksums for both CI platforms
+├── mise.toml                              # Pinned toolchain (just, shellcheck, shfmt, bats, zizmor, betterleaks)
+├── mise.lock                              # Resolved URLs + checksums for linux and macOS, x64 and arm64
+├── .betterleaks.toml                      # Secret-scan config: exact placeholder values allowed, never paths
 ├── setup.sh                               # Interactive setup for macOS/Linux
 ├── setup.ps1                              # Interactive setup for Windows (modular, arrow-key TUI)
 ├── PSScriptAnalyzerSettings.psd1          # PowerShell linter config (equiv of .shellcheckrc)
@@ -58,15 +59,18 @@ Sourced by `setup.sh`. Each module exports functions used during interactive set
 
 ### lib/setup-ps/
 
-Dot-sourced by `setup.ps1`. PowerShell port of `lib/setup/` with arrow-key TUI, ANSI color output, and PSScriptAnalyzer-clean code.
+Dot-sourced by `setup.ps1`. PowerShell port of `lib/setup/` with arrow-key TUI, ANSI color output, and PSScriptAnalyzer-clean code that runs under Windows PowerShell 5.1 and PowerShell 7.
 
 | File | Functions | Purpose |
 |------|-----------|---------|
 | `output.ps1` | `Write-Status` | ANSI color output (replaces Write-Host, linter-clean) |
 | `tui.ps1` | `Select-TuiItem`, `Select-TuiMultiple`, `Confirm-TuiYesNo` | Arrow-key TUI widgets |
 | `preview.ps1` | `Get-BarPreview`, `Get-StatuslinePreview`, `Show-PreviewBox` | Live statusline preview with Unicode box |
-| `filesystem.ps1` | `Initialize-Symlink`, `Test-Prerequisite` | Symlink creation with conflict handling |
-| `settings.ps1` | `Update-IdeHook`, `Update-FileSuggestion`, `Update-Statusline`, `Update-AgentTeam`, `Update-ProxyPath` | settings.json manipulation |
+| `paths.ps1` | `Get-ClaudeConfigDir`, `Get-ClaudeJsonPath`, `Get-ClaudeConfigDirRef` | Config dir resolution, `CLAUDE_CONFIG_DIR` aware |
+| `fileio.ps1` | `Read-Utf8Text`, `Write-Utf8Text`, `Write-JsonFile` | UTF-8 without BOM on every edition, writes through symlinks |
+| `filesystem.ps1` | `Install-ManagedEntry`, `Convert-DirectoryLink`, `Find-GitBash`, `Test-Prerequisite` | Per-entry install: symlink, else junction or tracked copy |
+| `opencode.ps1` | `Install-OpenCode`, `Update-OpenCodeConfig`, `Convert-OpenCodeAgentSet` | OpenCode parallel install, same as `opencode.sh` |
+| `settings.ps1` | `Update-IdeHook`, `Update-FileSuggestion`, `Update-Statusline`, `Update-AgentTeam`, `Update-ProxyPath`, `Update-ClaudeShortcut` | settings.json manipulation, `claude`/`clp` profile shortcuts |
 | `statusline-conf.ps1` | `Update-StatuslineConf` | `~/.claude/statusline.conf` management |
 | `mcp.ps1` | `Get-McpBackend`, `Install-McpServer`, `Test-McpEnvVar` | MCP server registration + Doppler/envfile detection |
 | `menu.ps1` | `Show-InstallMenu`, `Invoke-CustomizeInstallation`, `Invoke-CustomizeStatuslineWithPreview` | Interactive menus with preview loop |
@@ -186,17 +190,24 @@ Dot-sourced by `setup.ps1`. PowerShell port of `lib/setup/` with arrow-key TUI, 
 | `langfuse-skill.bats` | Langfuse skill validation |
 | `refresh-usage-cache.bats` | Usage cache refresh hook |
 | `cc-status.bats` | Claude Code service status |
+| `claude-config-dir.bats` | `CLAUDE_CONFIG_DIR`: install target, settings commands, symlinked rc files |
+| `managed-entries.bats` | Per-entry install, legacy link migration, profile chains |
+| `setup-parity.bats` | `setup.sh` and `setup.ps1` accept the same options |
+| `portability.bats` | Portability guards, plus name-free personal-data checks |
+| `setup_suite.bash` | Clears `CLAUDE_CONFIG_DIR` before any file runs |
 
-### Pester 5 (PowerShell setup — Windows)
+### Pester 6 (PowerShell setup — Windows PowerShell 5.1 and PowerShell 7)
 
 | File | Tests |
 |------|-------|
-| `setup-ps.Tests.ps1` | Bar rendering, preview merging, statusline conf, settings JSON, MCP backend, prerequisites, module existence (44 tests) |
+| `setup-ps.Tests.ps1` | Config dir, per-entry install with junction and copy fallbacks, settings JSON, OpenCode, shortcuts, MCP backend, prerequisites |
+| `powershell-checks.ps1` | Runner: pinned PSScriptAnalyzer + Pester, the same for `just ps-check` and every CI lane |
 
 ## .github/workflows/
 
 | File | Purpose |
 |------|---------|
+| `ci.yml` | Lint, secret scan, PowerShell lanes (5.1 and 7, Windows x64/arm64, macOS, Linux), bats on macOS and Linux |
 | `claude.yml` | Claude Code action for @claude mentions in issues/PRs |
 | `claude-code-review.yml` | Automated PR code review (currently disabled) |
 
@@ -209,11 +220,11 @@ Dot-sourced by `setup.ps1`. PowerShell port of `lib/setup/` with arrow-key TUI, 
 | Proxy launcher | `claude-proxy [options]` | Route Claude through proxy |
 | Key rotation | `mcp-key-rotate <service> [action]` | Rotate MCP API keys |
 | Lint (bash) | `just lint` | ShellCheck all scripts |
-| Lint (PS) | `pwsh -c "Invoke-ScriptAnalyzer ..."` | PSScriptAnalyzer on PS scripts |
+| Lint + test (PS) | `just ps-check` | PSScriptAnalyzer + Pester under pwsh |
 | Format | `just format` | shfmt all scripts |
 | Test (bash) | `just test` | Run BATS test suite |
-| Test (PS) | `pwsh -c "Invoke-Pester tests/setup-ps.Tests.ps1"` | Run Pester test suite |
-| CI | `just ci` | Full CI: format-check + lint + test |
+| Secrets | `just secrets` | betterleaks over the tree and every commit |
+| CI | `just ci` | Full gate: lint + lint-workflows + format-check + secrets + test + ps-check |
 
 ## See also
 
