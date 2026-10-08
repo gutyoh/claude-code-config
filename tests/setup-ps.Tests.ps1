@@ -27,6 +27,7 @@ BeforeAll {
     . (Join-Path $setupPsDir "settings.ps1")
     . (Join-Path $setupPsDir "statusline-conf.ps1")
     . (Join-Path $setupPsDir "mcp.ps1")
+    . (Join-Path $setupPsDir "opencode.ps1")
     . (Join-Path $setupPsDir "menu.ps1")
 
     # Set up script-scope variables that modules expect
@@ -680,6 +681,377 @@ Describe "Native commands under the Stop preference" {
 }
 
 # ============================================================================
+# OpenCode parallel install (mirrors tests/opencode-setup.bats)
+# ============================================================================
+
+Describe "OpenCode" {
+    BeforeAll {
+        function New-Agent([string]$Name, [string]$Frontmatter, [string]$Body = "Body text.`n") {
+            $src = Join-Path $script:AgentSrcDir "${Name}.md"
+            Write-Utf8Text -Path $src -Content ("---`n" + $Frontmatter + "`n---`n" + $Body)
+            Convert-OpenCodeAgent -Source $src -Destination (Join-Path $script:AgentDestDir "${Name}.md") | Out-Null
+            return Read-Utf8Text (Join-Path $script:AgentDestDir "${Name}.md")
+        }
+    }
+
+    BeforeEach {
+        $script:SavedOverride = $env:OPENCODE_CONFIG_DIR_OVERRIDE
+        $script:SavedForce = $env:OPENCODE_FORCE
+        $env:OPENCODE_FORCE = ""
+        $script:OcRoot = Join-Path $TestDrive ("oc-" + [guid]::NewGuid().ToString("N"))
+        $env:OPENCODE_CONFIG_DIR_OVERRIDE = Join-Path $script:OcRoot "opencode"
+        $script:RepoDir = Join-Path $script:OcRoot "repo"
+        $script:AgentSrcDir = Join-Path $script:OcRoot "agents-src"
+        $script:AgentDestDir = Join-Path $env:OPENCODE_CONFIG_DIR_OVERRIDE "agents"
+        New-Item -ItemType Directory -Path (Join-Path (Join-Path $script:RepoDir ".claude") "skills"), $script:AgentSrcDir -Force | Out-Null
+        $script:InstallMcpServers = @("brave-search", "tavily")
+        $script:Messages = New-Object System.Collections.Generic.List[string]
+        Mock Write-Status { $script:Messages.Add($Message) }
+        Mock Get-McpBackend { "envfile" }
+    }
+
+    AfterEach {
+        $env:OPENCODE_CONFIG_DIR_OVERRIDE = $script:SavedOverride
+        $env:OPENCODE_FORCE = $script:SavedForce
+    }
+
+    Context "detection" {
+        It "OPENCODE_FORCE=<_> means yes regardless of the binary" -ForEach @("1", "true", "yes", "on", "TRUE") {
+            Mock Test-OpenCodeBinary { $false }
+            $env:OPENCODE_FORCE = $_
+            Test-OpenCodeInstalled | Should -BeTrue
+        }
+
+        It "OPENCODE_FORCE=<_> means no regardless of the binary" -ForEach @("0", "false", "no", "off", "OFF") {
+            Mock Test-OpenCodeBinary { $true }
+            $env:OPENCODE_FORCE = $_
+            Test-OpenCodeInstalled | Should -BeFalse
+        }
+
+        It "an existing config dir counts as installed without a binary" {
+            Mock Test-OpenCodeBinary { $false }
+            New-Item -ItemType Directory -Path $env:OPENCODE_CONFIG_DIR_OVERRIDE -Force | Out-Null
+            Test-OpenCodeInstalled | Should -BeTrue
+            Get-OpenCodeDetectLabel | Should -Match "config dir"
+        }
+
+        It "no binary, no dir, no force means not installed" {
+            Mock Test-OpenCodeBinary { $false }
+            Test-OpenCodeInstalled | Should -BeFalse
+            Get-OpenCodeDetectLabel | Should -Be "no (not installed)"
+        }
+
+        It "reports forced state" {
+            $env:OPENCODE_FORCE = "1"
+            Get-OpenCodeDetectLabel | Should -Match "forced"
+            $env:OPENCODE_FORCE = "0"
+            Get-OpenCodeDetectLabel | Should -Match "forced"
+        }
+
+        It "follows XDG_CONFIG_HOME when no override is set" {
+            $env:OPENCODE_CONFIG_DIR_OVERRIDE = ""
+            $savedXdg = $env:XDG_CONFIG_HOME
+            try {
+                $env:XDG_CONFIG_HOME = Join-Path $TestDrive "xdg"
+                Get-OpenCodeConfigDir | Should -Be (Join-Path (Join-Path $TestDrive "xdg") "opencode")
+                $env:XDG_CONFIG_HOME = ""
+                Get-OpenCodeConfigDir | Should -Be (Join-Path (Join-Path $HOME ".config") "opencode")
+            }
+            finally {
+                $env:XDG_CONFIG_HOME = $savedXdg
+            }
+        }
+    }
+
+    Context "agent translation" {
+        It "drops name: (the file name is the name in OpenCode)" {
+            New-Agent "named" "name: named`ndescription: d" | Should -Not -Match "name: named"
+        }
+
+        It "drops model: inherit" {
+            New-Agent "inheritor" "description: d`nmodel: inherit" | Should -Not -Match "model: inherit"
+        }
+
+        It "keeps a concrete model" {
+            New-Agent "pinned" "description: d`nmodel: sonnet" | Should -Match "model: sonnet"
+        }
+
+        It "drops a hooks: block" {
+            $out = New-Agent "hooked" "description: d`nhooks:`n  PreToolUse:`n    - matcher: Bash`n      command: sql-guardrail.sh`nskills:`n  - x" "body`n"
+            $out | Should -Not -Match "hooks:"
+            $out | Should -Not -Match "sql-guardrail"
+            $out | Should -Match "skills:"
+            $out | Should -Match "body"
+        }
+
+        It "drops tools: as CSV and as a block" {
+            New-Agent "tooled" "description: d`ntools: Read, Grep" | Should -Not -Match "tools: Read"
+            $out = New-Agent "tooled-block" "description: d`ntools:`n  - Read`n  - Grep`ncolor: red"
+            $out | Should -Not -Match "tools:"
+            $out | Should -Not -Match "- Read"
+            $out | Should -Match "color: error"
+        }
+
+        It "adds mode: subagent when absent and keeps an existing mode" {
+            New-Agent "modeless" "description: d" | Should -Match "mode: subagent"
+            $out = New-Agent "primary" "description: d`nmode: primary"
+            $out | Should -Match "mode: primary"
+            $out | Should -Not -Match "mode: subagent"
+        }
+
+        It "preserves description, skills and the body" {
+            $out = New-Agent "preserve" "name: preserve`ndescription: Long description that should survive`nskills:`n  - python-standards`n  - rust-standards" "This is the body.`n`nmultiple paragraphs`n"
+            $out | Should -Match "description: Long description that should survive"
+            $out | Should -Match "- python-standards"
+            $out | Should -Match "- rust-standards"
+            $out | Should -Match "This is the body\."
+            $out | Should -Match "multiple paragraphs"
+        }
+
+        It "maps color <In> to <Out>" -ForEach @(
+            @{ In = "red"; Out = "error" }, @{ In = "green"; Out = "success" }, @{ In = "yellow"; Out = "warning" },
+            @{ In = "orange"; Out = "warning" }, @{ In = "blue"; Out = "info" }, @{ In = "cyan"; Out = "info" },
+            @{ In = "purple"; Out = "accent" }, @{ In = "pink"; Out = "accent" }, @{ In = "success"; Out = "success" },
+            @{ In = "'#fab283'"; Out = "#fab283" }, @{ In = '"Blue"'; Out = "info" }
+        ) {
+            New-Agent ("color-" + [guid]::NewGuid().ToString("N")) "description: d`ncolor: ${In}" | Should -Match "(?m)^color: ${Out}$"
+        }
+
+        It "drops an unknown color entirely" {
+            New-Agent "mauve" "description: d`ncolor: mauve" | Should -Not -Match "color:"
+        }
+
+        It "is case-sensitive like the bash translator (Name: is not name:)" {
+            New-Agent "cased" "Name: keep-me`ndescription: d" | Should -Match "Name: keep-me"
+        }
+
+        It "every agent in the repo translates to a valid OpenCode color" {
+            $repoAgents = Join-Path (Join-Path $repoRoot ".claude") "agents"
+            foreach ($agent in Get-ChildItem -LiteralPath $repoAgents -Filter "*.md" -File) {
+                $dest = Join-Path $script:AgentDestDir $agent.Name
+                Convert-OpenCodeAgent -Source $agent.FullName -Destination $dest | Out-Null
+                $colorLine = (Read-Utf8Text $dest) -split "`n" | Where-Object { $_ -match '^color:' } | Select-Object -First 1
+                if ($colorLine) {
+                    $value = ($colorLine -replace '^color:\s*', '').Trim()
+                    ($value -cmatch '^#[0-9a-fA-F]{6}$' -or $script:OpenCodeThemeTokens -contains $value) | Should -BeTrue -Because "$($agent.Name) emitted color '$value'"
+                }
+            }
+        }
+
+        It "produces --- delimited frontmatter" {
+            $out = New-Agent "yaml-test" "name: y`ndescription: d"
+            ($out -split "`n")[0] | Should -Be "---"
+            @(($out -split "`n") | Where-Object { $_ -eq "---" }).Count | Should -BeGreaterOrEqual 2
+        }
+
+        It "skips a file without frontmatter but still counts it" {
+            $src = Join-Path $script:AgentSrcDir "plain.md"
+            Write-Utf8Text -Path $src -Content "no frontmatter here`n"
+            Convert-OpenCodeAgent -Source $src -Destination (Join-Path $script:AgentDestDir "plain.md") | Should -BeTrue
+            Test-Path -LiteralPath (Join-Path $script:AgentDestDir "plain.md") | Should -BeFalse
+        }
+    }
+
+    Context "opencode.json" {
+        It "writes valid JSON with an mcp section using mcp-env-inject and type local" {
+            Update-OpenCodeConfig
+            $json = Read-Utf8Text (Get-OpenCodeConfigPath) | ConvertFrom-Json
+            $json.mcp."brave-search".command[0] | Should -Be "mcp-env-inject"
+            $json.mcp.tavily.type | Should -Be "local"
+            $json.mcp.tavily.enabled | Should -BeTrue
+            $json.'$schema' | Should -Be "https://opencode.ai/config.json"
+        }
+
+        It "preserves existing keys when merging" {
+            New-Item -ItemType Directory -Path $env:OPENCODE_CONFIG_DIR_OVERRIDE -Force | Out-Null
+            Write-Utf8Text -Path (Join-Path $env:OPENCODE_CONFIG_DIR_OVERRIDE "opencode.json") -Content '{"model": "provider/some-model", "autoupdate": false, "mcp": {"mine": {"type": "remote", "url": "https://example.com/mcp"}}}'
+            Update-OpenCodeConfig
+            $json = Read-Utf8Text (Get-OpenCodeConfigPath) | ConvertFrom-Json
+            $json.model | Should -Be "provider/some-model"
+            $json.autoupdate | Should -BeFalse
+            $json.mcp.mine.url | Should -Be "https://example.com/mcp"
+            $json.mcp.tavily.type | Should -Be "local"
+        }
+
+        It "is idempotent" {
+            Update-OpenCodeConfig
+            $first = Read-Utf8Text (Get-OpenCodeConfigPath)
+            Update-OpenCodeConfig
+            Read-Utf8Text (Get-OpenCodeConfigPath) | Should -BeExactly $first
+        }
+
+        It "emits a doppler run command for the doppler backend" {
+            $script:DopplerProject = "claude-code-config"
+            $script:DopplerConfig = "dev"
+            $entry = Get-OpenCodeMcpEntry -Package "tavily-mcp@0.2.17" -Backend "doppler"
+            $entry.command | Should -Be @("doppler", "run", "-p", "claude-code-config", "-c", "dev", "--", "npx", "-y", "tavily-mcp@0.2.17")
+            (Get-OpenCodeMcpEntry -Package "pkg" -Backend "envfile").command | Should -Be @("mcp-env-inject", "npx", "-y", "pkg")
+        }
+
+        It "follows the active backend" {
+            Mock Get-McpBackend { "doppler" }
+            Update-OpenCodeConfig
+            (Read-Utf8Text (Get-OpenCodeConfigPath) | ConvertFrom-Json).mcp.tavily.command[0] | Should -Be "doppler"
+        }
+
+        It "writes into an existing opencode.jsonc instead of splitting the config" {
+            New-Item -ItemType Directory -Path $env:OPENCODE_CONFIG_DIR_OVERRIDE -Force | Out-Null
+            $jsonc = Join-Path $env:OPENCODE_CONFIG_DIR_OVERRIDE "opencode.jsonc"
+            Write-Utf8Text -Path $jsonc -Content "{`n  // comment`n  `"plugin`": [`"@scope/opencode-quota`"],`n  `"share`": `"disabled`", /* block */`n}`n"
+            Update-OpenCodeConfig
+            Test-Path -LiteralPath (Join-Path $env:OPENCODE_CONFIG_DIR_OVERRIDE "opencode.json") | Should -BeFalse
+            $json = Read-Utf8Text $jsonc | ConvertFrom-Json
+            @($json.plugin)[0] | Should -Be "@scope/opencode-quota"
+            $json.share | Should -Be "disabled"
+            $json.mcp.tavily.command[0] | Should -Be "mcp-env-inject"
+        }
+
+        It "skips the mcp section when no MCP servers are selected" {
+            $script:InstallMcpServers = @()
+            Update-OpenCodeConfig
+            Test-Path -LiteralPath (Get-OpenCodeConfigPath) | Should -BeFalse
+        }
+
+        It "backs up a config it cannot parse and still writes a valid one" {
+            New-Item -ItemType Directory -Path $env:OPENCODE_CONFIG_DIR_OVERRIDE -Force | Out-Null
+            Write-Utf8Text -Path (Join-Path $env:OPENCODE_CONFIG_DIR_OVERRIDE "opencode.json") -Content "{ not json"
+            Update-OpenCodeConfig
+            @(Get-ChildItem -LiteralPath $env:OPENCODE_CONFIG_DIR_OVERRIDE -Filter "opencode.json.bak.*").Count | Should -Be 1
+            { Read-Utf8Text (Get-OpenCodeConfigPath) | ConvertFrom-Json } | Should -Not -Throw
+        }
+    }
+
+    Context "JSONC stripping" {
+        It "removes line comments" {
+            ConvertFrom-Jsonc "{`n  // a comment`n  `"a`": 1`n}" | Should -Not -Match "a comment"
+        }
+
+        It "removes block comments" {
+            ConvertFrom-Jsonc "{ /* multi`nline */ `"a`": 1 }" | Should -Not -Match "multi"
+        }
+
+        It "preserves // inside a schema URL and inside any string" {
+            $out = ConvertFrom-Jsonc '{"$schema": "https://opencode.ai/config.json", "x": "a//b"} // trailing'
+            ($out | ConvertFrom-Json).'$schema' | Should -Be "https://opencode.ai/config.json"
+            ($out | ConvertFrom-Json).x | Should -Be "a//b"
+        }
+
+        It "survives a comment containing the letter n" {
+            ConvertFrom-Jsonc "{`n  // existing note`n  `"a`": 1`n}" | Should -Not -Match "existing note"
+        }
+
+        It "drops trailing commas but not commas inside strings" {
+            $out = ConvertFrom-Jsonc '{"a": [1, 2,], "b": "x,}", }'
+            $parsed = $out | ConvertFrom-Json
+            @($parsed.a).Count | Should -Be 2
+            $parsed.b | Should -Be "x,}"
+        }
+
+        It "keeps escaped quotes inside strings" {
+            (ConvertFrom-Jsonc '{"a": "say \"hi\" // not a comment"}' | ConvertFrom-Json).a | Should -Be 'say "hi" // not a comment'
+        }
+    }
+
+    Context "skills link" {
+        It "links the config skills dir to the repo skills" {
+            Set-OpenCodeSkillsLink
+            $item = Get-EntryItem (Join-Path $env:OPENCODE_CONFIG_DIR_OVERRIDE "skills")
+            Test-LinkItem $item | Should -BeTrue
+            Get-LinkTargetPath $item | Should -Be (Join-Path (Join-Path $script:RepoDir ".claude") "skills")
+        }
+
+        It "is idempotent" {
+            New-Item -ItemType Directory -Path $env:OPENCODE_CONFIG_DIR_OVERRIDE -Force | Out-Null
+            Set-OpenCodeSkillsLink
+            $script:Messages.Clear()
+            Set-OpenCodeSkillsLink
+            ($script:Messages -join "`n") | Should -Match "already configured"
+        }
+
+        It "replaces a stale link pointing elsewhere" {
+            New-Item -ItemType Directory -Path $env:OPENCODE_CONFIG_DIR_OVERRIDE -Force | Out-Null
+            $other = Join-Path $script:OcRoot "other-skills"
+            New-Item -ItemType Directory -Path $other | Out-Null
+            New-Item -ItemType SymbolicLink -Path (Join-Path $env:OPENCODE_CONFIG_DIR_OVERRIDE "skills") -Target $other | Out-Null
+            Set-OpenCodeSkillsLink
+            Get-LinkTargetPath (Get-EntryItem (Join-Path $env:OPENCODE_CONFIG_DIR_OVERRIDE "skills")) |
+                Should -Be (Join-Path (Join-Path $script:RepoDir ".claude") "skills")
+            Test-Path -LiteralPath (Join-Path $other ".") | Should -BeTrue
+        }
+
+        It "backs up a real directory before linking" {
+            $real = Join-Path $env:OPENCODE_CONFIG_DIR_OVERRIDE "skills"
+            New-Item -ItemType Directory -Path $real -Force | Out-Null
+            Write-Utf8Text -Path (Join-Path $real "mine.txt") -Content "keep"
+            Set-OpenCodeSkillsLink
+            $backup = @(Get-ChildItem -LiteralPath $env:OPENCODE_CONFIG_DIR_OVERRIDE -Directory | Where-Object { $_.Name -like "skills.bak.*" })
+            $backup.Count | Should -Be 1
+            Read-Utf8Text (Join-Path $backup[0].FullName "mine.txt") | Should -Be "keep"
+        }
+
+        It "falls back to a junction without symlink privilege" {
+            Mock New-SymbolicLinkEntry { throw "A required privilege is not held by the client." }
+            Mock New-JunctionEntry { New-Item -ItemType SymbolicLink -Path $Path -Target $Target | Out-Null }
+            New-Item -ItemType Directory -Path $env:OPENCODE_CONFIG_DIR_OVERRIDE -Force | Out-Null
+            Set-OpenCodeSkillsLink
+            Should -Invoke New-JunctionEntry -Times 1 -Exactly
+        }
+    }
+
+    Context "AGENTS.md" {
+        BeforeEach {
+            Write-Utf8Text -Path (Join-Path $script:RepoDir "CLAUDE.md") -Content "rules"
+        }
+
+        It "links AGENTS.md to CLAUDE.md when CLAUDE.md exists" {
+            Set-AgentsMdLink
+            $item = Get-EntryItem (Join-Path $script:RepoDir "AGENTS.md")
+            Test-LinkItem $item | Should -BeTrue
+            Get-LinkTargetPath $item | Should -Be (Join-Path $script:RepoDir "CLAUDE.md")
+        }
+
+        It "leaves a regular AGENTS.md alone" {
+            Write-Utf8Text -Path (Join-Path $script:RepoDir "AGENTS.md") -Content "mine"
+            Set-AgentsMdLink
+            ($script:Messages -join "`n") | Should -Match "leaving alone"
+            Read-Utf8Text (Join-Path $script:RepoDir "AGENTS.md") | Should -Be "mine"
+        }
+
+        It "is idempotent" {
+            Set-AgentsMdLink
+            $script:Messages.Clear()
+            Set-AgentsMdLink
+            ($script:Messages -join "`n") | Should -Match "already linked"
+        }
+    }
+
+    Context "full flow" {
+        It "mirrors skills, agents, MCP and AGENTS.md when opencode is present" {
+            Mock Get-Command { [PSCustomObject]@{ Name = "opencode"; Source = "opencode" } } -ParameterFilter { $Name -eq "opencode" }
+            Write-Utf8Text -Path (Join-Path $script:RepoDir "CLAUDE.md") -Content "rules"
+            $agents = Join-Path (Join-Path $script:RepoDir ".claude") "agents"
+            New-Item -ItemType Directory -Path $agents -Force | Out-Null
+            Write-Utf8Text -Path (Join-Path $agents "sample.md") -Content "---`nname: sample`ndescription: d`ncolor: blue`n---`nbody`n"
+
+            Install-OpenCode
+
+            Test-LinkItem (Get-EntryItem (Join-Path $env:OPENCODE_CONFIG_DIR_OVERRIDE "skills")) | Should -BeTrue
+            Read-Utf8Text (Join-Path (Join-Path $env:OPENCODE_CONFIG_DIR_OVERRIDE "agents") "sample.md") | Should -Match "color: info"
+            (Read-Utf8Text (Get-OpenCodeConfigPath) | ConvertFrom-Json).mcp.tavily.type | Should -Be "local"
+            Test-LinkItem (Get-EntryItem (Join-Path $script:RepoDir "AGENTS.md")) | Should -BeTrue
+            ($script:Messages -join "`n") | Should -Match "1 agents translated"
+        }
+
+        It "skips everything when opencode is not on PATH" {
+            Mock Get-Command { $null } -ParameterFilter { $Name -eq "opencode" }
+            Install-OpenCode
+            ($script:Messages -join "`n") | Should -Match "opencode CLI not found"
+            Test-Path -LiteralPath $env:OPENCODE_CONFIG_DIR_OVERRIDE | Should -BeFalse
+        }
+    }
+}
+
+# ============================================================================
 # Overlay: Percentage inside bar
 # ============================================================================
 
@@ -975,7 +1347,7 @@ Describe "Windows PowerShell 5.1 compatibility" {
 Describe "Module files exist" {
     # -ForEach, not a foreach loop: discovery-time variables do not reach It blocks.
     It "lib/setup-ps/<_> exists" -ForEach @("fileio.ps1", "paths.ps1", "output.ps1", "tui.ps1", "preview.ps1",
-        "filesystem.ps1", "settings.ps1", "statusline-conf.ps1", "mcp.ps1", "menu.ps1") {
+        "filesystem.ps1", "settings.ps1", "statusline-conf.ps1", "mcp.ps1", "opencode.ps1", "menu.ps1") {
         Test-Path (Join-Path $setupPsDir $_) | Should -BeTrue
     }
 }

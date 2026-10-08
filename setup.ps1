@@ -16,7 +16,7 @@
 #   -NoAgentTeams          Disable agent teams
 #   -ProxyPath             Add bin/ to PATH (default)
 #   -NoProxyPath           Skip proxy launcher PATH setup
-#   -Minimal               Core only (no agents, skills, MCP, agent teams, or proxy PATH)
+#   -Minimal               Core only (no agents, skills, MCP, agent teams, proxy PATH, or OpenCode)
 #   -OverwriteSettings     Replace settings.json with repo defaults
 #   -SkipSettings          Don't modify settings.json
 #   -Theme THEME           Statusline color theme (dark|light|colorblind|none)
@@ -30,7 +30,12 @@
 #   -IconStyle STYLE       Icon style (plain|bold|bracketed|rounded|reverse|bold-color|angle|double-bracket)
 #   -WeeklyShowReset       Show weekly reset countdown inline
 #   -NoWeeklyShowReset     Hide weekly reset countdown (default)
+#   -WithOpenCode          Force OpenCode parallel install (default: auto-detect)
+#   -NoOpenCode            Skip OpenCode setup (default: auto-detect)
 #   -Help                  Show this help message
+#
+# setup.sh's --shell has no counterpart: shortcuts there edit a Unix login
+# shell's profile, which Windows does not have.
 #
 # Platforms: Windows (PowerShell 5.1+, PowerShell 7+ recommended)
 
@@ -63,6 +68,8 @@ param(
     [string]$IconStyle,
     [switch]$WeeklyShowReset,
     [switch]$NoWeeklyShowReset,
+    [switch]$WithOpenCode,
+    [switch]$NoOpenCode,
     [Alias("h")]
     [switch]$Help
 )
@@ -119,6 +126,7 @@ $script:StatuslineCcStatusVisibility = "always"
 $script:StatuslineCcStatusColor = "full"
 $script:InstallAgentTeamsFlag = $true
 $script:InstallProxyPath = $true
+$script:InstallOpenCode = "auto"                        # auto | yes | no
 $script:AcceptDefaults = $false
 $script:UserCustomizedStatusline = $false
 
@@ -135,6 +143,7 @@ $setupPsDir = Join-Path (Join-Path $script:RepoDir "lib") "setup-ps"
 . (Join-Path $setupPsDir "settings.ps1")
 . (Join-Path $setupPsDir "statusline-conf.ps1")
 . (Join-Path $setupPsDir "mcp.ps1")
+. (Join-Path $setupPsDir "opencode.ps1")
 . (Join-Path $setupPsDir "menu.ps1")
 
 # --- Paths (CLAUDE_CONFIG_DIR when set, else ~/.claude) ---
@@ -152,6 +161,7 @@ if ($Minimal) {
     $script:InstallMcpServers = @()
     $script:InstallAgentTeamsFlag = $false
     $script:InstallProxyPath = $false
+    $script:InstallOpenCode = "no"
 }
 if ($NoAgents) { $script:InstallAgentsSkills = $false }
 if ($NoMcp) { $script:InstallMcpServers = @() }
@@ -193,6 +203,8 @@ if ($Icon) {
 if ($IconStyle) { $script:StatuslineIconStyle = $IconStyle }
 if ($WeeklyShowReset) { $script:StatuslineWeeklyShowReset = $true }
 if ($NoWeeklyShowReset) { $script:StatuslineWeeklyShowReset = $false }
+if ($WithOpenCode) { $script:InstallOpenCode = "yes" }
+if ($NoOpenCode) { $script:InstallOpenCode = "no" }
 
 # --- Help ---
 
@@ -210,7 +222,7 @@ if ($Help) {
     Write-Status "  -NoAgentTeams          Disable agent teams"
     Write-Status "  -ProxyPath             Add bin/ to PATH (default)"
     Write-Status "  -NoProxyPath           Skip proxy launcher PATH setup"
-    Write-Status "  -Minimal               Core only (no agents, skills, MCP, agent teams, or proxy PATH)"
+    Write-Status "  -Minimal               Core only (no agents, skills, MCP, agent teams, proxy PATH, or OpenCode)"
     Write-Status "  -OverwriteSettings     Replace settings.json with repo defaults"
     Write-Status "  -SkipSettings          Don't modify settings.json"
     Write-Status "  -Theme THEME           Statusline color theme (dark|light|colorblind|none)"
@@ -224,6 +236,8 @@ if ($Help) {
     Write-Status "  -IconStyle STYLE       Icon style (plain|bold|bracketed|rounded|reverse|bold-color|angle|double-bracket)"
     Write-Status "  -WeeklyShowReset       Show weekly reset countdown inline"
     Write-Status "  -NoWeeklyShowReset     Hide weekly reset countdown (default)"
+    Write-Status "  -WithOpenCode          Force OpenCode parallel install (default: auto-detect)"
+    Write-Status "  -NoOpenCode            Skip OpenCode setup (default: auto-detect)"
     Write-Status "  -Help                  Show this help message"
     Write-Status ""
     Write-Status "Available components:"
@@ -242,6 +256,8 @@ if ($Help) {
     Write-Status "  .\setup.ps1 -Yes -Theme colorblind  # Full install with colorblind theme"
     Write-Status "  .\setup.ps1 -Yes -BarStyle block -BarPctInside -Components model,usage,cost"
     Write-Status "  .\setup.ps1 -OverwriteSettings  # Interactive, but force-overwrite settings.json"
+    Write-Status "  .\setup.ps1 -Yes -WithOpenCode  # Also set up OpenCode (skills/agents/MCP)"
+    Write-Status "  .\setup.ps1 -Yes -NoOpenCode    # Skip OpenCode even if detected"
     exit 0
 }
 
@@ -536,6 +552,26 @@ else {
 }
 
 Write-Status ""
+
+# --- Configure OpenCode parallel install ---
+$openCodeResolved = $false
+switch ($script:InstallOpenCode) {
+    "yes" { $openCodeResolved = $true }
+    "no" { $openCodeResolved = $false }
+    default { $openCodeResolved = Test-OpenCodeInstalled }
+}
+
+$step++
+if ($openCodeResolved) {
+    Write-Status "Step ${step}: Configuring OpenCode (parallel install)..." -Color Yellow
+    Write-Status ""
+    Install-OpenCode
+}
+else {
+    Write-Status "Step ${step}: Skipping OpenCode setup ($(Get-OpenCodeDetectLabel))" -Color DarkGray
+}
+
+Write-Status ""
 Write-Status "========================================" -Color Cyan
 Write-Status "Setup complete!" -Color Green
 Write-Status "========================================" -Color Cyan
@@ -555,4 +591,13 @@ if ($script:InstallMcpServers.Count -gt 0) {
     Write-Status ""
     Write-Status "To check MCP server status:"
     Write-Status "  claude mcp list"
+}
+
+if ($openCodeResolved) {
+    Write-Status ""
+    Write-Status "OpenCode verify:"
+    Write-Status "  cd ~\some-project"
+    Write-Status "  opencode"
+    Write-Status "  Tab to switch agents -- translated subagents available via @"
+    Write-Status "  Config: $(Get-OpenCodeConfigPath)"
 }
