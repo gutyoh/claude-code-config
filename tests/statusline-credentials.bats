@@ -14,7 +14,9 @@ setup() {
     isolate_home
     debug() { :; }
     KEYCHAIN_SERVICE="Claude Code-credentials"
-    PLATFORM="linux"
+    PLATFORM="$(detect_test_platform)"
+    # These pin the Linux branch; macOS reads the Keychain and has its own path.
+    [[ "$PLATFORM" == "linux" ]] || skip "Linux credential lookup"
     source "$MODULES_DIR/api.sh"
     unset CLAUDE_CONFIG_DIR
     mkdir -p "$HOME/.claude"
@@ -23,10 +25,18 @@ setup() {
 creds() { printf '{"claudeAiOauth":{"accessToken":"%s"}}' "$1"; }
 
 @test "linux without a keyring reads ~/.claude/.credentials.json" {
-    PATH="/usr/bin:/bin"
-    command -v secret-tool && skip "host has secret-tool on the base PATH"
+    require_cmd jq
+    # Drop only the PATH entries that hold secret-tool. A fixed /usr/bin:/bin
+    # also loses jq wherever it lives elsewhere (NixOS, version-manager shims).
+    NOKEYRING_PATH=""
+    local dir dirs
+    IFS=: read -ra dirs <<<"$PATH"
+    for dir in "${dirs[@]}"; do
+        [[ -x "${dir}/secret-tool" ]] || NOKEYRING_PATH+="${NOKEYRING_PATH:+:}${dir}"
+    done
+    no_keyring_token() { PATH="$NOKEYRING_PATH" get_oauth_token; }
     creds file-token >"$HOME/.claude/.credentials.json"
-    run get_oauth_token
+    run no_keyring_token
     [ "$status" -eq 0 ]
     [ "$output" = "file-token" ]
 }
