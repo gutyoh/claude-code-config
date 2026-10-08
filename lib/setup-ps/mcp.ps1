@@ -41,6 +41,9 @@ function Get-McpBackend {
     Returns "doppler" or "envfile".
     #>
 
+    # On 5.1, redirected native stderr is a terminating error under "Stop".
+    $ErrorActionPreference = "Continue"
+
     # Tier 1: Doppler CLI available and project accessible
     $dopplerCmd = Get-Command doppler -ErrorAction SilentlyContinue
     if ($dopplerCmd) {
@@ -130,8 +133,9 @@ function Install-SingleMcp {
         [string]$Backend
     )
 
-    $server = $script:McpServers[$Key]
-    $package = $server.package
+    # On 5.1, redirected native stderr is a terminating error under "Stop", so
+    # a warning from claude would be reported as a failed install.
+    $ErrorActionPreference = "Continue"
 
     # Remove existing config to re-register with correct backend
     $claudeJsonPath = Get-ClaudeJsonPath

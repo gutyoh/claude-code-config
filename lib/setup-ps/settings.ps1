@@ -182,20 +182,47 @@ function Copy-RepoSetting {
     Write-Utf8Text -Path $script:SettingsJson -Content $text
 }
 
+function Get-UpdatedUserPath {
+    <#
+    .SYNOPSIS
+    The user PATH with a directory prepended, or $null if already present.
+    #>
+    param(
+        [string]$CurrentPath,
+        [string]$Directory,
+        [string]$Separator = [string][System.IO.Path]::PathSeparator
+    )
+
+    $entries = @($CurrentPath -split [regex]::Escape($Separator) | Where-Object { $_ })
+    foreach ($entry in $entries) {
+        if (Test-SamePath $entry $Directory) { return $null }
+    }
+    if ($entries.Count -eq 0) { return $Directory }
+    return "${Directory}${Separator}${CurrentPath}"
+}
+
 function Update-ProxyPath {
     <#
     .SYNOPSIS
     Add bin/ directory to user PATH environment variable.
     #>
-    $binDir = "$($script:RepoDir)\bin"
-    $currentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+    $binDir = Join-Path $script:RepoDir "bin"
 
-    if ($currentPath -split ';' -contains $binDir) {
+    # A persistent user PATH is a Windows registry setting; .NET ignores it
+    # elsewhere, where setup.sh edits the shell profile instead.
+    if (-not (Test-WindowsHost)) {
+        Write-Status "  - User PATH is Windows-only; on this platform run setup.sh for shell shortcuts" -Color DarkGray
+        return
+    }
+
+    $currentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+    $newPath = Get-UpdatedUserPath -CurrentPath $currentPath -Directory $binDir
+
+    if ($null -eq $newPath) {
         Write-Status "  + Proxy launcher PATH already configured" -Color Green
     }
     else {
         Write-Status "  Adding ${binDir} to user PATH..."
-        $newPath = "${binDir};${currentPath}"
         [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
         Write-Status "  + Proxy launcher PATH added to user environment" -Color Green
         Write-Status ""

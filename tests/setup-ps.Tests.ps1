@@ -632,6 +632,53 @@ Describe "Link helpers" {
     }
 }
 
+Describe "Get-UpdatedUserPath" {
+    It "prepends the directory" {
+        Get-UpdatedUserPath -CurrentPath "C:\a;C:\b" -Directory "C:\repo\bin" -Separator ";" |
+            Should -Be "C:\repo\bin;C:\a;C:\b"
+    }
+
+    It "returns null when the directory is already present" {
+        Get-UpdatedUserPath -CurrentPath "C:\a;C:\repo\bin" -Directory "C:\repo\bin" -Separator ";" |
+            Should -BeNullOrEmpty
+    }
+
+    It "handles an empty user PATH without a dangling separator" {
+        Get-UpdatedUserPath -CurrentPath "" -Directory "C:\repo\bin" -Separator ";" | Should -Be "C:\repo\bin"
+    }
+}
+
+Describe "Native commands under the Stop preference" {
+    # Only Windows PowerShell 5.1 turns redirected native stderr into a
+    # terminating error, so this guards the Windows lane; elsewhere it must pass.
+    BeforeAll {
+        $script:FakeBin = Join-Path $TestDrive "fake-bin"
+        New-Item -ItemType Directory -Path $script:FakeBin | Out-Null
+        if (Test-WindowsHost) {
+            Write-Utf8Text -Path (Join-Path $script:FakeBin "claude.cmd") -Content "@echo warning: noisy 1>&2`r`n@exit /b 0`r`n"
+        }
+        else {
+            $fake = Join-Path $script:FakeBin "claude"
+            Write-Utf8Text -Path $fake -Content "#!/bin/sh`necho 'warning: noisy' >&2`nexit 0`n"
+            & chmod +x $fake
+        }
+        $script:SavedPath = $env:PATH
+        $env:PATH = $script:FakeBin + [System.IO.Path]::PathSeparator + $env:PATH
+    }
+
+    AfterAll {
+        $env:PATH = $script:SavedPath
+    }
+
+    It "a warning on stderr does not turn a successful MCP install into a failure" {
+        $ErrorActionPreference = "Stop"
+        $script:Messages = New-Object System.Collections.Generic.List[string]
+        Mock Write-Status { $script:Messages.Add($Message) }
+        Install-SingleMcp -Key "tavily" -Backend "doppler"
+        ($script:Messages -join "`n") | Should -Match "tavily MCP added"
+    }
+}
+
 # ============================================================================
 # Overlay: Percentage inside bar
 # ============================================================================
