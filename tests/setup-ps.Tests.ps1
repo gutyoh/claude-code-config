@@ -374,6 +374,265 @@ Describe "Test-Prerequisite" {
 }
 
 # ============================================================================
+# Filesystem: per-entry install (parity with install_managed_entries)
+# ============================================================================
+
+Describe "Install-ManagedEntry" {
+    BeforeAll {
+        function New-FakeRepo {
+            $root = Join-Path $TestDrive ("repo-" + [guid]::NewGuid().ToString("N"))
+            $claude = Join-Path $root ".claude"
+            $hooks = Join-Path $claude "hooks"
+            $skill = Join-Path (Join-Path $claude "skills") "sample-skill"
+            New-Item -ItemType Directory -Path $hooks, $skill -Force | Out-Null
+            Write-Utf8Text -Path (Join-Path $hooks "one.sh") -Content "echo one`n"
+            Write-Utf8Text -Path (Join-Path $hooks "two.sh") -Content "echo two`n"
+            Write-Utf8Text -Path (Join-Path $skill "SKILL.md") -Content "---`nname: sample-skill`n---`n"
+            # -c only: a test must never write the developer's git config.
+            & git -C $root -c init.defaultBranch=main init -q 2>$null | Out-Null
+            & git -C $root add -A 2>$null | Out-Null
+            & git -C $root -c user.name=test -c user.email=test@example.invalid -c commit.gpgsign=false commit -q -m init 2>$null | Out-Null
+            return $root
+        }
+
+        function Get-Link([string]$Path) {
+            $item = Get-EntryItem $Path
+            if (Test-LinkItem $item) { return Get-LinkTargetPath $item }
+            return $null
+        }
+    }
+
+    BeforeEach {
+        $script:RepoDir = New-FakeRepo
+        $script:ClaudeDir = Join-Path $TestDrive ("cfg-" + [guid]::NewGuid().ToString("N"))
+        New-Item -ItemType Directory -Path $script:ClaudeDir | Out-Null
+        $script:SourceHooks = Join-Path (Join-Path $script:RepoDir ".claude") "hooks"
+        $script:SourceSkills = Join-Path (Join-Path $script:RepoDir ".claude") "skills"
+        $script:TargetHooks = Join-Path $script:ClaudeDir "hooks"
+        $script:TargetSkills = Join-Path $script:ClaudeDir "skills"
+        $script:Messages = New-Object System.Collections.Generic.List[string]
+        Mock Write-Status { $script:Messages.Add($Message) }
+    }
+
+    It "links each entry individually and is idempotent" {
+        Install-ManagedEntry -SourceDir $script:SourceHooks -TargetDir $script:TargetHooks -Name "hooks"
+        (Get-Item -LiteralPath $script:TargetHooks -Force).LinkType | Should -BeNullOrEmpty
+        Get-Link (Join-Path $script:TargetHooks "one.sh") | Should -Be (Join-Path $script:SourceHooks "one.sh")
+        Get-Link (Join-Path $script:TargetHooks "two.sh") | Should -Be (Join-Path $script:SourceHooks "two.sh")
+
+        $script:Messages.Clear()
+        Install-ManagedEntry -SourceDir $script:SourceHooks -TargetDir $script:TargetHooks -Name "hooks"
+        ($script:Messages -join "`n") | Should -Match "hooks: 2 linked$"
+    }
+
+    It "leaves foreign files and foreign links alone" {
+        New-Item -ItemType Directory -Path $script:TargetHooks | Out-Null
+        Write-Utf8Text -Path (Join-Path $script:TargetHooks "other-tool.sh") -Content "foreign"
+        $elsewhere = Join-Path $TestDrive ("elsewhere-" + [guid]::NewGuid().ToString("N"))
+        Write-Utf8Text -Path $elsewhere -Content "x"
+        New-Item -ItemType SymbolicLink -Path (Join-Path $script:TargetHooks "linked-by-other.sh") -Target $elsewhere | Out-Null
+
+        Install-ManagedEntry -SourceDir $script:SourceHooks -TargetDir $script:TargetHooks -Name "hooks"
+
+        Read-Utf8Text (Join-Path $script:TargetHooks "other-tool.sh") | Should -Be "foreign"
+        Get-Link (Join-Path $script:TargetHooks "linked-by-other.sh") | Should -Be $elsewhere
+        ($script:Messages -join "`n") | Should -Match "2 left untouched"
+    }
+
+    It "skips a foreign link that already uses an entry's name" {
+        New-Item -ItemType Directory -Path $script:TargetHooks | Out-Null
+        $elsewhere = Join-Path $TestDrive ("elsewhere-" + [guid]::NewGuid().ToString("N"))
+        Write-Utf8Text -Path $elsewhere -Content "x"
+        New-Item -ItemType SymbolicLink -Path (Join-Path $script:TargetHooks "one.sh") -Target $elsewhere | Out-Null
+
+        Install-ManagedEntry -SourceDir $script:SourceHooks -TargetDir $script:TargetHooks -Name "hooks"
+
+        Get-Link (Join-Path $script:TargetHooks "one.sh") | Should -Be $elsewhere
+        ($script:Messages -join "`n") | Should -Match "1 skipped"
+    }
+
+    It "keeps a colliding real file as a timestamped backup and never deletes it" {
+        New-Item -ItemType Directory -Path $script:TargetHooks | Out-Null
+        Write-Utf8Text -Path (Join-Path $script:TargetHooks "one.sh") -Content "mine"
+
+        Install-ManagedEntry -SourceDir $script:SourceHooks -TargetDir $script:TargetHooks -Name "hooks"
+        Install-ManagedEntry -SourceDir $script:SourceHooks -TargetDir $script:TargetHooks -Name "hooks"
+
+        Get-Link (Join-Path $script:TargetHooks "one.sh") | Should -Be (Join-Path $script:SourceHooks "one.sh")
+        $backups = @(Get-ChildItem -LiteralPath $script:TargetHooks -Force | Where-Object { $_.Name -match '^one\.sh\.bak\.\d{8}-\d{6}(\.\d+)?$' })
+        $backups.Count | Should -Be 1
+        Read-Utf8Text $backups[0].FullName | Should -Be "mine"
+    }
+
+    It "never overwrites an earlier backup" {
+        $path = Join-Path $TestDrive ("victim-" + [guid]::NewGuid().ToString("N"))
+        Write-Utf8Text -Path $path -Content "first"
+        $first = Backup-Path $path
+        Write-Utf8Text -Path $path -Content "second"
+        $second = Backup-Path $path
+        $first | Should -Not -Be $second
+        Read-Utf8Text (Join-Path $TestDrive $first) | Should -Be "first"
+        Read-Utf8Text (Join-Path $TestDrive $second) | Should -Be "second"
+    }
+
+    It "refreshes a stale link of ours" {
+        New-Item -ItemType Directory -Path $script:TargetHooks | Out-Null
+        New-Item -ItemType SymbolicLink -Path (Join-Path $script:TargetHooks "one.sh") -Target (Join-Path $script:SourceHooks "two.sh") | Out-Null
+
+        Install-ManagedEntry -SourceDir $script:SourceHooks -TargetDir $script:TargetHooks -Name "hooks"
+
+        Get-Link (Join-Path $script:TargetHooks "one.sh") | Should -Be (Join-Path $script:SourceHooks "one.sh")
+    }
+
+    It "prunes our links whose repo entry is gone, but not foreign dangling links" {
+        Install-ManagedEntry -SourceDir $script:SourceHooks -TargetDir $script:TargetHooks -Name "hooks"
+        Remove-Item -LiteralPath (Join-Path $script:SourceHooks "two.sh")
+        New-Item -ItemType SymbolicLink -Path (Join-Path $script:TargetHooks "foreign-dangling") -Target (Join-Path $TestDrive "missing-target") | Out-Null
+
+        $script:Messages.Clear()
+        Install-ManagedEntry -SourceDir $script:SourceHooks -TargetDir $script:TargetHooks -Name "hooks"
+
+        Get-EntryItem (Join-Path $script:TargetHooks "two.sh") | Should -BeNullOrEmpty
+        Get-EntryItem (Join-Path $script:TargetHooks "foreign-dangling") | Should -Not -BeNullOrEmpty
+        ($script:Messages -join "`n") | Should -Match "1 pruned"
+    }
+
+    It "converts a whole-directory link and rescues untracked files out of the repo" {
+        Write-Utf8Text -Path (Join-Path $script:SourceHooks "written-by-other-tool.sh") -Content "rescue me"
+        New-Item -ItemType SymbolicLink -Path $script:TargetHooks -Target $script:SourceHooks | Out-Null
+
+        Install-ManagedEntry -SourceDir $script:SourceHooks -TargetDir $script:TargetHooks -Name "hooks"
+
+        Test-LinkItem (Get-EntryItem $script:TargetHooks) | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $script:SourceHooks "written-by-other-tool.sh") | Should -BeFalse
+        Read-Utf8Text (Join-Path $script:TargetHooks "written-by-other-tool.sh") | Should -Be "rescue me"
+        Get-Link (Join-Path $script:TargetHooks "one.sh") | Should -Be (Join-Path $script:SourceHooks "one.sh")
+        @(Get-ChildItem -LiteralPath $script:ClaudeDir -Force | Where-Object { $_.Name -like "hooks.bak.*" }).Count | Should -Be 0
+    }
+
+    It "treats a profile linked to another profile linked to the repo as ours" {
+        $profileA = Join-Path $TestDrive ("profile-a-" + [guid]::NewGuid().ToString("N"))
+        New-Item -ItemType Directory -Path $profileA | Out-Null
+        New-Item -ItemType SymbolicLink -Path (Join-Path $profileA "skills") -Target $script:SourceSkills | Out-Null
+        New-Item -ItemType SymbolicLink -Path $script:TargetSkills -Target (Join-Path $profileA "skills") | Out-Null
+
+        Install-ManagedEntry -SourceDir $script:SourceSkills -TargetDir $script:TargetSkills -Name "skills"
+
+        Test-LinkItem (Get-EntryItem $script:TargetSkills) | Should -BeFalse
+        Get-Link (Join-Path $script:TargetSkills "sample-skill") | Should -Be (Join-Path $script:SourceSkills "sample-skill")
+        @(Get-ChildItem -LiteralPath $script:ClaudeDir -Force | Where-Object { $_.Name -like "skills.bak.*" }).Count | Should -Be 0
+        Get-Link (Join-Path $profileA "skills") | Should -Be $script:SourceSkills
+    }
+
+    It "keeps a whole-directory link to somewhere else as a backup" {
+        $elsewhere = Join-Path $TestDrive ("other-hooks-" + [guid]::NewGuid().ToString("N"))
+        New-Item -ItemType Directory -Path $elsewhere | Out-Null
+        New-Item -ItemType SymbolicLink -Path $script:TargetHooks -Target $elsewhere | Out-Null
+
+        Install-ManagedEntry -SourceDir $script:SourceHooks -TargetDir $script:TargetHooks -Name "hooks"
+
+        Test-LinkItem (Get-EntryItem $script:TargetHooks) | Should -BeFalse
+        $backup = @(Get-ChildItem -LiteralPath $script:ClaudeDir -Force | Where-Object { $_.Name -like "hooks.bak.*" })
+        $backup.Count | Should -Be 1
+        Get-LinkTargetPath $backup[0] | Should -Be $elsewhere
+    }
+
+    It "does nothing when the config dir is the repo's .claude" {
+        $script:ClaudeDir = Join-Path $script:RepoDir ".claude"
+        Install-ManagedEntry -SourceDir $script:SourceHooks -TargetDir (Join-Path $script:ClaudeDir "hooks") -Name "hooks"
+        ($script:Messages -join "`n") | Should -Match "same as repo"
+    }
+
+    Context "without symlink privilege" {
+        BeforeEach {
+            Mock New-SymbolicLinkEntry { throw "A required privilege is not held by the client." }
+            Mock New-JunctionEntry { New-Item -ItemType SymbolicLink -Path $Path -Target $Target | Out-Null }
+        }
+
+        It "uses junctions for directories and manifest-tracked copies for files" {
+            Install-ManagedEntry -SourceDir $script:SourceSkills -TargetDir $script:TargetSkills -Name "skills"
+            Install-ManagedEntry -SourceDir $script:SourceHooks -TargetDir $script:TargetHooks -Name "hooks"
+
+            Should -Invoke New-JunctionEntry -Times 1 -Exactly
+            Get-Link (Join-Path $script:TargetSkills "sample-skill") | Should -Be (Join-Path $script:SourceSkills "sample-skill")
+            Test-LinkItem (Get-EntryItem (Join-Path $script:TargetHooks "one.sh")) | Should -BeFalse
+            Read-Utf8Text (Join-Path $script:TargetHooks "one.sh") | Should -Be "echo one`n"
+            $manifest = Read-ManagedManifest $script:TargetHooks
+            $manifest.Contains("one.sh") | Should -BeTrue
+            $manifest.Contains("two.sh") | Should -BeTrue
+            ($script:Messages -join "`n") | Should -Match "2 as copies"
+        }
+
+        It "leaves unchanged copies alone, refreshes changed ones, prunes removed ones" {
+            Write-Utf8Text -Path (Join-Path (New-Item -ItemType Directory -Path $script:TargetHooks -Force).FullName "foreign.sh") -Content "foreign"
+            Install-ManagedEntry -SourceDir $script:SourceHooks -TargetDir $script:TargetHooks -Name "hooks"
+            $copy = Join-Path $script:TargetHooks "one.sh"
+            $stamp = (Get-Item -LiteralPath $copy).LastWriteTimeUtc
+            Start-Sleep -Milliseconds 50
+
+            Install-ManagedEntry -SourceDir $script:SourceHooks -TargetDir $script:TargetHooks -Name "hooks"
+            (Get-Item -LiteralPath $copy).LastWriteTimeUtc | Should -Be $stamp
+
+            Write-Utf8Text -Path (Join-Path $script:SourceHooks "one.sh") -Content "echo changed`n"
+            Remove-Item -LiteralPath (Join-Path $script:SourceHooks "two.sh")
+            $script:Messages.Clear()
+            Install-ManagedEntry -SourceDir $script:SourceHooks -TargetDir $script:TargetHooks -Name "hooks"
+
+            Read-Utf8Text $copy | Should -Be "echo changed`n"
+            Test-Path -LiteralPath (Join-Path $script:TargetHooks "two.sh") | Should -BeFalse
+            (Read-ManagedManifest $script:TargetHooks).Contains("two.sh") | Should -BeFalse
+            Read-Utf8Text (Join-Path $script:TargetHooks "foreign.sh") | Should -Be "foreign"
+            ($script:Messages -join "`n") | Should -Match "1 pruned"
+            ($script:Messages -join "`n") | Should -Match "1 left untouched"
+        }
+
+        It "copies directories too when junctions fail" {
+            Mock New-JunctionEntry { throw "junctions unsupported" }
+            Install-ManagedEntry -SourceDir $script:SourceSkills -TargetDir $script:TargetSkills -Name "skills"
+
+            $copy = Join-Path $script:TargetSkills "sample-skill"
+            Test-LinkItem (Get-EntryItem $copy) | Should -BeFalse
+            Test-Path -LiteralPath (Join-Path $copy "SKILL.md") | Should -BeTrue
+            (Read-ManagedManifest $script:TargetSkills).Contains("sample-skill") | Should -BeTrue
+        }
+    }
+}
+
+Describe "Link helpers" {
+    It "Remove-LinkItem deletes a directory link but not its target" {
+        $target = Join-Path $TestDrive "kept-dir"
+        New-Item -ItemType Directory -Path $target | Out-Null
+        Write-Utf8Text -Path (Join-Path $target "inside.txt") -Content "keep"
+        $link = Join-Path $TestDrive "dir-link"
+        New-Item -ItemType SymbolicLink -Path $link -Target $target | Out-Null
+
+        Remove-LinkItem (Get-EntryItem $link)
+
+        Get-EntryItem $link | Should -BeNullOrEmpty
+        Read-Utf8Text (Join-Path $target "inside.txt") | Should -Be "keep"
+    }
+
+    It "Resolve-RealPath follows relative links and links inside the path" {
+        $real = Join-Path $TestDrive "real-root"
+        New-Item -ItemType Directory -Path (Join-Path $real "sub") -Force | Out-Null
+        Push-Location $TestDrive
+        try {
+            New-Item -ItemType SymbolicLink -Path (Join-Path $TestDrive "rel-link") -Target "real-root" | Out-Null
+        }
+        finally {
+            Pop-Location
+        }
+        Resolve-RealPath (Join-Path (Join-Path $TestDrive "rel-link") "sub") |
+            Should -Be (Resolve-RealPath (Join-Path $real "sub"))
+    }
+
+    It "New-JunctionEntry fails loudly when nothing was created" {
+        Mock New-Item { }
+        { New-JunctionEntry -Path (Join-Path $TestDrive "no-junction") -Target $TestDrive } | Should -Throw
+    }
+}
+
+# ============================================================================
 # Overlay: Percentage inside bar
 # ============================================================================
 

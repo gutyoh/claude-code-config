@@ -280,12 +280,13 @@ Write-Status ""
 
 $step = 0
 
-# --- Create symlinks ---
+# --- Install managed entries ---
 $step++
-Write-Status "Step ${step}: Creating symlinks..." -Color Yellow
+Write-Status "Step ${step}: Installing managed entries..." -Color Yellow
 
-Initialize-Symlink -Source "$($script:RepoDir)\.claude\hooks" -Target "$($script:ClaudeDir)\hooks" -Name "hooks"
-Initialize-Symlink -Source "$($script:RepoDir)\.claude\scripts" -Target "$($script:ClaudeDir)\scripts" -Name "scripts"
+$repoClaudeDir = Join-Path $script:RepoDir ".claude"
+Install-ManagedEntry -SourceDir (Join-Path $repoClaudeDir "hooks") -TargetDir (Join-Path $script:ClaudeDir "hooks") -Name "hooks"
+Install-ManagedEntry -SourceDir (Join-Path $repoClaudeDir "scripts") -TargetDir (Join-Path $script:ClaudeDir "scripts") -Name "scripts"
 
 # --- Install bin/ utilities ---
 $binDir = Join-Path (Join-Path $HOME ".local") "bin"
@@ -294,9 +295,9 @@ if (-not (Test-Path $binDir)) {
 }
 
 foreach ($util in @("mcp-key-rotate", "mcp-env-inject")) {
-    $source = "$($script:RepoDir)\bin\${util}"
+    $source = Join-Path (Join-Path $script:RepoDir "bin") $util
     if (Test-Path $source) {
-        Copy-Item $source "$binDir\${util}" -Force
+        Copy-Item -LiteralPath $source -Destination (Join-Path $binDir $util) -Force
         Write-Status "  + ~/.local/bin/${util} -> ${source}" -Color Green
     }
     else {
@@ -312,9 +313,9 @@ foreach ($util in @("mcp-key-rotate", "mcp-env-inject")) {
 #      PowerShell / pwsh users can type `claude-proxy` and have it dispatch
 #      to bash automatically)
 # Neither requires admin -- same pattern Scoop uses for its shim system.
-$claudeProxySource = "$($script:RepoDir)\bin\claude-proxy"
+$claudeProxySource = Join-Path (Join-Path $script:RepoDir "bin") "claude-proxy"
 if (Test-Path $claudeProxySource) {
-    $shimPath = "$binDir\claude-proxy"
+    $shimPath = Join-Path $binDir "claude-proxy"
     # Convert Windows path to the forward-slash form bash accepts
     $bashPath = ($claudeProxySource -replace '\\', '/')
     $shimBody = @"
@@ -329,7 +330,7 @@ exec "$bashPath" "`$@"
     # PowerShell companion -- enables `claude-proxy` from PowerShell itself.
     # Locates bash (PATH first, then common Git Bash install dirs) and
     # forwards all args to the bash shim.
-    $ps1Path = "$binDir\claude-proxy.ps1"
+    $ps1Path = Join-Path $binDir "claude-proxy.ps1"
     $ps1Body = @'
 <#
 .SYNOPSIS
@@ -370,8 +371,8 @@ else {
 }
 
 if ($script:InstallAgentsSkills) {
-    Initialize-Symlink -Source "$($script:RepoDir)\.claude\skills" -Target "$($script:ClaudeDir)\skills" -Name "skills"
-    Initialize-Symlink -Source "$($script:RepoDir)\.claude\agents" -Target "$($script:ClaudeDir)\agents" -Name "agents"
+    Install-ManagedEntry -SourceDir (Join-Path $repoClaudeDir "skills") -TargetDir (Join-Path $script:ClaudeDir "skills") -Name "skills"
+    Install-ManagedEntry -SourceDir (Join-Path $repoClaudeDir "agents") -TargetDir (Join-Path $script:ClaudeDir "agents") -Name "agents"
 }
 else {
     Write-Status "  - Skipping agents & skills (not selected)" -Color DarkGray
