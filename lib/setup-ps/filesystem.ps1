@@ -310,8 +310,17 @@ function Convert-DirectoryLink {
         return
     }
 
+    # A second profile can link to the first profile's link into the repo. Its
+    # untracked files are the first profile's, so they stay put until that
+    # profile is installed. A chain is a link to a link, whatever the spelling.
+    $dest = Get-LinkTargetPath $item
+    $chained = Test-LinkItem (Get-EntryItem $dest)
     Remove-LinkItem $item
     New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null
+    if ($chained) {
+        Write-Status "  ! ${Label} linked to the repo through ${dest} -- converting to per-entry links" -Color Yellow
+        return
+    }
     Write-Status "  ! ${Label} was a whole-directory link -- converting to per-entry links" -Color Yellow
 
     if (-not (Test-RepoIsGit)) { return }

@@ -699,9 +699,10 @@ claude-permissions-audit --verbose        # list each finding; secrets are alway
 claude-permissions-audit --json           # machine-readable
 claude-permissions-audit --dry-run        # show what --fix would remove
 claude-permissions-audit --fix            # back up, then remove
+claude-permissions-audit --fix --include-tracked   # also rewrite settings files git tracks
 ```
 
-`--fix` removes mid-wildcard, secret-like and duplicate rules and leaves every other key untouched. Broad rules are reported but never removed, because removing one changes how you work. Before rewriting a file, `--fix` copies it to `~/.claude/backups/permissions/<UTC-timestamp>/` (directory mode `700`, file mode `600`). Removing a rule does not revoke the credential it contained, so rotate that credential too.
+`--fix` removes mid-wildcard, secret-like and duplicate rules and leaves every other key untouched. Broad rules are reported but never removed, because removing one changes how you work. Before rewriting a file, `--fix` copies it to `~/.claude/backups/permissions/<UTC-timestamp>/` (directory mode `700`, file mode `600`). A settings file that git tracks is left unchanged and reported, because rewriting it would leave a diff in that repository; `--include-tracked` rewrites it too. Removing a rule does not revoke the credential it contained.
 
 Secret detection is a heuristic. It flags literal values after password, token and key names, URL userinfo, `curl -u`, auth headers, `mysql -p…`, and common token prefixes. Values written as `$VAR` or `$(…)` are not flagged. The scan skips `node_modules`, `.git`, `.worktrees`, virtualenvs and caches. When `$HOME` is the root, it also skips `~/Library` and the dot-directories directly under `$HOME`. It does not read managed settings. Exit codes: `0` clean, `1` findings (after `--fix`, broad rules remain), `2` usage or I/O error. Requires `jq`; on Windows it runs under Git Bash.
 

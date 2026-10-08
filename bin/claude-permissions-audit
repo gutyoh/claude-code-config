@@ -19,6 +19,9 @@
 #   --fix           Back up, then remove mid-wildcard, secret-like and
 #                   duplicate rules (broad rules are only reported)
 #   --dry-run       Show what --fix would remove without writing anything
+#   --include-tracked
+#                   Let --fix rewrite settings files git tracks too (they are
+#                   left alone by default: the change would be a diff to commit)
 #   -h, --help      Show this help
 #
 # Exit: 0 clean, 1 findings (after --fix: broad rules remain), 2 usage/IO error.
@@ -116,6 +119,9 @@ map(select(.error == null)) as $ok
         (if $mode == "fix" then "  removed \(.removed | length) (backup: \(.backup | tilde))"
          else "  would remove \(.removed | length):" end),
         (.removed[] | "    - \(.category): \(.rule | oneline)")
+      else empty end),
+     (if $mode != "audit" and (.tracked_held // 0) > 0 then
+        "  tracked by git: \(.tracked_held) left unchanged (--include-tracked rewrites it)"
       else empty end)),
   "total: files=\($ok | length) rules=\($ok | map(.rules) | add // 0) mid_wildcard=\($ok | map(.mid_wildcard | length) | add // 0) secret_like=\($ok | map(.secret_like | length) | add // 0) broad=\($ok | map(.broad | length) | add // 0) duplicates=\($ok | map(.duplicates | length) | add // 0)"
   + (if $mode == "fix" then " removed=\($ok | map(.removed | length) | add // 0)"
@@ -195,9 +201,17 @@ fix_file() {
     printf '%s\n' "${dest}"
 }
 
+# A tracked settings file is shared through its repository; rewriting it
+# leaves a diff to commit, so --fix leaves it unless asked.
+is_tracked() {
+    command -v git >/dev/null 2>&1 || return 1
+    git -C "$(dirname "$1")" ls-files --error-unmatch -- "$(basename "$1")" >/dev/null 2>&1
+}
+
 # --- Arguments ------------------------------------------------------------
 
 FIX=false
+INCLUDE_TRACKED=false
 DRY_RUN=false
 JSON=false
 VERBOSE=false
@@ -206,6 +220,7 @@ ROOTS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --fix) FIX=true ;;
+        --include-tracked) INCLUDE_TRACKED=true ;;
         --dry-run | -n) DRY_RUN=true ;;
         --json) JSON=true ;;
         -v | --verbose) VERBOSE=true ;;
@@ -277,6 +292,10 @@ while IFS= read -r file; do
         IO_ERROR=1
         continue
     fi
+    if [[ "${MODE}" != "audit" && "${INCLUDE_TRACKED}" != "true" ]] \
+        && [[ "$(jq -c '.remove_idx' <<<"${rec}")" != "[]" ]] && is_tracked "${file}"; then
+        rec="$(jq -c '. + {tracked_held: (.removed | length), removed: [], remove_idx: []}' <<<"${rec}")"
+    fi
     if [[ "${MODE}" == "fix" ]]; then
         idx="$(jq -c '.remove_idx' <<<"${rec}")"
         if [[ "${idx}" != "[]" ]]; then
@@ -304,7 +323,7 @@ fi
 # After --fix only broad rules (never removed) or failed rewrites remain.
 remaining="$(jq -s --arg mode "${MODE}" '
     map(select(.error == null))
-    | if $mode == "fix" then map(if .error_fix then (.mid_wildcard + .secret_like + .duplicates | length) + (.broad | length) else .broad_kept end)
+    | if $mode == "fix" then map(if .error_fix then (.mid_wildcard + .secret_like + .duplicates | length) + (.broad | length) else .broad_kept + (.tracked_held // 0) end)
       else map(.mid_wildcard + .secret_like + .broad + .duplicates | length) end
     | add // 0' "${RECORDS}")"
 

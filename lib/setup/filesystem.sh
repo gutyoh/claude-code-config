@@ -64,14 +64,18 @@ _migrate_directory_symlink() {
     # A second profile can link to the first profile's directory, which links
     # to the repo. That chain is ours too, but its untracked files are seen by
     # the first profile, so they stay put until that profile is installed.
-    if [[ "${dest}" != "${source_dir}" && -n "${dest_real}" && "${dest_real}" == "${source_real}" ]]; then
+    # A chain is a link to a link; comparing path text would mistake a checkout
+    # reached through a symlinked parent (macOS /tmp) for one.
+    local dest_abs="${dest}"
+    [[ "${dest_abs}" == /* ]] || dest_abs="$(dirname "${target_dir}")/${dest_abs}"
+    if [[ -n "${dest_real}" && "${dest_real}" == "${source_real}" && -L "${dest_abs}" ]]; then
         rm -f "${target_dir}"
         mkdir -p "${target_dir}"
         echo "  ⚠ ${CLAUDE_DIR_REF:-~/.claude}/${name} linked to the repo through ${dest} — converting to per-entry links"
         return 0
     fi
 
-    if [[ "${dest}" != "${source_dir}" ]]; then
+    if [[ -z "${dest_real}" || "${dest_real}" != "${source_real}" ]]; then
         # Points somewhere that is not this repo. Not ours to take apart.
         local moved
         moved=$(_timestamped_backup "${target_dir}")
