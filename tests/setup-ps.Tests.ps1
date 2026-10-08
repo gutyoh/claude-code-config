@@ -671,6 +671,48 @@ Describe "Find-GitBash" {
     }
 }
 
+Describe "claude-proxy PowerShell companion" {
+    BeforeAll {
+        # A fake bash that echoes its arguments, so the forwarded command line is visible.
+        function New-ArgEchoExecutable([string]$Dir, [string]$Name) {
+            New-Item -ItemType Directory -Path $Dir -Force | Out-Null
+            if (Test-WindowsHost) {
+                $path = Join-Path $Dir "${Name}.cmd"
+                Write-Utf8Text -Path $path -Content "@echo %*`r`n"
+            }
+            else {
+                $path = Join-Path $Dir $Name
+                Write-Utf8Text -Path $path -Content "#!/bin/sh`nprintf '%s ' `"`$@`"`necho`n"
+                & chmod +x $path
+            }
+            return $path
+        }
+    }
+
+    BeforeEach {
+        $script:SavedGitBash = $env:CLAUDE_CODE_GIT_BASH_PATH
+        $script:CompanionDir = Join-Path $TestDrive ("bin-" + [guid]::NewGuid().ToString("N"))
+        New-Item -ItemType Directory -Path $script:CompanionDir | Out-Null
+        Write-Utf8Text -Path (Join-Path $script:CompanionDir "claude-proxy") -Content "#!/usr/bin/env bash`n"
+        $script:Companion = Join-Path $script:CompanionDir "claude-proxy.ps1"
+        Write-Utf8Text -Path $script:Companion -Content (Get-ClaudeProxyCompanion)
+        $env:CLAUDE_CODE_GIT_BASH_PATH = New-ArgEchoExecutable (Join-Path $TestDrive "fakebash") "bash"
+    }
+
+    AfterEach {
+        $env:CLAUDE_CODE_GIT_BASH_PATH = $script:SavedGitBash
+    }
+
+    It "forwards claude-proxy's own flags verbatim to the bash shim" {
+        $out = (& $script:Companion -p antigravity -m "gpt-x" --models) -join " "
+        $out | Should -Match ([regex]::Escape("claude-proxy -p antigravity -m gpt-x --models"))
+    }
+
+    It "is ASCII-only, like every other script it ships beside" {
+        @([System.Text.Encoding]::UTF8.GetBytes((Get-ClaudeProxyCompanion)) | Where-Object { $_ -gt 0x7F }).Count | Should -Be 0
+    }
+}
+
 Describe "Get-UpdatedUserPath" {
     It "prepends the directory" {
         Get-UpdatedUserPath -CurrentPath "C:\a;C:\b" -Directory "C:\repo\bin" -Separator ";" |
