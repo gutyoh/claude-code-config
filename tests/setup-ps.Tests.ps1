@@ -1460,6 +1460,19 @@ Describe "UTF-8 file helpers" {
         ($text | ConvertFrom-Json).b | Should -Be "x"
     }
 
+    It "writes arrays attached with Add-Member as JSON arrays" {
+        $path = Join-Path $TestDrive "added.json"
+        $obj = [PSCustomObject]@{}
+        $obj | Add-Member -NotePropertyName "items" -NotePropertyValue @("a", "b") -Force
+        $obj | Add-Member -NotePropertyName "empty" -NotePropertyValue @() -Force
+        Write-JsonFile -Path $path -InputObject $obj
+        $text = Read-Utf8Text $path
+        $text | Should -Not -Match '"value"'
+        $parsed = $text | ConvertFrom-Json
+        @($parsed.items).Count | Should -Be 2
+        $text | Should -Match '"empty":\s*\[\s*\]'
+    }
+
     It "resolves relative paths against the PowerShell location" {
         Push-Location $TestDrive
         try {

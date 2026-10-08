@@ -53,6 +53,11 @@ function Write-JsonFile {
         [object]$InputObject
     )
 
+    # Windows PowerShell 5.1's type data gives arrays an extra Count property,
+    # so an array attached with Add-Member serializes as {"value":[],"Count":n}.
+    if ($PSVersionTable.PSEdition -ne "Core") {
+        Remove-TypeData -TypeName System.Array -ErrorAction SilentlyContinue
+    }
     $json = ConvertTo-Json -InputObject $InputObject -Depth 100
     Write-Utf8Text -Path $Path -Content (($json -replace "`r`n", "`n") + "`n")
 }
