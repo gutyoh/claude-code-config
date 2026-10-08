@@ -274,7 +274,8 @@ Describe "Settings JSON manipulation" {
             Update-IdeHook
             Update-IdeHook
             $settings = Get-Content $script:SettingsJson -Raw | ConvertFrom-Json
-            $count = ($settings.hooks.PreToolUse | Where-Object { $_.matcher -eq "mcp__ide__getDiagnostics" }).Count
+            # @(): a lone PSCustomObject has no .Count on Windows PowerShell 5.1.
+            $count = @($settings.hooks.PreToolUse | Where-Object { $_.matcher -eq "mcp__ide__getDiagnostics" }).Count
             $count | Should -Be 1
         }
     }
@@ -494,7 +495,11 @@ Describe "Install-ManagedEntry" {
     It "prunes our links whose repo entry is gone, but not foreign dangling links" {
         Install-ManagedEntry -SourceDir $script:SourceHooks -TargetDir $script:TargetHooks -Name "hooks"
         Remove-Item -LiteralPath (Join-Path $script:SourceHooks "two.sh")
-        New-Item -ItemType SymbolicLink -Path (Join-Path $script:TargetHooks "foreign-dangling") -Target (Join-Path $TestDrive "missing-target") | Out-Null
+        # 5.1 refuses to link to a missing target, so dangle it after the fact.
+        $missing = Join-Path $TestDrive "missing-target"
+        Write-Utf8Text -Path $missing -Content "gone soon"
+        New-Item -ItemType SymbolicLink -Path (Join-Path $script:TargetHooks "foreign-dangling") -Target $missing | Out-Null
+        Remove-Item -LiteralPath $missing
 
         $script:Messages.Clear()
         Install-ManagedEntry -SourceDir $script:SourceHooks -TargetDir $script:TargetHooks -Name "hooks"
