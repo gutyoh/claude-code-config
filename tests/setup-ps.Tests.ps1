@@ -392,10 +392,13 @@ Describe "Install-ManagedEntry" {
             Write-Utf8Text -Path (Join-Path $hooks "one.sh") -Content "echo one`n"
             Write-Utf8Text -Path (Join-Path $hooks "two.sh") -Content "echo two`n"
             Write-Utf8Text -Path (Join-Path $skill "SKILL.md") -Content "---`nname: sample-skill`n---`n"
-            # -c only: a test must never write the developer's git config.
+            # -c only: a test must never write the developer's git config. On
+            # 5.1, redirected native stderr (Windows git warns about CRLF) is a
+            # terminating error under "Stop", as Invoke-GitQuiet also knows.
+            $ErrorActionPreference = "Continue"
             & git -C $root -c init.defaultBranch=main init -q 2>$null | Out-Null
-            & git -C $root add -A 2>$null | Out-Null
-            & git -C $root -c user.name=test -c user.email=test@example.invalid -c commit.gpgsign=false commit -q -m init 2>$null | Out-Null
+            & git -C $root -c core.autocrlf=false add -A 2>$null | Out-Null
+            & git -C $root -c core.autocrlf=false -c user.name=test -c user.email=test@example.invalid -c commit.gpgsign=false commit -q -m init 2>$null | Out-Null
             return $root
         }
 
@@ -804,6 +807,18 @@ Describe "Update-ClaudeShortcut" {
             }
             $script:SavedPath = $env:PATH
             $env:PATH = $script:FakeClaudeDir + [System.IO.Path]::PathSeparator + $env:PATH
+
+            function Invoke-AsProfile([string]$Body) {
+                $profileFile = Join-Path $TestDrive ("profile-" + [guid]::NewGuid().ToString("N") + ".ps1")
+                $driver = Join-Path $TestDrive ("driver-" + [guid]::NewGuid().ToString("N") + ".ps1")
+                Write-Utf8Text -Path $profileFile -Content (Get-ClaudeShortcutBlock)
+                Write-Utf8Text -Path $driver -Content (". '$profileFile'`n" + $Body + "`n")
+                $exe = (Get-Process -Id $PID).Path
+                $policy = @()
+                if (Test-WindowsHost) { $policy = @("-ExecutionPolicy", "Bypass") }
+                # -Command, not -File: only a dot-sourced driver runs at global scope.
+                return & $exe @policy -NoProfile -NonInteractive -Command ". '$driver'"
+            }
         }
 
         AfterAll {
@@ -818,30 +833,27 @@ Describe "Update-ClaudeShortcut" {
             ((claude -A baz) -join " ").Trim() | Should -Be "--allow-dangerously-skip-permissions -A baz"
         }
 
-        It "clp overrides the built-in clp alias (Clear-ItemProperty)" {
-            . ([scriptblock]::Create((Get-ClaudeShortcutBlock)))
-            (Get-Command clp).CommandType | Should -Be "Function"
+        # A profile runs at global scope in a fresh session, where Windows
+        # PowerShell 5.1 keeps clp as an AllScope alias; dot-sourcing the block
+        # inside an It block would test a child scope instead.
+        It "clp overrides the built-in clp alias when loaded as a profile" {
+            $out = Invoke-AsProfile -Body '(Get-Command clp).CommandType'
+            "$out".Trim() | Should -Be "Function"
         }
 
-        # Skipped where a real companion is installed: clp would call it.
-        It "clp passes the model and a literal -- to claude-proxy" -Skip:(Test-Path -LiteralPath (Join-Path (Join-Path (Join-Path $HOME ".local") "bin") "claude-proxy.ps1")) {
-            . ([scriptblock]::Create((Get-ClaudeShortcutBlock)))
-            # Defined through the provider: the stand-in needs claude-proxy's name.
-            New-Item -Path Function:\claude-proxy -Value { $script:ProxyArgs = @($args) } -Force | Out-Null
-            # Called by name at runtime, the way a user types it.
-            $clpName = "clp"
-            $savedModel = $env:CLAUDE_PROXY_MODEL
-            try {
-                $env:CLAUDE_PROXY_MODEL = ""
-                & $clpName -a hi
-                $script:ProxyArgs | Should -Be @("--no-validate", "-m", "gpt-5.5(high)", "--", "--dangerously-skip-permissions", "hi")
-                $env:CLAUDE_PROXY_MODEL = "other-model"
-                & $clpName there
-                $script:ProxyArgs | Should -Be @("--no-validate", "-m", "other-model", "--", "--allow-dangerously-skip-permissions", "there")
-            }
-            finally {
-                $env:CLAUDE_PROXY_MODEL = $savedModel
-            }
+        It "clp passes the model and a literal -- to claude-proxy" {
+            $body = @'
+function global:claude-proxy { $global:ProxyArgs = @($args) }
+$env:CLAUDE_PROXY_MODEL = ''
+clp -a hi
+$global:ProxyArgs -join '|'
+$env:CLAUDE_PROXY_MODEL = 'other-model'
+clp there
+$global:ProxyArgs -join '|'
+'@
+            $out = @(Invoke-AsProfile -Body $body)
+            $out[0] | Should -Be "--no-validate|-m|gpt-5.5(high)|--|--dangerously-skip-permissions|hi"
+            $out[1] | Should -Be "--no-validate|-m|other-model|--|--allow-dangerously-skip-permissions|there"
         }
 
         It "the block is ASCII-only" {
