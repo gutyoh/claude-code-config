@@ -352,3 +352,63 @@ EOF
     local setup_sh="$BATS_TEST_DIRNAME/../setup.sh"
     grep -q 'ln -sf "${REPO_DIR}/bin/claude-permissions-audit" "${bin_dir}/claude-permissions-audit"' "$setup_sh"
 }
+
+# --- Tracked files ------------------------------------------------------------
+
+# PROJ as a git repository; settings.local.json is committed unless ignored.
+git_project() {
+    git -C "${PROJ}" init -q
+    if [[ "${1:-}" == "ignore" ]]; then
+        printf '.claude/settings.local.json\n' >"${PROJ}/.gitignore"
+    fi
+    git -C "${PROJ}" add -A
+    git -C "${PROJ}" -c user.name=T -c user.email=t@example.invalid commit -qm init
+}
+
+@test "--fix leaves a git-tracked settings file byte-identical and says why" {
+    write_fixture
+    git_project
+    cp "${SETTINGS}" "${BATS_TEST_TMPDIR}/before.json"
+    run bash "$SCRIPT" --fix "${HOME}/work"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"tracked by git: 4 left unchanged (--include-tracked rewrites it)"* ]]
+    [[ "$output" == *"removed=0"* ]]
+    cmp "${BATS_TEST_TMPDIR}/before.json" "${SETTINGS}"
+    [ -z "$(git -C "${PROJ}" status --porcelain)" ]
+    [ ! -d "${HOME}/.claude/backups/permissions" ]
+}
+
+@test "--fix --include-tracked rewrites a tracked file, with a backup" {
+    write_fixture
+    git_project
+    run bash "$SCRIPT" --fix --include-tracked "${HOME}/work"
+    [[ "$output" == *"removed 4 (backup:"* ]]
+    ! grep -q "${FAKE_PW}" "${SETTINGS}"
+    [ -n "$(git -C "${PROJ}" status --porcelain)" ]
+}
+
+@test "--dry-run reports a tracked file as left unchanged" {
+    write_fixture
+    git_project
+    run bash "$SCRIPT" --dry-run "${HOME}/work"
+    [[ "$output" == *"tracked by git: 4 left unchanged"* ]]
+    [[ "$output" == *"would_remove=0"* ]]
+}
+
+@test "--fix still cleans a settings file the repository ignores" {
+    write_fixture
+    git_project ignore
+    run bash "$SCRIPT" --fix "${HOME}/work"
+    [[ "$output" == *"removed 4 (backup:"* ]]
+    [[ "$output" != *"tracked by git"* ]]
+    ! grep -q "${FAKE_PW}" "${SETTINGS}"
+    [ -z "$(git -C "${PROJ}" status --porcelain)" ]
+}
+
+@test "--json marks how many rules a tracked file kept" {
+    write_fixture
+    git_project
+    audit_json --dry-run "${HOME}/work"
+    [ "$(jq '.files[0].tracked_held' <<<"$output")" -eq 4 ]
+    [ "$(jq '.files[0].removed | length' <<<"$output")" -eq 0 ]
+}

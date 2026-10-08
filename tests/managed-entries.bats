@@ -301,3 +301,36 @@ install_hooks() {
     [ -f "${REPO_DIR}/.claude/skills/foreign" ]
     [ -L "${HOME}/.claude-first/skills" ]
 }
+
+@test "migration rescues untracked files when the link names the repo through a symlinked path" {
+    seed_repo hooks a.sh
+    make_git_repo
+    echo "# herdr" >"${REPO_DIR}/.claude/hooks/herdr-agent-state.sh"
+    # macOS reaches /tmp through /private/tmp: the link's text and the repo's
+    # physical path differ, yet it is a direct link, not a profile chain.
+    ln -s "${BATS_TEST_TMPDIR}" "${BATS_TEST_TMPDIR}/alias"
+    rmdir "${CLAUDE_DIR}/hooks" 2>/dev/null || true
+    ln -s "${BATS_TEST_TMPDIR}/alias/repo/.claude/hooks" "${CLAUDE_DIR}/hooks"
+
+    run install_hooks
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"rescued hooks/herdr-agent-state.sh"* ]]
+    [ -f "${CLAUDE_DIR}/hooks/herdr-agent-state.sh" ]
+    [ ! -L "${CLAUDE_DIR}/hooks/herdr-agent-state.sh" ]
+    [ -z "$(git -C "${REPO_DIR}" status --porcelain)" ]
+}
+
+@test "a relative legacy link into the repo is migrated like an absolute one" {
+    seed_repo hooks a.sh
+    make_git_repo
+    echo "# foreign" >"${REPO_DIR}/.claude/hooks/foreign.sh"
+    rmdir "${CLAUDE_DIR}/hooks" 2>/dev/null || true
+    local rel
+    rel="$(python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' "${REPO_DIR}/.claude/hooks" "${CLAUDE_DIR}")"
+    ln -s "${rel}" "${CLAUDE_DIR}/hooks"
+
+    run install_hooks
+    [ "$status" -eq 0 ]
+    [ -f "${CLAUDE_DIR}/hooks/foreign.sh" ] && [ ! -L "${CLAUDE_DIR}/hooks/foreign.sh" ]
+    ! ls "${CLAUDE_DIR}" | grep -q 'hooks.bak'
+}

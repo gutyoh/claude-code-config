@@ -527,9 +527,14 @@ Describe "Install-ManagedEntry" {
         New-Item -ItemType Directory -Path $profileA | Out-Null
         New-Item -ItemType SymbolicLink -Path (Join-Path $profileA "skills") -Target $script:SourceSkills | Out-Null
         New-Item -ItemType SymbolicLink -Path $script:TargetSkills -Target (Join-Path $profileA "skills") | Out-Null
+        # Written through the first profile's link: it is that profile's file.
+        Write-Utf8Text -Path (Join-Path $script:SourceSkills "first-profile-file") -Content "stays"
 
         Install-ManagedEntry -SourceDir $script:SourceSkills -TargetDir $script:TargetSkills -Name "skills"
 
+        # Left in the repo, where the first profile reads it, and linked like any entry.
+        Read-Utf8Text (Join-Path $script:SourceSkills "first-profile-file") | Should -Be "stays"
+        Get-Link (Join-Path $script:TargetSkills "first-profile-file") | Should -Be (Join-Path $script:SourceSkills "first-profile-file")
         Test-LinkItem (Get-EntryItem $script:TargetSkills) | Should -BeFalse
         Get-Link (Join-Path $script:TargetSkills "sample-skill") | Should -Be (Join-Path $script:SourceSkills "sample-skill")
         @(Get-ChildItem -LiteralPath $script:ClaudeDir -Force | Where-Object { $_.Name -like "skills.bak.*" }).Count | Should -Be 0
