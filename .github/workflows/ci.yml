@@ -22,7 +22,7 @@ permissions: {}
 
 jobs:
   static:
-    name: Lint + format
+    name: lint + format
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -58,7 +58,7 @@ jobs:
         run: just lint-workflows
 
   secrets:
-    name: Secret scan
+    name: secret scan
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -81,7 +81,7 @@ jobs:
         run: just secrets
 
   powershell:
-    name: PowerShell (${{ matrix.os }}, ${{ matrix.shell }})
+    name: powershell (${{ matrix.os }}, ${{ matrix.shell }})
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -111,7 +111,7 @@ jobs:
         run: ./tests/powershell-checks.ps1
 
   test:
-    name: Tests (${{ matrix.os }})
+    name: tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -168,8 +168,7 @@ jobs:
   # The one check to require on main. Required checks match job names, so a
   # matrix leg added later would otherwise be optional; `always()` keeps this
   # job from being skipped, which branch protection would count as passing.
-  ci-ok:
-    name: CI ok
+  ci-status:
     if: always()
     needs: [static, secrets, powershell, test]
     runs-on: ubuntu-latest
