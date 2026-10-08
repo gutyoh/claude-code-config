@@ -47,6 +47,19 @@ settings_commands() {
     [ "$CLAUDE_DIR_REF" = "~/.claude-work" ]
 }
 
+@test "set with repeated trailing slashes: all are trimmed, as setup.ps1 does" {
+    export CLAUDE_CONFIG_DIR="${HOME}/.claude-work//"
+    source "$SETUP"
+    [ "$CLAUDE_DIR" = "${HOME}/.claude-work" ]
+    [ "$CLAUDE_DIR_REF" = "~/.claude-work" ]
+}
+
+@test "set to HOME itself: commands use the absolute path" {
+    export CLAUDE_CONFIG_DIR="${HOME}"
+    source "$SETUP"
+    [ "$CLAUDE_DIR_REF" = "${HOME}" ]
+}
+
 @test "set outside HOME: commands use the absolute path" {
     export CLAUDE_CONFIG_DIR="${BATS_TEST_TMPDIR}/elsewhere/cfg"
     source "$SETUP"

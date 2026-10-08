@@ -46,7 +46,9 @@ readonly REPO_DIR
 # Claude Code moves its whole home, .claude.json included, to CLAUDE_CONFIG_DIR
 # when that is set; installing anywhere else leaves that profile unconfigured.
 CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}"
-CLAUDE_DIR="${CLAUDE_DIR%/}"
+while [[ "${CLAUDE_DIR}" == */ && "${CLAUDE_DIR}" != "/" ]]; do
+    CLAUDE_DIR="${CLAUDE_DIR%/}"
+done
 readonly CLAUDE_DIR
 readonly SETTINGS_JSON="${CLAUDE_DIR}/settings.json"
 if [[ -n "${CLAUDE_CONFIG_DIR:-}" ]]; then
