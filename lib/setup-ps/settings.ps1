@@ -11,7 +11,7 @@ function Update-IdeHook {
     Add the IDE diagnostics hook to settings.json (merge mode).
     #>
     try {
-        $settings = Get-Content $script:SettingsJson -Raw | ConvertFrom-Json
+        $settings = Read-Utf8Text $script:SettingsJson | ConvertFrom-Json
         $hookExists = $false
 
         if ($settings.hooks -and $settings.hooks.PreToolUse) {
@@ -50,7 +50,7 @@ function Update-IdeHook {
             [void]$preToolUse.Add($ideHook)
             $settings.hooks.PreToolUse = @($preToolUse)
 
-            $settings | ConvertTo-Json -Depth 10 | Set-Content $script:SettingsJson -Encoding UTF8
+            Write-JsonFile -Path $script:SettingsJson -InputObject $settings
             Write-Status "  + IDE diagnostics hook added" -Color Green
         }
     }
@@ -65,7 +65,7 @@ function Update-FileSuggestion {
     Add file suggestion configuration to settings.json.
     #>
     try {
-        $settings = Get-Content $script:SettingsJson -Raw | ConvertFrom-Json
+        $settings = Read-Utf8Text $script:SettingsJson | ConvertFrom-Json
 
         if ($settings.fileSuggestion) {
             Write-Status "  + File suggestion already configured" -Color Green
@@ -78,7 +78,7 @@ function Update-FileSuggestion {
                     command = "powershell.exe -NoProfile -File `"~/.claude/scripts/file-suggestion.ps1`""
                 }) -Force
 
-            $settings | ConvertTo-Json -Depth 10 | Set-Content $script:SettingsJson -Encoding UTF8
+            Write-JsonFile -Path $script:SettingsJson -InputObject $settings
             Write-Status "  + File suggestion configured (PowerShell)" -Color Green
         }
     }
@@ -93,7 +93,7 @@ function Update-Statusline {
     Add statusline configuration to settings.json.
     #>
     try {
-        $settings = Get-Content $script:SettingsJson -Raw | ConvertFrom-Json
+        $settings = Read-Utf8Text $script:SettingsJson | ConvertFrom-Json
 
         if ($settings.statusLine) {
             Write-Status "  + Statusline already configured" -Color Green
@@ -107,7 +107,7 @@ function Update-Statusline {
                     padding = 0
                 }) -Force
 
-            $settings | ConvertTo-Json -Depth 10 | Set-Content $script:SettingsJson -Encoding UTF8
+            Write-JsonFile -Path $script:SettingsJson -InputObject $settings
             Write-Status "  + Statusline configured" -Color Green
         }
     }
@@ -122,7 +122,7 @@ function Update-AgentTeam {
     Enable or disable agent teams in settings.json env block.
     #>
     try {
-        $settings = Get-Content $script:SettingsJson -Raw | ConvertFrom-Json
+        $settings = Read-Utf8Text $script:SettingsJson | ConvertFrom-Json
 
         if ($script:InstallAgentTeamsFlag) {
             $currentValue = $null
@@ -141,7 +141,7 @@ function Update-AgentTeam {
                 }
                 $settings.env | Add-Member -NotePropertyName "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS" -NotePropertyValue "1" -Force
 
-                $settings | ConvertTo-Json -Depth 10 | Set-Content $script:SettingsJson -Encoding UTF8
+                Write-JsonFile -Path $script:SettingsJson -InputObject $settings
                 Write-Status "  + Agent teams enabled" -Color Green
             }
         }
@@ -151,7 +151,7 @@ function Update-AgentTeam {
                 if ($settings.env.PSObject.Properties.Count -eq 0) {
                     $settings.PSObject.Properties.Remove("env")
                 }
-                $settings | ConvertTo-Json -Depth 10 | Set-Content $script:SettingsJson -Encoding UTF8
+                Write-JsonFile -Path $script:SettingsJson -InputObject $settings
                 Write-Status "  + Agent teams disabled (removed from settings)" -Color Green
             }
             else {

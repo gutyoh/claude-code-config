@@ -10,7 +10,7 @@
 
 BeforeAll {
     $repoRoot = Split-Path -Parent $PSScriptRoot
-    $setupPsDir = Join-Path $repoRoot "lib" "setup-ps"
+    $setupPsDir = Join-Path (Join-Path $repoRoot "lib") "setup-ps"
 
     # Silence [Console]::Write/WriteLine during tests so status messages
     # don't leak into Pester output. Restored in AfterAll.
@@ -18,6 +18,7 @@ BeforeAll {
     [Console]::SetOut([System.IO.StreamWriter]::Null)
 
     # Dot-source all modules (same as setup.ps1 does)
+    . (Join-Path $setupPsDir "fileio.ps1")
     . (Join-Path $setupPsDir "output.ps1")
     . (Join-Path $setupPsDir "tui.ps1")
     . (Join-Path $setupPsDir "preview.ps1")
@@ -392,18 +393,146 @@ Describe "Merge-PctInside" {
 }
 
 # ============================================================================
+# File I/O: UTF-8 without a byte order mark on every edition
+# ============================================================================
+
+Describe "UTF-8 file helpers" {
+
+    It "writes no byte order mark" {
+        $path = Join-Path $TestDrive "plain.json"
+        Write-Utf8Text -Path $path -Content '{"a":1}'
+        $bytes = [System.IO.File]::ReadAllBytes($path)
+        $bytes[0] | Should -Be ([byte][char]'{')
+    }
+
+    It "round-trips non-ASCII text" {
+        $path = Join-Path $TestDrive "icon.conf"
+        $icon = [string][char]0x273B
+        Write-Utf8Text -Path $path -Content "icon=${icon}"
+        Read-Utf8Text $path | Should -Be "icon=${icon}"
+    }
+
+    It "drops a byte order mark when reading" {
+        $path = Join-Path $TestDrive "bom.json"
+        [System.IO.File]::WriteAllBytes($path, [byte[]](0xEF, 0xBB, 0xBF) + [System.Text.Encoding]::ASCII.GetBytes('{"a":1}'))
+        (Read-Utf8Text $path | ConvertFrom-Json).a | Should -Be 1
+    }
+
+    It "writes JSON with LF line endings and a final newline" {
+        $path = Join-Path $TestDrive "obj.json"
+        Write-JsonFile -Path $path -InputObject ([PSCustomObject]@{ a = @(1, 2); b = "x" })
+        $text = Read-Utf8Text $path
+        $text | Should -Not -Match "`r"
+        $text.EndsWith("`n") | Should -BeTrue
+        ($text | ConvertFrom-Json).b | Should -Be "x"
+    }
+
+    It "resolves relative paths against the PowerShell location" {
+        Push-Location $TestDrive
+        try {
+            Write-Utf8Text -Path "relative.txt" -Content "here"
+            Test-Path (Join-Path $TestDrive "relative.txt") | Should -BeTrue
+        }
+        finally {
+            Pop-Location
+        }
+    }
+}
+
+# ============================================================================
+# Windows PowerShell 5.1 compatibility (static checks on every script)
+# ============================================================================
+
+Describe "Windows PowerShell 5.1 compatibility" {
+    BeforeAll {
+        $script:PsSources = @(
+            Get-Item (Join-Path $repoRoot "setup.ps1")
+            Get-ChildItem $setupPsDir -Filter "*.ps1"
+            Get-ChildItem (Join-Path (Join-Path $repoRoot ".claude") "scripts") -Filter "*.ps1"
+            Get-ChildItem (Join-Path $repoRoot "tests") -Filter "*.ps1"
+        )
+        $script:ParsedSources = foreach ($file in $script:PsSources) {
+            $tokens = $null
+            $errors = $null
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$errors)
+            [PSCustomObject]@{ Name = $file.Name; Ast = $ast; Errors = $errors }
+        }
+    }
+
+    It "every script is ASCII-only (5.1 reads BOM-less files as ANSI)" {
+        $offenders = foreach ($file in $script:PsSources) {
+            $bytes = [System.IO.File]::ReadAllBytes($file.FullName)
+            if (@($bytes | Where-Object { $_ -gt 0x7F }).Count -gt 0) { $file.Name }
+        }
+        $offenders | Should -BeNullOrEmpty
+    }
+
+    It "every script parses" {
+        $broken = $script:ParsedSources | Where-Object { $_.Errors.Count -gt 0 } | ForEach-Object { $_.Name }
+        $broken | Should -BeNullOrEmpty
+    }
+
+    It "no Join-Path call passes more than two positional paths" {
+        $offenders = foreach ($parsed in $script:ParsedSources) {
+            $calls = $parsed.Ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.CommandAst] -and
+                    $node.GetCommandName() -eq "Join-Path"
+                }, $true)
+            foreach ($call in $calls) {
+                $positional = @($call.CommandElements | Select-Object -Skip 1 |
+                        Where-Object { $_ -isnot [System.Management.Automation.Language.CommandParameterAst] })
+                if ($positional.Count -gt 2) { "$($parsed.Name):$($call.Extent.StartLineNumber)" }
+            }
+        }
+        $offenders | Should -BeNullOrEmpty
+    }
+
+    It "no PowerShell 7-only operators (&&, ||, ternary, ??, ?., ?[])" {
+        $sevenOnly = @("PipelineChainAst", "TernaryExpressionAst")
+        $offenders = foreach ($parsed in $script:ParsedSources) {
+            $nodes = $parsed.Ast.FindAll({
+                    param($node)
+                    $sevenOnly -contains $node.GetType().Name -or
+                    ($node -is [System.Management.Automation.Language.BinaryExpressionAst] -and
+                        $node.Operator.ToString() -eq "QuestionQuestion") -or
+                    ($node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+                        $node.Operator.ToString() -eq "QuestionQuestionEquals") -or
+                    (@("MemberExpressionAst", "InvokeMemberExpressionAst", "IndexExpressionAst") -contains $node.GetType().Name -and
+                        $node.PSObject.Properties["NullConditional"] -and $node.NullConditional)
+                }, $true)
+            foreach ($node in $nodes) { "$($parsed.Name):$($node.Extent.StartLineNumber)" }
+        }
+        $offenders | Should -BeNullOrEmpty
+    }
+
+    It "setup.ps1 declares #Requires -Version 5.1" {
+        $setup = $script:ParsedSources | Where-Object { $_.Name -eq "setup.ps1" }
+        $setup.Ast.ScriptRequirements.RequiredPSVersion | Should -Be ([version]"5.1")
+    }
+
+    It "no module writes with Set-Content or Out-File (both add a BOM on 5.1)" {
+        $offenders = foreach ($parsed in $script:ParsedSources | Where-Object { $_.Name -notlike "*.Tests.ps1" }) {
+            $calls = $parsed.Ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.CommandAst] -and
+                    @("Set-Content", "Out-File", "Add-Content") -contains $node.GetCommandName()
+                }, $true)
+            foreach ($call in $calls) { "$($parsed.Name):$($call.Extent.StartLineNumber)" }
+        }
+        $offenders | Should -BeNullOrEmpty
+    }
+}
+
+# ============================================================================
 # Module file existence
 # ============================================================================
 
 Describe "Module files exist" {
-    $modules = @("output.ps1", "tui.ps1", "preview.ps1", "filesystem.ps1", "settings.ps1",
-        "statusline-conf.ps1", "mcp.ps1", "menu.ps1")
-
-    foreach ($mod in $modules) {
-        It "lib/setup-ps/${mod} exists" {
-            $path = Join-Path $repoRoot "lib" "setup-ps" $mod
-            Test-Path $path | Should -BeTrue
-        }
+    # -ForEach, not a foreach loop: discovery-time variables do not reach It blocks.
+    It "lib/setup-ps/<_> exists" -ForEach @("fileio.ps1", "output.ps1", "tui.ps1", "preview.ps1",
+        "filesystem.ps1", "settings.ps1", "statusline-conf.ps1", "mcp.ps1", "menu.ps1") {
+        Test-Path (Join-Path $setupPsDir $_) | Should -BeTrue
     }
 }
 

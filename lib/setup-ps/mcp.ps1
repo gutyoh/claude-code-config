@@ -137,7 +137,7 @@ function Install-SingleMcp {
     $claudeJsonPath = "$env:USERPROFILE\.claude.json"
     if (Test-Path $claudeJsonPath) {
         try {
-            $claudeJson = Get-Content $claudeJsonPath -Raw | ConvertFrom-Json
+            $claudeJson = Read-Utf8Text $claudeJsonPath | ConvertFrom-Json
             if ($claudeJson.mcpServers.PSObject.Properties[$Key]) {
                 & claude mcp remove $Key --scope user 2>$null
             }
@@ -211,7 +211,7 @@ function Initialize-McpKeysEnv {
         $dir = Split-Path $script:McpKeysEnvFile -Parent
         if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
 
-        [System.IO.File]::WriteAllText($script:McpKeysEnvFile, $envContent, [System.Text.UTF8Encoding]::new($false))
+        Write-Utf8Text -Path $script:McpKeysEnvFile -Content $envContent
         Write-Status ""
         Write-Status "  + $($script:McpKeysEnvFile) created (${keysWritten} keys)" -Color Green
     }
@@ -234,7 +234,7 @@ function Test-McpEnvVar {
     }
 
     if (Test-Path $script:McpKeysEnvFile) {
-        $content = Get-Content $script:McpKeysEnvFile -Raw
+        $content = Read-Utf8Text $script:McpKeysEnvFile
         foreach ($key in $script:InstallMcpServers) {
             $server = $script:McpServers[$key]
             $varName = $server.env_var

@@ -27,7 +27,7 @@ function Update-StatuslineConf {
         $isMatch = $true
         $existing = @{}
 
-        Get-Content $confFile | ForEach-Object {
+        (Read-Utf8Text $confFile) -split "`r?`n" | ForEach-Object {
             $line = $_.Trim()
             if ($line -and -not $line.StartsWith('#')) {
                 $eqIdx = $line.IndexOf('=')
@@ -84,6 +84,6 @@ function Update-StatuslineConf {
         "cc_status_color=$($script:StatuslineCcStatusColor)"
     ) -join "`n"
 
-    [System.IO.File]::WriteAllText($confFile, $content + "`n", [System.Text.UTF8Encoding]::new($false))
+    Write-Utf8Text -Path $confFile -Content ($content + "`n")
     Write-Status "  + Statusline config written (theme=$($script:StatuslineTheme), bar=$($script:StatuslineBarStyle))" -Color Green
 }
