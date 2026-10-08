@@ -364,7 +364,10 @@ Describe "MCP module" {
 Describe "Test-Prerequisite" {
 
     It "returns true for an installed command" {
-        $result = Test-Prerequisite -Cmd "powershell" -Label "PowerShell" -Required $false
+        # The running host's own executable: powershell on 5.1, pwsh on 7.
+        $hostCommand = "pwsh"
+        if ($PSVersionTable.PSEdition -ne "Core") { $hostCommand = "powershell" }
+        $result = Test-Prerequisite -Cmd $hostCommand -Label "PowerShell" -Required $false
         $result | Should -BeTrue
     }
 
