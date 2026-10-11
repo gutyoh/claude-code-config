@@ -50,6 +50,8 @@ session list, and `claude --resume <name>` finds the session by it.
   `America/Panama`.
 - **Your names win**: the hooks change only names in this exact format. A
   name set with `/rename` or `claude --name` is never touched.
+- **Interactive sessions only**: `claude -p` and SDK runs keep no name, so
+  an agent that starts one inside a session never renames that session.
 - **Opt out**: `CLAUDE_SESSION_NAME=off`.
 
 The name is set on the first prompt, with the time the session started:
