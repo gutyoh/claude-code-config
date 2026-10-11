@@ -44,8 +44,12 @@ provider_of() {
 }
 
 timestamp() {
-    local stamp
-    stamp=$(TZ="${CLAUDE_SESSION_NAME_TZ:-UTC}" date +%Y%m%dT%H%M%S%z) || return 1
+    local stamp tzdir="${TZDIR:-}"
+    # NixOS keeps zones in /etc/zoneinfo; without TZDIR, date silently uses UTC.
+    if [[ -z "${tzdir}" && ! -d /usr/share/zoneinfo && -d /etc/zoneinfo ]]; then
+        tzdir=/etc/zoneinfo
+    fi
+    stamp=$(TZDIR="${tzdir}" TZ="${CLAUDE_SESSION_NAME_TZ:-UTC}" date +%Y%m%dT%H%M%S%z) || return 1
     case "${stamp: -5}" in
         +0000 | -0000) echo "${stamp:0:15}Z" ;;
         *) echo "${stamp}" ;;
