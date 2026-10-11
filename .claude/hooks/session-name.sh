@@ -13,7 +13,7 @@
 #                     on the prompt bar only when a prompt hook changes it.
 #
 # Only names matching the automatic pattern are ever changed: a name set with
-# /rename or --name always wins. Any error prints nothing and exits 0, so a
+# /rename or --name always wins. Non-interactive runs are never named. Any error prints nothing and exits 0, so a
 # prompt is never blocked.
 #
 # Environment:
@@ -93,6 +93,9 @@ on_prompt() {
 main() {
     local fields event title model session
     [[ "${CLAUDE_SESSION_NAME:-}" == "off" ]] && exit 0
+    # Only interactive sessions: a `claude -p` or SDK run, often started by an
+    # agent inside another session, is not in the picker and must not rename.
+    [[ "${CLAUDE_CODE_ENTRYPOINT:-cli}" == "cli" ]] || exit 0
     command -v jq &>/dev/null || exit 0
 
     # One field per line: a tab-separated read would drop an empty title.

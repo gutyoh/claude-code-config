@@ -19,6 +19,7 @@ setup() {
     require_cmd jq
     isolate_home
     unset CLAUDE_SESSION_NAME CLAUDE_SESSION_NAME_TZ XDG_STATE_HOME
+    export CLAUDE_CODE_ENTRYPOINT=cli
     STATE="${HOME}/.local/state/claude-code/session-names"
 }
 
@@ -106,6 +107,16 @@ record_model() {
     hook prompt "$(input)"
     [ "${title}" = "claude-${stamp}" ]
     [ "$(jq -r .hookSpecificOutput.hookEventName <<<"${output}")" = "UserPromptSubmit" ]
+}
+
+# bats test_tags=unit
+@test "a non-interactive run is never named" {
+    export CLAUDE_CODE_ENTRYPOINT=sdk-cli
+    hook start "$(input "" claude-opus-5-5)"
+    [ ! -e "${STATE}/${SID}.start" ]
+    hook prompt "$(input)"
+    [ -z "${title}" ]
+    [ -z "${output}" ]
 }
 
 # bats test_tags=unit
