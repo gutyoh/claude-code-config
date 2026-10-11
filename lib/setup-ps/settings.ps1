@@ -59,6 +59,61 @@ function Update-IdeHook {
     }
 }
 
+function Update-SessionNameHook {
+    <#
+    .SYNOPSIS
+    Add the session naming hooks to settings.json (merge mode); an entry already
+    naming hooks/session-name.sh is left as it is.
+    #>
+    try {
+        $settings = Read-Utf8Text $script:SettingsJson | ConvertFrom-Json
+        if (-not $settings.hooks) {
+            $settings | Add-Member -NotePropertyName "hooks" -NotePropertyValue ([PSCustomObject]@{}) -Force
+        }
+
+        $added = 0
+        foreach ($wanted in @(
+                @{ Event = "SessionStart"; Matcher = "startup" },
+                @{ Event = "UserPromptSubmit"; Matcher = "" }
+            )) {
+            $entries = @($settings.hooks.($wanted.Event) | Where-Object { $_ })
+            $present = $false
+            foreach ($entry in $entries) {
+                foreach ($hook in @($entry.hooks)) {
+                    if ($hook.command -like "*session-name.sh*") { $present = $true }
+                }
+            }
+            if ($present) { continue }
+
+            $entry = [PSCustomObject]@{
+                matcher = $wanted.Matcher
+                hooks   = @(
+                    [PSCustomObject]@{
+                        type    = "command"
+                        command = "$(Get-ClaudeConfigDirRef)/hooks/session-name.sh"
+                        timeout = 5
+                    }
+                )
+            }
+            $list = [System.Collections.ArrayList]@($entries)
+            [void]$list.Add($entry)
+            $settings.hooks | Add-Member -NotePropertyName $wanted.Event -NotePropertyValue @($list) -Force
+            $added++
+        }
+
+        if ($added -gt 0) {
+            Write-JsonFile -Path $script:SettingsJson -InputObject $settings
+            Write-Status "  + Session naming hooks added" -Color Green
+        }
+        else {
+            Write-Status "  + Session naming hooks already configured" -Color Green
+        }
+    }
+    catch {
+        Write-Status "  ! Failed to add session naming hooks: $_" -Color Yellow
+    }
+}
+
 function Update-FileSuggestion {
     <#
     .SYNOPSIS

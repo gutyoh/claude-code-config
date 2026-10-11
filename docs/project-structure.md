@@ -92,6 +92,7 @@ Dot-sourced by `setup.ps1`. PowerShell port of `lib/setup/` with arrow-key TUI, 
 | `rate-limit-brave-search.sh` | PreToolUse | `mcp__brave-search__.*` | Filesystem mutex + sleep for rate limiting |
 | `sql-guardrail.sh` | PreToolUse | `Bash` (agent-scoped) | Unified DB guardrail: STRICT (Databricks), STANDARD (SQL CLIs), MONGO (mongosh) |
 | `refresh-usage-cache.sh` | PreToolUse + Stop | `.*` and `""` | Background Haiku API ping for usage data |
+| `session-name.sh` | SessionStart + UserPromptSubmit | `startup` | Names sessions `<provider>-<start time>`; swaps the prefix after a model switch |
 
 ### .claude/scripts/
 
@@ -189,6 +190,7 @@ Dot-sourced by `setup.ps1`. PowerShell port of `lib/setup/` with arrow-key TUI, 
 | `setup-cli.bats` | Setup CLI argument parsing |
 | `langfuse-skill.bats` | Langfuse skill validation |
 | `refresh-usage-cache.bats` | Usage cache refresh hook |
+| `session-name.bats` | Session name hook, statusline model record, installer entries |
 | `cc-status.bats` | Claude Code service status |
 | `claude-config-dir.bats` | `CLAUDE_CONFIG_DIR`: install target, settings commands, symlinked rc files |
 | `managed-entries.bats` | Per-entry install, legacy link migration, profile chains |

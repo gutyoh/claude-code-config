@@ -332,6 +332,7 @@ claude-code-config/
 │   ├── hooks/                     # Hook scripts
 │   │   ├── enforce-git-pull-rebase.sh
 │   │   ├── open-file-in-ide.sh
+│   │   ├── session-name.sh        # Names sessions <provider>-<start time>
 │   │   └── sql-guardrail.sh       # Unified DB guardrail (STRICT/STANDARD/MONGO)
 │   ├── skills/                    # Skills (reusable capabilities)
 │   │   ├── brave-search/          # Brave Search MCP skill

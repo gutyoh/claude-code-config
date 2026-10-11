@@ -81,7 +81,8 @@ assert_setup_ok() {
 
     local settings="${HOME}/.claude/settings.json"
     local hooks
-    hooks=$(jq -r '[.hooks.SessionStart // [], .hooks.SessionEnd // []] | flatten | length' "$settings")
+    hooks=$(jq -r '[.hooks.SessionStart // [], .hooks.SessionEnd // []] | flatten
+        | [.[].hooks[]?.command | select(test("cc-sync"))] | length' "$settings")
     [ "$hooks" -eq 0 ]
 }
 

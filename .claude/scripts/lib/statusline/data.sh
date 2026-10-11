@@ -232,12 +232,32 @@ get_oauth_usage_data() {
     return 0
 }
 
+# Records each session's current model for hooks/session-name.sh, which cannot
+# see a /model switch itself. The statusline runs often, so it writes only on
+# a change.
+record_session_model() {
+    local input="$1" session model dir file
+    [[ "${CLAUDE_SESSION_NAME:-}" == "off" ]] && return 0
+    session=$(echo "${input}" | jq -r '.session_id // empty' 2>/dev/null)
+    model=$(echo "${input}" | jq -r '.model.id // empty' 2>/dev/null)
+    [[ "${session}" =~ ^[A-Za-z0-9-]+$ && -n "${model}" ]] || return 0
+
+    dir="${XDG_STATE_HOME:-${HOME}/.local/state}/claude-code/session-names"
+    file="${dir}/${session}.model"
+    [[ -f "${file}" && "$(head -n 1 "${file}")" == "${model}" ]] && return 0
+    mkdir -p "${dir}" 2>/dev/null || return 0
+    printf '%s\n' "${model}" >"${file}.$$" && mv -f "${file}.$$" "${file}"
+    return 0
+}
+
 collect_data() {
     local input="$1"
 
     debug "=== Data Collection Start ==="
     debug "Platform: ${PLATFORM}"
     debug "Tmp dir: ${_TMP_DIR}"
+
+    record_session_model "${input}"
 
     # Model name from stdin JSON
     DATA_MODEL=$(echo "${input}" | jq -r '.model.display_name // "claude"' \
