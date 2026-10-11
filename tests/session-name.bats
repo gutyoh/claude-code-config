@@ -43,6 +43,11 @@ input() {
          | with_entries(select(.value != ""))'
 }
 
+# age <file> <days>: backdates a file; BSD touch has no relative -d.
+age() {
+    "${_PY}" -c 'import os, sys, time; t = time.time() - int(sys.argv[2]) * 86400; os.utime(sys.argv[1], (t, t))' "$1" "$2"
+}
+
 record_model() {
     mkdir -p "${STATE}"
     printf '%s\n' "$1" >"${STATE}/${SID}.model"
@@ -85,7 +90,7 @@ record_model() {
 # bats test_tags=unit
 @test "start prunes state older than 30 days" {
     record_model claude-opus-5-5
-    touch -d '40 days ago' "${STATE}/${SID}.model"
+    age "${STATE}/${SID}.model" 40
     printf 'x\n' >"${STATE}/fresh.model"
     hook start "$(input titled)"
     [ ! -e "${STATE}/${SID}.model" ]
@@ -210,7 +215,7 @@ statusline_record() {
 # bats test_tags=unit
 @test "the statusline skips an unchanged model and odd session ids" {
     record_model gpt-6.1-sol
-    touch -d '2 days ago' "${STATE}/${SID}.model"
+    age "${STATE}/${SID}.model" 2
     before=$(stat -c %Y "${STATE}/${SID}.model" 2>/dev/null || stat -f %m "${STATE}/${SID}.model")
     statusline_record "{\"session_id\":\"${SID}\",\"model\":{\"id\":\"gpt-6.1-sol\"}}"
     after=$(stat -c %Y "${STATE}/${SID}.model" 2>/dev/null || stat -f %m "${STATE}/${SID}.model")
