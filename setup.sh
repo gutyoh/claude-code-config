@@ -290,6 +290,7 @@ main() {
         else
             configure_ide_hook
         fi
+        configure_session_name_hooks
 
         echo ""
 

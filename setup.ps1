@@ -446,6 +446,7 @@ elseif ($script:SettingsMode -eq "merge") {
     else {
         Update-IdeHook
     }
+    Update-SessionNameHook
 
     Write-Status ""
 

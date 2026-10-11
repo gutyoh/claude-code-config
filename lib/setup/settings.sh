@@ -126,6 +126,50 @@ PYTHON_SCRIPT
     fi
 }
 
+# Session naming (hooks/session-name.sh) needs one entry on each of two events;
+# an entry already naming the script is left as it is.
+configure_session_name_hooks() {
+    python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
+import json
+import os
+import sys
+
+settings_file = sys.argv[1]
+ref = os.environ.get('CLAUDE_DIR_REF', '~/.claude')
+wanted = (
+    ('SessionStart', {'matcher': 'startup'}),
+    ('UserPromptSubmit', {'matcher': ''}),
+)
+
+try:
+    with open(settings_file) as f:
+        data = json.load(f)
+    hooks = data.setdefault('hooks', {})
+    added = 0
+    for event, extra in wanted:
+        entries = hooks.setdefault(event, [])
+        present = any('session-name.sh' in h.get('command', '')
+                      for e in entries for h in e.get('hooks', []))
+        if not present:
+            entries.append({**extra, 'hooks': [{
+                'type': 'command',
+                'command': f'{ref}/hooks/session-name.sh',
+                'timeout': 5,
+            }]})
+            added += 1
+    if added:
+        with open(settings_file, 'w') as f:
+            json.dump(data, f, indent=2)
+            f.write('\n')
+        print("  ✓ Session naming hooks added")
+    else:
+        print("  ✓ Session naming hooks already configured")
+except Exception as e:
+    print(f"  ⚠ Failed to add session naming hooks: {e}", file=sys.stderr)
+    sys.exit(1)
+PYTHON_SCRIPT
+}
+
 configure_file_suggestion() {
     if python3 - "${SETTINGS_JSON}" <<'PYTHON_CHECK' 2>/dev/null; then
 import json

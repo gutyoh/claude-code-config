@@ -29,6 +29,31 @@ what Claude Code itself does. See [A second profile](#a-second-profile).
 | `PreToolUse` | `.*` | `refresh-usage-cache.sh` | Refresh usage cache on every tool call |
 | `PreToolUse` | `mcp__brave-search__.*` | `rate-limit-brave-search.sh` | Rate limit Brave Search calls |
 | `Stop` | `""` | `refresh-usage-cache.sh` | Refresh usage cache when agent stops |
+| `SessionStart` | `startup` | `session-name.sh` | Record when a session started (see [Session names](#session-names)) |
+| `UserPromptSubmit` | `""` | `session-name.sh` | Name the session; swap its provider prefix after a model switch |
+
+#### Session names
+
+Each session gets a name such as `claude-20261011T193012Z`: the model's
+provider, then the start time in ISO 8601 basic format. It appears on the
+prompt bar, in `/resume`, in the terminal title and in the Remote Control
+session list, and `claude --resume <name>` finds the session by it.
+
+- **Provider**: the first part of the model id (`claude-opus-5-5` gives
+  `claude`, `gpt-6.1-sol` gives `gpt`). When a `/model` switch moves the
+  session to another provider, the next prompt swaps the prefix
+  (`claude-20261011T193012Z` becomes `muse-20261011T193012Z`). The statusline
+  records the current model, so the swap needs the repo statusline.
+- **Time**: set once and never updated. UTC by default, written with a `Z`;
+  set `CLAUDE_SESSION_NAME_TZ` to an IANA zone to use local time with its
+  offset instead, for example `claude-20261011T143012-0500` for
+  `America/Panama`.
+- **Your names win**: the hooks change only names in this exact format. A
+  name set with `/rename` or `claude --name` is never touched.
+- **Opt out**: `CLAUDE_SESSION_NAME=off`.
+
+The name is set on the first prompt, with the time the session started:
+Claude Code shows a name on the prompt bar only when a prompt hook sets it.
 
 ### statusLine
 
@@ -106,6 +131,8 @@ Both use `${VAR}` syntax for runtime environment variable expansion.
 | `CODEX_TOKEN_MAX_AGE_HOURS` | `48` | Max age for Codex auth token before warning |
 | `HOOK_STALE_THRESHOLD` | `300` | Seconds before hook cache data is marked stale |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude Code's config dir; setup, the statusline, the hooks and the MCP key tools follow it |
+| `CLAUDE_SESSION_NAME_TZ` | `UTC` | IANA time zone for [session names](#session-names) |
+| `CLAUDE_SESSION_NAME` | — | `off` disables [session names](#session-names) |
 | `MCP_KEYS_ENV_FILE` | `<config dir>/mcp-keys.env` | Where `mcp-env-inject` and `mcp-key-rotate` read MCP keys |
 
 ### A second profile

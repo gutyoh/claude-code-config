@@ -25,6 +25,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   │   ├── guard-mcp-key.sh            # Blocks MCP calls when API key is missing
 │   │   ├── rate-limit-brave-search.sh  # Rate limits Brave Search API calls
 │   │   ├── auto-rotate-mcp-key.sh     # Auto-rotates API keys on quota exhaustion
+│   │   ├── session-name.sh            # Names sessions <provider>-<start time>
 │   │   └── sql-guardrail.sh      # Unified DB guardrail (STRICT/STANDARD/MONGO modes)
 │   ├── skills/                  # Reusable skills
 │   │   ├── databricks-standards/
