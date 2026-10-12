@@ -112,8 +112,8 @@ plan_icon() {
     conf="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/statusline.conf"
     if [[ -n "${key}" && -f "${conf}" ]]; then
         icon=$(grep -m1 "^${key}=" "${conf}" 2>/dev/null | cut -d= -f2-)
-        [[ -z "${icon}" && "${key}" == icon_claude ]] &&
-            icon=$(grep -m1 "^icon=" "${conf}" 2>/dev/null | cut -d= -f2-)
+        [[ -z "${icon}" && "${key}" == icon_claude ]] \
+            && icon=$(grep -m1 "^icon=" "${conf}" 2>/dev/null | cut -d= -f2-)
     fi
     printf '%s' "${icon:-${provider}}"
 }
@@ -165,8 +165,8 @@ write_topic() {
     topic=$(slug "${answer}" "${TOPIC_MAX}")
     [[ -n "${topic}" ]] || topic=$(slug "$(printf '%s' "${text}" | tr -s '[:space:]' ' ' | cut -d' ' -f1-4)" "${TOPIC_MAX}")
     if [[ -n "${topic}" ]]; then
-        printf '%s\n' "${topic}" >"${STATE_DIR}/${session}.topic.$$" &&
-            mv -f "${STATE_DIR}/${session}.topic.$$" "${STATE_DIR}/${session}.topic"
+        printf '%s\n' "${topic}" >"${STATE_DIR}/${session}.topic.$$" \
+            && mv -f "${STATE_DIR}/${session}.topic.$$" "${STATE_DIR}/${session}.topic"
         sync_tab "${session}" "${provider}" "${topic}"
     fi
     rmdir "${lock}" 2>/dev/null
