@@ -23,7 +23,7 @@ readonly MUSE_USAGE_URL="https://api.meta.ai/muse-code/key"
 # plan has no reader. No id at all is Claude, as before models were routed.
 usage_provider() {
     case "$1" in
-        "" | *claude*) echo "claude" ;;
+        "" | *claude* | opus* | sonnet* | haiku* | fable* | default | best) echo "claude" ;;
         gpt-* | o[0-9]* | codex-* | chatgpt-*) echo "openai" ;;
         muse-* | muse) echo "muse" ;;
         *) echo "none" ;;

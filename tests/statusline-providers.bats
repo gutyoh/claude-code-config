@@ -83,6 +83,10 @@ field() { printf '%s' "$1" | cut -f"$2"; }
     [[ "$(usage_provider claude-opus-5-5)" == "claude" ]]
     [[ "$(usage_provider us.anthropic.claude-sonnet-5-5)" == "claude" ]]
     [[ "$(usage_provider "")" == "claude" ]]
+    [[ "$(usage_provider opus)" == "claude" ]]
+    [[ "$(usage_provider sonnet[1m])" == "claude" ]]
+    [[ "$(usage_provider opusplan)" == "claude" ]]
+    [[ "$(usage_provider default)" == "claude" ]]
 }
 
 @test "usage_provider: GPT and Codex models are openai" {
