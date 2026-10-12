@@ -83,7 +83,7 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/session-name.sh",
-            "timeout": 5
+            "timeout": 15
           }
         ]
       }
@@ -95,7 +95,7 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/session-name.sh",
-            "timeout": 5
+            "timeout": 15
           }
         ]
       }

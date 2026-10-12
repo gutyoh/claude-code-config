@@ -18,7 +18,7 @@ setup() {
     source "$BATS_TEST_DIRNAME/helpers.bash"
     require_cmd jq
     isolate_home
-    unset CLAUDE_SESSION_NAME CLAUDE_SESSION_NAME_TZ XDG_STATE_HOME CLAUDE_SESSION_NAME_REFRESH
+    unset CLAUDE_SESSION_NAME CLAUDE_SESSION_NAME_TZ XDG_STATE_HOME
     unset HERDR_ENV HERDR_TAB_ID HERDR_PANE_ID HERDR_BIN_PATH HERDR_SOCKET_PATH HERDR_WORKSPACE_ID
     export CLAUDE_CODE_ENTRYPOINT=cli
     # Topics need a model run; the topic tests below turn them on with a stub.
@@ -140,14 +140,13 @@ record_model() {
 }
 
 # bats test_tags=unit
-@test "prompt swaps the provider prefix and keeps the timestamp" {
+@test "a named session is never renamed, not even after a model switch" {
     record_model muse-spark-1.3
-    hook prompt "$(input claude-20261011T193012Z)"
-    [ "${title}" = "muse-20261011T193012Z" ]
-
-    record_model gpt-6.1-sol
-    hook prompt "$(input muse-20261011T143012-0500)"
-    [ "${title}" = "gpt-20261011T143012-0500" ]
+    for name in claude-20261011T193012Z claude-20261011T193012Z-btree-splits gpt-20261011T143012-0500; do
+        hook prompt "$(input "${name}")"
+        [ "$status" -eq 0 ]
+        [ -z "${output}" ]
+    done
 }
 
 # bats test_tags=unit
@@ -290,6 +289,19 @@ wait_for() {
     return 1
 }
 
+# A PATH of real binaries without timeout(1), as on macOS, plus the stubs.
+no_timeout_path() {
+    local bin="${BATS_TEST_TMPDIR}/notimeout" real p tool
+    mkdir -p "$bin"
+    # Real binaries only: a version manager's shim cannot run on this PATH.
+    real=$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '/shims' | paste -sd: -)
+    for tool in bash sh jq cat head tail tr iconv cut grep find mkdir rmdir mv printf env sort sleep perl uname date seq; do
+        p=$(PATH="$real" command -v "$tool") && ln -sf "$p" "$bin/$tool"
+    done
+    ln -sf "${STUB_DIR}/claude" "$bin/claude"
+    printf '%s' "$bin"
+}
+
 prompt_input() { # <title> <prompt> [transcript]
     jq -nc --arg title "$1" --arg prompt "$2" --arg sid "$SID" --arg tp "${3:-}" \
         '{session_id: $sid, session_title: $title, prompt: $prompt, transcript_path: $tp}
@@ -297,13 +309,11 @@ prompt_input() { # <title> <prompt> [transcript]
 }
 
 # bats test_tags=unit
-@test "topic: the first prompt names the session now and writes its topic in the background" {
+@test "topic: the first prompt names the session once, with the model's topic" {
     stub_claude
     record_model claude-opus-5-5
     hook prompt "$(prompt_input "" "Explain how PostgreSQL B-tree indexes handle page splits")"
-    [[ "${title}" =~ ^claude-[0-9]{8}T[0-9]{6}Z$ ]]
-    wait_for "${STATE}/${SID}.topic"
-    [ "$(cat "${STATE}/${SID}.topic")" = "postgresql-btree-page-splits" ]
+    [[ "${title}" =~ ^claude-[0-9]{8}T[0-9]{6}Z-postgresql-btree-page-splits$ ]]
     grep -qx -- '--setting-sources' "${BATS_TEST_TMPDIR}/claude.args"
     grep -qx -- '--no-session-persistence' "${BATS_TEST_TMPDIR}/claude.args"
     grep -qx -- '--strict-mcp-config' "${BATS_TEST_TMPDIR}/claude.args"
@@ -315,64 +325,16 @@ prompt_input() { # <title> <prompt> [transcript]
     stub_claude
     export HERDR_ENV=1 HERDR_TAB_ID=w1:t9 HERDR_PANE_ID=w1:p9 HERDR_SOCKET_PATH=/tmp/x
     hook prompt "$(prompt_input "" "anything at all")"
-    wait_for "${BATS_TEST_TMPDIR}/claude.env"
     ! grep -q '^HERDR_' "${BATS_TEST_TMPDIR}/claude.env"
     grep -qx 'CLAUDE_SESSION_NAME=off' "${BATS_TEST_TMPDIR}/claude.env"
 }
 
 # bats test_tags=unit
-@test "topic: the next prompt adds it to the name" {
-    record_model claude-opus-5-5
-    mkdir -p "${STATE}"
-    echo postgresql-btree-page-splits >"${STATE}/${SID}.topic"
-    hook prompt "$(prompt_input claude-20261012T141205Z "next")"
-    [ "${title}" = "claude-20261012T141205Z-postgresql-btree-page-splits" ]
-}
-
-# bats test_tags=unit
-@test "topic: a provider switch keeps the time and the topic" {
-    record_model gpt-6.1-sol
-    hook prompt "$(prompt_input claude-20261012T141205Z-btree-splits "next")"
-    [ "${title}" = "gpt-20261012T141205Z-btree-splits" ]
-}
-
-# bats test_tags=unit
-@test "topic: a suffix Claude Code added for a taken name is left alone" {
-    record_model claude-opus-5-5
-    mkdir -p "${STATE}"
-    echo btree-splits >"${STATE}/${SID}.topic"
-    hook prompt "$(prompt_input claude-20261012T141205Z-btree-splits-groovy-coral "next")"
-    [ "$status" -eq 0 ]
-    [ -z "${output}" ]
-}
-
-# bats test_tags=unit
-@test "topic: refreshed every CLAUDE_SESSION_NAME_REFRESH prompts, from the transcript" {
-    stub_claude "printf '%s\\n' 'pancake-recipe'"
-    record_model claude-opus-5-5
-    local tp="${BATS_TEST_TMPDIR}/t.jsonl"
-    printf '%s\n' '{"type":"user","message":{"content":"how do I make fluffy pancakes"}}' \
-        '{"type":"user","message":{"content":[{"type":"tool_result","content":"ignored"}]}}' >"$tp"
-    export CLAUDE_SESSION_NAME_REFRESH=3
-    mkdir -p "${STATE}"
-    echo 1 >"${STATE}/${SID}.prompts"
-    hook prompt "$(prompt_input claude-20261012T141205Z "second" "$tp")"
-    [ ! -e "${BATS_TEST_TMPDIR}/claude.args" ]
-    hook prompt "$(prompt_input claude-20261012T141205Z "third" "$tp")"
-    wait_for "${STATE}/${SID}.topic"
-    [ "$(cat "${STATE}/${SID}.topic")" = "pancake-recipe" ]
-    grep -q 'fluffy pancakes' "${BATS_TEST_TMPDIR}/claude.args"
-    ! grep -q 'ignored' "${BATS_TEST_TMPDIR}/claude.args"
-}
-
-# bats test_tags=unit
-@test "topic: CLAUDE_SESSION_NAME_REFRESH=0 keeps the first topic" {
+@test "topic: a later prompt asks no model and renames nothing" {
     stub_claude
-    export CLAUDE_SESSION_NAME_REFRESH=0
-    mkdir -p "${STATE}"
-    echo 9 >"${STATE}/${SID}.prompts"
-    hook prompt "$(prompt_input claude-20261012T141205Z "tenth")"
-    sleep 0.5
+    record_model gpt-6.1-sol
+    hook prompt "$(prompt_input claude-20261012T141205Z-btree-splits "a new direction entirely")"
+    [ -z "${output}" ]
     [ ! -e "${BATS_TEST_TMPDIR}/claude.args" ]
 }
 
@@ -380,43 +342,54 @@ prompt_input() { # <title> <prompt> [transcript]
 @test "topic: a failed model run falls back to the prompt's first words" {
     stub_claude "exit 1"
     hook prompt "$(prompt_input "" "Análisis de pricing agregado para octubre")"
-    wait_for "${STATE}/${SID}.topic"
-    [ "$(cat "${STATE}/${SID}.topic")" = "analisis-de-pricing-agregado" ]
+    [[ "${title}" =~ -analisis-de-pricing-agregado$ ]]
+}
+
+# bats test_tags=unit
+@test "topic: an answer to the prompt instead of a topic is refused" {
+    stub_claude "printf '%s\\n' 'No PR list is in this session and I can check'"
+    hook prompt "$(prompt_input "" "no PR list here, check the other session")"
+    [[ "${title}" =~ -no-pr-list-here$ ]]
 }
 
 # bats test_tags=unit
 @test "topic: the model's answer is made an address: ASCII, lowercase, hyphens" {
     stub_claude "printf '%s\\n' '**Análisis — Pricing: Cartera**' 'second line'"
     hook prompt "$(prompt_input "" "x")"
-    wait_for "${STATE}/${SID}.topic"
-    [ "$(cat "${STATE}/${SID}.topic")" = "analisis-pricing-cartera" ]
+    [[ "${title}" =~ -analisis-pricing-cartera$ ]]
 }
 
 # bats test_tags=unit
 @test "topic: off, or an empty prompt, asks no model" {
     stub_claude
     CLAUDE_SESSION_NAME_TOPIC=off hook prompt "$(prompt_input "" "a real prompt")"
+    [[ "${title}" =~ ^claude-[0-9]{8}T[0-9]{6}Z$ ]]
     hook prompt "$(prompt_input "" "   ")"
-    sleep 0.5
+    [[ "${title}" =~ ^claude-[0-9]{8}T[0-9]{6}Z$ ]]
     [ ! -e "${BATS_TEST_TMPDIR}/claude.args" ]
 }
 
 # bats test_tags=unit
-@test "topic: the prompt never waits for the model" {
+@test "topic: the first prompt waits for the model at most 8 seconds" {
     stub_claude "sleep 30"
-    # perl's alarm, not timeout(1): macOS runners have no coreutils.
-    run perl -e 'alarm shift; exec @ARGV' 10 bash -c 'printf "%s" "$2" | bash "$1"' _ "$HOOK" \
-        "$(jq -c '. + {hook_event_name: "UserPromptSubmit"}' <<<"$(prompt_input "" "slow model")")"
-    [ "$status" -eq 0 ]
-    [[ "$(jq -r .hookSpecificOutput.sessionTitle <<<"${output}")" =~ ^claude- ]]
+    local paths=("$PATH")
+    paths+=("$(no_timeout_path)")
+    for path in "${paths[@]}"; do
+        # perl's alarm, not timeout(1): macOS runners have no coreutils.
+        SECONDS=0
+        run perl -e 'alarm shift; exec @ARGV' 14 env PATH="$path" bash -c 'printf "%s" "$2" | bash "$1"' _ "$HOOK" \
+            "$(jq -c '. + {hook_event_name: "UserPromptSubmit"}' <<<"$(prompt_input "" "slow model here")")"
+        [ "$status" -eq 0 ]
+        [ "${SECONDS}" -lt 13 ]
+        [[ "$(jq -r .hookSpecificOutput.sessionTitle <<<"${output}")" =~ -slow-model-here$ ]]
+    done
 }
 
 # bats test_tags=unit
 @test "topic: no prompt text is kept in the state directory" {
     stub_claude
     hook prompt "$(prompt_input "" "secret-marker-7731 do the thing")"
-    wait_for "${STATE}/${SID}.topic"
-    ! grep -rq 'secret-marker-7731' "${STATE}"
+    ! grep -rq 'secret-marker-7731' "${STATE}" 2>/dev/null
 }
 
 # --- herdr tab ----------------------------------------------------------------
@@ -462,48 +435,21 @@ conf_icons() {
     stub_claude
     stub_herdr "my-own-name"
     hook prompt "$(prompt_input "" "page splits")"
-    wait_for "${STATE}/${SID}.topic"
     sleep 0.5
     [ ! -e "${BATS_TEST_TMPDIR}/rename" ]
 
-    rm -f "${STATE}/${SID}.topic"
     stub_herdr 4 2
     hook prompt "$(prompt_input "" "page splits")"
-    wait_for "${STATE}/${SID}.topic"
     sleep 0.5
     [ ! -e "${BATS_TEST_TMPDIR}/rename" ]
-}
-
-# bats test_tags=unit
-@test "tab: a name this hook gave follows a provider switch" {
-    stub_herdr "OAI btree-splits"
-    conf_icons
-    mkdir -p "${STATE}"
-    echo "OAI btree-splits" >"${STATE}/${SID}.tab"
-    echo btree-splits >"${STATE}/${SID}.topic"
-    record_model claude-opus-5-5
-    hook prompt "$(prompt_input gpt-20261012T141205Z-btree-splits "next")"
-    [ "${title}" = "claude-20261012T141205Z-btree-splits" ]
-    wait_for "${BATS_TEST_TMPDIR}/rename"
-    [ "$(cat "${BATS_TEST_TMPDIR}/rename")" = 'A\ btree-splits' ]
 }
 
 # bats test_tags=unit
 @test "topic: without timeout(1), as on macOS, the model still runs" {
     stub_claude
-    local bin="${BATS_TEST_TMPDIR}/notimeout"
-    mkdir -p "$bin"
-    # Real binaries only: a version manager's shim cannot run on this PATH.
-    local real
-    real=$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '/shims' | paste -sd: -)
-    for tool in bash jq cat head tail tr iconv cut grep find mkdir rmdir mv printf env sort sleep perl uname date seq; do
-        p=$(PATH="$real" command -v "$tool") && ln -sf "$p" "$bin/$tool"
-    done
-    ln -sf "${STUB_DIR}/claude" "$bin/claude"
-    run env PATH="$bin" bash -c 'printf "%s" "$2" | bash "$1"' _ "$HOOK" \
+    run env PATH="$(no_timeout_path)" bash -c 'printf "%s" "$2" | bash "$1"' _ "$HOOK" \
         "$(jq -c '. + {hook_event_name: "UserPromptSubmit"}' <<<"$(prompt_input "" "page splits")")"
-    wait_for "${STATE}/${SID}.topic"
-    [ "$(cat "${STATE}/${SID}.topic")" = "postgresql-btree-page-splits" ]
+    [[ "$(jq -r .hookSpecificOutput.sessionTitle <<<"${output}")" =~ -postgresql-btree-page-splits$ ]]
 }
 
 @test "tab: outside herdr nothing is renamed" {
@@ -511,7 +457,6 @@ conf_icons() {
     stub_herdr 5
     unset HERDR_ENV
     hook prompt "$(prompt_input "" "page splits")"
-    wait_for "${STATE}/${SID}.topic"
     sleep 0.5
     [ ! -e "${BATS_TEST_TMPDIR}/rename" ]
 }
