@@ -155,7 +155,7 @@ ccusage --version
 | Shows `--` for usage | No reading yet, or no login for the model's plan | Check the login in [Usage for GPT and Muse models](#usage-for-gpt-and-muse-models); `STATUSLINE_DEBUG=1` shows the source tried |
 | Shows `--` for cost | No active billing block | Start a new conversation to begin a billing block |
 | No colors | `NO_COLOR` env var is set | Unset it: `unset NO_COLOR` |
-| Stale usage data (prefixed with `~`) | The last reading is old: the API failed or throttled | Normal; it refreshes once the API answers |
+| Stale usage data (prefixed with `~`) | The last reading is old: the API failed or throttled, or Muse reports no windows while its 5-hour one is idle | Normal; it refreshes once the API answers or the plan is used again |
 | Config changes not taking effect | Old session running | Start a new Claude Code session |
 
 ## See also

@@ -70,7 +70,10 @@ _ACCOUNT_SUFFIX=""
 if [[ -n "${CLAUDE_CONFIG_DIR:-}" ]]; then
     _ACCOUNT_SUFFIX="-$(printf '%s' "${CLAUDE_CONFIG_DIR}" | cksum | cut -d' ' -f1)"
 fi
-CACHE_FILE="${_TMP_DIR}/api-cache${_ACCOUNT_SUFFIX}"
+# Readings live in the state directory, so a weekly window survives a reboot
+# followed by a failed fetch. Locks and backoff stay in the temp directory.
+_STATE_DIR="${XDG_STATE_HOME:-${HOME}/.local/state}/claude-code/statusline"
+CACHE_FILE="${_STATE_DIR}/api-cache${_ACCOUNT_SUFFIX}"
 CACHE_TTL=180 # The usage endpoint throttles hard; one call per 3 minutes per account
 LOCK_DIR="${_TMP_DIR}/api-lock${_ACCOUNT_SUFFIX}"
 readonly LOCK_MAX_AGE_S=30 # Force-remove stale locks from killed processes
@@ -168,6 +171,7 @@ source "${_STATUSLINE_DIR}/lib/statusline/assembly.sh"
 main() {
     # Ensure user-specific tmp dir exists (prevents /tmp symlink attacks)
     [[ ! -d "${_TMP_DIR}" ]] && mkdir -p "${_TMP_DIR}" 2>/dev/null
+    mkdir -p "${_STATE_DIR}" 2>/dev/null || CACHE_FILE="${_TMP_DIR}/api-cache${_ACCOUNT_SUFFIX}"
 
     load_config
     load_theme

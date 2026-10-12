@@ -140,7 +140,7 @@ Pick the plan from the session's `model.id`. For Claude models, try stdin `rate_
 ### Consequences
 
 - **Benefits**: the figures match the plan doing the work, including after a `/model` switch. The weekly limit shows on every Claude plan. New providers add one reader and one `usage_provider` pattern.
-- **Trade-offs**: the ChatGPT and Muse endpoints are undocumented and may change; a failed read falls back to the last good value, then to `--`. Muse omits its windows while the 5-hour one is idle, so that window reads 0 and the weekly one keeps its last reading. Muse Contributor models show the plan's reading, the only one Meta reports.
+- **Trade-offs**: the ChatGPT and Muse endpoints are undocumented and may change; a failed read falls back to the last good value, then to `--`. Muse omits its windows while the 5-hour one is idle, so that window reads 0 and the weekly one keeps its last reading, marked `~` once that reading is old. Readings live in the state directory so they outlive a reboot. Muse Contributor models show the plan's reading, the only one Meta reports.
 
 ## ADR-8: MCP key pools with rotation
 

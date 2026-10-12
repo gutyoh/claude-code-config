@@ -194,12 +194,13 @@ get_provider_usage_data() {
     line=$(get_provider_usage "$1") || return 1
     [[ -z "${line}" ]] && return 1
 
-    local five five_reset week week_reset fetched_at
+    local five five_reset week week_reset fetched_at week_seen
     five=$(printf '%s' "${line}" | cut -f1)
     five_reset=$(printf '%s' "${line}" | cut -f2)
     week=$(printf '%s' "${line}" | cut -f3)
     week_reset=$(printf '%s' "${line}" | cut -f4)
     fetched_at=$(printf '%s' "${line}" | cut -f5)
+    week_seen=$(printf '%s' "${line}" | cut -f6)
 
     DATA_SESSION_PCT=""
     DATA_TIME_LEFT=""
@@ -214,8 +215,15 @@ get_provider_usage_data() {
         DATA_WEEKLY_PCT=$(_usage_pct "${week}")
         DATA_WEEKLY_TIME_LEFT=$(calculate_time_remaining_epoch "${week_reset}")
     fi
-    if [[ "${fetched_at}" =~ ^[0-9]+$ ]] && (($(date +%s) - fetched_at > ${USAGE_STALE_S:-900})); then
+    # Each window is approximate once its own reading is old: a weekly window
+    # carried through an idle stretch can be older than the fetch serving it.
+    local now
+    now=$(date +%s)
+    [[ "${week_seen}" =~ ^[0-9]+$ ]] || week_seen="${fetched_at}"
+    if [[ "${fetched_at}" =~ ^[0-9]+$ ]] && ((now - fetched_at > ${USAGE_STALE_S:-900})); then
         DATA_SESSION_PCT_STALE=1
+    fi
+    if [[ "${week_seen}" =~ ^[0-9]+$ ]] && ((now - week_seen > ${USAGE_STALE_S:-900})); then
         DATA_WEEKLY_PCT_STALE=1
     fi
     return 0

@@ -116,6 +116,7 @@ field() { printf '%s' "$1" | cut -f"$2"; }
     [[ "$(field "$output" 3)" == "8" ]]
     [[ "$(field "$output" 4)" == "1792326758" ]]
     [[ "$(field "$output" 5)" =~ ^[0-9]+$ ]]
+    [[ "$(field "$output" 6)" == "$(field "$output" 5)" ]]
 }
 
 @test "openai: 5-hour and weekly windows are labeled by length, not slot" {
@@ -254,7 +255,7 @@ field() { printf '%s' "$1" | cut -f"$2"; }
 
 @test "muse: idle window is 0 and the weekly keeps its last reading" {
     muse_login
-    printf '6\t%s\t17\t%s\t%s' "$((NOW - 60))" "$((NOW + 86400))" "$((NOW - 600))" >"$BATS_TEST_TMPDIR/prev"
+    printf '6\t%s\t17\t%s\t%s\t%s' "$((NOW - 60))" "$((NOW + 86400))" "$((NOW - 600))" "$((NOW - 7200))" >"$BATS_TEST_TMPDIR/prev"
     CACHE_FILE="$BATS_TEST_TMPDIR/prev"
     body '{"is_subs_active":true}'
     run fetch_muse_usage
@@ -262,6 +263,29 @@ field() { printf '%s' "$1" | cut -f"$2"; }
     [[ "$(field "$output" 1)" == "0" ]]
     [[ "$(field "$output" 3)" == "17" ]]
     [[ "$(field "$output" 4)" == "$((NOW + 86400))" ]]
+    # Fetched now, but the weekly reading keeps the time Meta last reported it
+    [[ "$(field "$output" 5)" -ge "$NOW" ]]
+    [[ "$(field "$output" 6)" == "$((NOW - 7200))" ]]
+}
+
+@test "muse: idle carry from an older five-field reading uses its fetch time" {
+    muse_login
+    printf '6\t1\t17\t%s\t%s' "$((NOW + 86400))" "$((NOW - 900))" >"$BATS_TEST_TMPDIR/prev"
+    CACHE_FILE="$BATS_TEST_TMPDIR/prev"
+    body '{"is_subs_active":true}'
+    run fetch_muse_usage
+    [ "$status" -eq 0 ]
+    [[ "$(field "$output" 3)" == "17" ]]
+    [[ "$(field "$output" 6)" == "$((NOW - 900))" ]]
+}
+
+@test "muse: an active reading is seen now" {
+    muse_login
+    body '{"is_subs_active":true,"subs_usage":{"window":{"used_percent":6,"resets_at":'"$((NOW + 3600))"'},"weekly":{"used_percent":17,"resets_at":'"$((NOW + 86400))"'}}}'
+    run fetch_muse_usage
+    [ "$status" -eq 0 ]
+    [[ "$(field "$output" 6)" -ge "$NOW" ]]
+    [[ "$(field "$output" 6)" == "$(field "$output" 5)" ]]
 }
 
 @test "muse: idle with an expired last weekly shows no weekly" {
@@ -348,7 +372,8 @@ field() { printf '%s' "$1" | cut -f"$2"; }
 @test "provider cache: fresh reading served without a call" {
     openai_login
     local key="openai-$(printf '%s' "$HOME/.codex/auth.json" | cksum | cut -d' ' -f1)"
-    printf '\t\t8\t1\t%s' "$NOW" >"$_TMP_DIR/usage-$key"
+    mkdir -p "$(usage_state_dir)"
+    printf '\t\t8\t1\t%s' "$NOW" >"$(usage_state_dir)/usage-$key"
     run get_provider_usage openai
     [ "$status" -eq 0 ]
     [[ "$(field "$output" 3)" == "8" ]]
@@ -365,14 +390,15 @@ field() { printf '%s' "$1" | cut -f"$2"; }
     body '{"rate_limit":{"primary_window":{"used_percent":55,"limit_window_seconds":604800,"reset_at":1}}}'
     run get_provider_usage openai
     [[ "$(field "$output" 3)" == "55" ]]
-    [ "$(ls "$_TMP_DIR"/usage-openai-* | grep -vc '\.')" -eq 2 ]
+    [ "$(ls "$(usage_state_dir)"/usage-openai-* | wc -l)" -eq 2 ]
 }
 
 @test "provider cache: an error keeps serving the last reading" {
     openai_login
     local key="openai-$(printf '%s' "$HOME/.codex/auth.json" | cksum | cut -d' ' -f1)"
-    printf '\t\t8\t1\t%s' "$((NOW - 1000))" >"$_TMP_DIR/usage-$key"
-    set_file_mtime "$_TMP_DIR/usage-$key" "$((NOW - 1000))"
+    mkdir -p "$(usage_state_dir)"
+    printf '\t\t8\t1\t%s' "$((NOW - 1000))" >"$(usage_state_dir)/usage-$key"
+    set_file_mtime "$(usage_state_dir)/usage-$key" "$((NOW - 1000))"
     touch "$BATS_TEST_TMPDIR/curl.fail"
     run get_provider_usage openai
     [ "$status" -eq 0 ]
@@ -395,7 +421,8 @@ field() { printf '%s' "$1" | cut -f"$2"; }
 @test "collect_data: an old provider reading is marked approximate" {
     openai_login
     local key="openai-$(printf '%s' "$HOME/.codex/auth.json" | cksum | cut -d' ' -f1)"
-    printf '3\t1\t8\t1\t%s' "$((NOW - 2000))" >"$_TMP_DIR/usage-$key"
+    mkdir -p "$(usage_state_dir)"
+    printf '3\t1\t8\t1\t%s' "$((NOW - 2000))" >"$(usage_state_dir)/usage-$key"
     touch "$BATS_TEST_TMPDIR/curl.fail"
     DATA_SESSION_PCT_STALE=0
     DATA_WEEKLY_PCT_STALE=0
@@ -403,6 +430,54 @@ field() { printf '%s' "$1" | cut -f"$2"; }
     [[ "$DATA_WEEKLY_PCT" == "8" ]]
     [[ "$DATA_SESSION_PCT_STALE" == "1" ]]
     [[ "$DATA_WEEKLY_PCT_STALE" == "1" ]]
+}
+
+@test "provider readings live in XDG_STATE_HOME, not the temp directory" {
+    export XDG_STATE_HOME="$BATS_TEST_TMPDIR/state"
+    openai_login
+    body '{"rate_limit":{"primary_window":{"used_percent":8,"limit_window_seconds":604800,"reset_at":1}}}'
+    get_provider_usage openai >/dev/null
+    ls "$XDG_STATE_HOME"/claude-code/statusline/usage-openai-* >/dev/null
+    ! ls "$_TMP_DIR"/usage-openai-* 2>/dev/null | grep -qv '\.\(lock\|backoff\)$'
+}
+
+@test "a carried weekly reading survives a wiped temp directory" {
+    muse_login
+    body '{"is_subs_active":true,"subs_usage":{"window":{"used_percent":6,"resets_at":'"$((NOW + 3600))"'},"weekly":{"used_percent":17,"resets_at":'"$((NOW + 86400))"'}}}'
+    get_provider_usage muse >/dev/null
+    # A reboot: the temp directory is gone and the 5-hour window is idle
+    rm -rf "$_TMP_DIR"
+    mkdir -p "$_TMP_DIR"
+    set_file_mtime "$(ls "$(usage_state_dir)"/usage-muse-*)" "$((NOW - 1000))"
+    body '{"is_subs_active":true}'
+    collect_data '{"model":{"id":"muse-spark-1.3"}}'
+    [[ "$DATA_SESSION_PCT" == "0" ]]
+    [[ "$DATA_WEEKLY_PCT" == "17" ]]
+}
+
+@test "collect_data: an old weekly reading is approximate while a fresh session is not" {
+    muse_login
+    local key="muse-$(printf '%s' "$XDG_CONFIG_HOME/muse/auth.json" | cksum | cut -d' ' -f1)"
+    mkdir -p "$(usage_state_dir)"
+    printf '0\t\t17\t%s\t%s\t%s' "$((NOW + 86400))" "$NOW" "$((NOW - 7200))" >"$(usage_state_dir)/usage-$key"
+    DATA_SESSION_PCT_STALE=0
+    DATA_WEEKLY_PCT_STALE=0
+    collect_data '{"model":{"id":"muse-spark-1.3"}}'
+    [[ "$DATA_WEEKLY_PCT" == "17" ]]
+    [[ "$DATA_SESSION_PCT_STALE" == "0" ]]
+    [[ "$DATA_WEEKLY_PCT_STALE" == "1" ]]
+}
+
+@test "statusline: an old carried weekly renders with ~" {
+    muse_login
+    local key="muse-$(printf '%s' "$XDG_CONFIG_HOME/muse/auth.json" | cksum | cut -d' ' -f1)"
+    mkdir -p "$(usage_state_dir)" "$HOME/.claude"
+    printf '0\t\t17\t%s\t%s\t%s' "$((NOW + 86400))" "$NOW" "$((NOW - 7200))" >"$(usage_state_dir)/usage-$key"
+    printf 'components=model,usage,weekly\ntheme=none\n' >"$HOME/.claude/statusline.conf"
+    run env TMPDIR="$BATS_TEST_TMPDIR" COLUMNS=200 bash "$STATUSLINE" \
+        <<<'{"model":{"id":"muse-spark-1.3","display_name":"muse-spark-1.3"},"session_id":"s4"}'
+    [ "$status" -eq 0 ]
+    [[ "$output" == "muse-spark-1.3 | 0%/~17%" ]]
 }
 
 @test "collect_data: a model with no reader shows --, not Claude's usage" {

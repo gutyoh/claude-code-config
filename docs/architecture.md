@@ -141,9 +141,10 @@ flowchart TD
 Every network reading shares one cache design:
 - **A TTL per source**: 180 seconds for Claude's OAuth API, which throttles hard, and 120 seconds for the ChatGPT and Muse plans. One reading serves every session on the host.
 - **Keyed by login**: Claude's by `CLAUDE_CONFIG_DIR`, the others by login file, so two accounts never show each other's usage.
+- **Persistent readings**: every reading lives in `${XDG_STATE_HOME:-~/.local/state}/claude-code/statusline`, so a weekly window outlives a reboot: Claude's survives a failed first fetch, and Muse's survives an idle window. Locks and backoff stay in the temp directory; a state directory that cannot be written falls back to it.
 - **Atomic mkdir-based locking** to prevent thundering herd across concurrent sessions
 - **Decorrelated jitter backoff** (30s-300s) on API failures
-- **Stale-while-error**: serves last known good value when the API is down, marked with `~` once it is older than 15 minutes
+- **Stale-while-error**: serves last known good value when the API is down, marked with `~` once it is older than 15 minutes. Each window is judged by its own reading: a weekly window carried through an idle stretch is marked even when the fetch serving it is new.
 
 The readers never refresh a login: each login has exactly one refresher (Claude Code, Codex, the Muse CLI or a router), and a refresh token spent elsewhere signs that refresher out. Bearer tokens reach curl on stdin, never in its arguments, so they do not show in the process list. `STATUSLINE_HTTPS_PROXY` overrides the proxy inherited from Claude Code, for a router that intercepts Claude Code's traffic. Windows a plan does not have are hidden: a ChatGPT plan with only a weekly limit shows one figure, not `--`.
 
