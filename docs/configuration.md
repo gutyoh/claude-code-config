@@ -48,8 +48,19 @@ session list, and `claude --resume <name>` finds the session by it.
   set `CLAUDE_SESSION_NAME_TZ` to an IANA zone to use local time with its
   offset instead, for example `claude-20261012T043012+0900` for
   `Asia/Tokyo`.
+- **Topic**: a small model (`haiku`, `CLAUDE_SESSION_NAME_MODEL`) names the
+  topic in the background from the first prompt, and again every
+  `CLAUDE_SESSION_NAME_REFRESH` prompts (default 10, `0` keeps the first):
+  `claude-20261012T141205Z-btree-page-splits`. The name shows it from the next
+  prompt. The run uses no hooks, tools, MCP servers or saved transcript, and
+  no prompt text is stored. `CLAUDE_SESSION_NAME_TOPIC=off` names without it.
+- **herdr tab**: inside herdr, the session's tab is named `<icon> <topic>`,
+  with the plan's `icon_claude`, `icon_openai` or `icon_muse` from
+  `statusline.conf` (Nerd Font icons work), else the provider's name. Only a
+  numbered tab or one this hook named, holding one pane, is renamed.
 - **Your names win**: the hooks change only names in this exact format. A
-  name set with `/rename` or `claude --name` is never touched.
+  name set with `/rename`, `claude --name` or the Claude app, and a tab you
+  named, are never touched.
 - **Interactive sessions only**: `claude -p` and SDK runs keep no name, so
   an agent that starts one inside a session never renames that session.
 - **Opt out**: `CLAUDE_SESSION_NAME=off`.
@@ -136,6 +147,9 @@ Both use `${VAR}` syntax for runtime environment variable expansion.
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude Code's config dir; setup, the statusline, the hooks and the MCP key tools follow it |
 | `CLAUDE_SESSION_NAME_TZ` | `UTC` | IANA time zone for [session names](#session-names) |
 | `CLAUDE_SESSION_NAME` | — | `off` disables [session names](#session-names) |
+| `CLAUDE_SESSION_NAME_TOPIC` | — | `off` names sessions without a topic |
+| `CLAUDE_SESSION_NAME_REFRESH` | `10` | Prompts between topic refreshes; `0` keeps the first |
+| `CLAUDE_SESSION_NAME_MODEL` | `haiku` | Model that names the topic |
 | `MCP_KEYS_ENV_FILE` | `<config dir>/mcp-keys.env` | Where `mcp-env-inject` and `mcp-key-rotate` read MCP keys |
 
 ### A second profile
