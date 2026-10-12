@@ -404,7 +404,8 @@ prompt_input() { # <title> <prompt> [transcript]
 # bats test_tags=unit
 @test "topic: the prompt never waits for the model" {
     stub_claude "sleep 30"
-    run timeout 10 bash -c 'printf "%s" "$2" | bash "$1"' _ "$HOOK" \
+    # perl's alarm, not timeout(1): macOS runners have no coreutils.
+    run perl -e 'alarm shift; exec @ARGV' 10 bash -c 'printf "%s" "$2" | bash "$1"' _ "$HOOK" \
         "$(jq -c '. + {hook_event_name: "UserPromptSubmit"}' <<<"$(prompt_input "" "slow model")")"
     [ "$status" -eq 0 ]
     [[ "$(jq -r .hookSpecificOutput.sessionTitle <<<"${output}")" =~ ^claude- ]]
@@ -488,6 +489,23 @@ conf_icons() {
 }
 
 # bats test_tags=unit
+@test "topic: without timeout(1), as on macOS, the model still runs" {
+    stub_claude
+    local bin="${BATS_TEST_TMPDIR}/notimeout"
+    mkdir -p "$bin"
+    # Real binaries only: a version manager's shim cannot run on this PATH.
+    local real
+    real=$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '/shims' | paste -sd: -)
+    for tool in bash jq cat head tail tr iconv cut grep find mkdir rmdir mv printf env sort sleep perl uname date seq; do
+        p=$(PATH="$real" command -v "$tool") && ln -sf "$p" "$bin/$tool"
+    done
+    ln -sf "${STUB_DIR}/claude" "$bin/claude"
+    run env PATH="$bin" bash -c 'printf "%s" "$2" | bash "$1"' _ "$HOOK" \
+        "$(jq -c '. + {hook_event_name: "UserPromptSubmit"}' <<<"$(prompt_input "" "page splits")")"
+    wait_for "${STATE}/${SID}.topic"
+    [ "$(cat "${STATE}/${SID}.topic")" = "postgresql-btree-page-splits" ]
+}
+
 @test "tab: outside herdr nothing is renamed" {
     stub_claude
     stub_herdr 5

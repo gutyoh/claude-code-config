@@ -74,6 +74,20 @@ timestamp() {
     esac
 }
 
+# Runs a command for at most <seconds>. macOS has no timeout(1) unless GNU
+# coreutils is installed; perl, which it ships, keeps an alarm across exec.
+limited() {
+    local seconds="$1"
+    shift
+    if command -v timeout &>/dev/null; then
+        timeout "${seconds}" "$@"
+    elif command -v gtimeout &>/dev/null; then
+        gtimeout "${seconds}" "$@"
+    else
+        perl -e 'alarm shift; exec @ARGV or exit 127' "${seconds}" "$@"
+    fi
+}
+
 emit() {
     jq -n --arg event "$1" --arg title "$2" \
         '{hookSpecificOutput: {hookEventName: $event, sessionTitle: $title}}'
@@ -125,7 +139,7 @@ sync_tab() {
     [[ "${HERDR_ENV:-}" == "1" && -n "${HERDR_TAB_ID:-}" && -n "${topic}" ]] || return 0
     herdr="${HERDR_BIN_PATH:-herdr}"
     command -v "${herdr}" &>/dev/null || return 0
-    tab=$(timeout 5 "${herdr}" tab get "${HERDR_TAB_ID}" 2>/dev/null) || return 0
+    tab=$(limited 5 "${herdr}" tab get "${HERDR_TAB_ID}" 2>/dev/null) || return 0
     label=$(jq -r '.result.tab.label // empty' <<<"${tab}" 2>/dev/null)
     panes=$(jq -r '.result.tab.pane_count // 0' <<<"${tab}" 2>/dev/null)
     [[ "${panes}" == "1" ]] || return 0
@@ -134,7 +148,7 @@ sync_tab() {
     name="$(plan_icon "${provider}") $(slug "${topic}" "${TAB_TOPIC_MAX}")"
     [[ "${name}" == "${label}" ]] && return 0
     # herdr takes every argument after the id as the label, "--" included.
-    timeout 5 "${herdr}" tab rename "${HERDR_TAB_ID}" "${name}" >/dev/null 2>&1 || return 0
+    limited 5 "${herdr}" tab rename "${HERDR_TAB_ID}" "${name}" >/dev/null 2>&1 || return 0
     printf '%s\n' "${name}" >"${STATE_DIR}/${session}.tab"
 }
 
@@ -156,9 +170,9 @@ write_topic() {
         rmdir "${lock}" 2>/dev/null
     fi
     mkdir "${lock}" 2>/dev/null || return 0
-    answer=$(env -u HERDR_ENV -u HERDR_PANE_ID -u HERDR_TAB_ID -u HERDR_WORKSPACE_ID \
-        -u HERDR_SOCKET_PATH CLAUDE_SESSION_NAME=off \
-        timeout 60 claude -p --model "${CLAUDE_SESSION_NAME_MODEL:-haiku}" \
+    answer=$(limited 60 env -u HERDR_ENV -u HERDR_PANE_ID -u HERDR_TAB_ID \
+        -u HERDR_WORKSPACE_ID -u HERDR_SOCKET_PATH CLAUDE_SESSION_NAME=off \
+        claude -p --model "${CLAUDE_SESSION_NAME_MODEL:-haiku}" \
         --setting-sources "" --strict-mcp-config --tools "" --no-session-persistence \
         "Name the topic of this coding session as 2 to 4 lowercase ASCII words joined by hyphens, and reply with nothing else. Use the language of the text. Text: ${text:0:${TOPIC_TEXT_MAX}}" \
         </dev/null 2>/dev/null | head -n 1)
