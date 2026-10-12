@@ -46,8 +46,8 @@ session list, and `claude --resume <name>` finds the session by it.
   records the current model, so the swap needs the repo statusline.
 - **Time**: set once and never updated. UTC by default, written with a `Z`;
   set `CLAUDE_SESSION_NAME_TZ` to an IANA zone to use local time with its
-  offset instead, for example `claude-20261011T143012-0500` for
-  `America/Panama`.
+  offset instead, for example `claude-20261012T043012+0900` for
+  `Asia/Tokyo`.
 - **Your names win**: the hooks change only names in this exact format. A
   name set with `/rename` or `claude --name` is never touched.
 - **Interactive sessions only**: `claude -p` and SDK runs keep no name, so

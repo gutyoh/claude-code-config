@@ -114,6 +114,28 @@ function Update-SessionNameHook {
     }
 }
 
+function Update-TranscriptRetention {
+    <#
+    .SYNOPSIS
+    Keep session transcripts for a century unless the user chose a period.
+    Claude Code otherwise deletes them after 30 days, and --resume with them.
+    #>
+    try {
+        $settings = Read-Utf8Text $script:SettingsJson | ConvertFrom-Json
+        if ($null -ne $settings.PSObject.Properties['cleanupPeriodDays']) {
+            Write-Status "  + Transcript retention already set ($($settings.cleanupPeriodDays) days)" -Color Green
+        }
+        else {
+            $settings | Add-Member -NotePropertyName "cleanupPeriodDays" -NotePropertyValue 36500 -Force
+            Write-JsonFile -Path $script:SettingsJson -InputObject $settings
+            Write-Status "  + Transcripts kept for 36500 days" -Color Green
+        }
+    }
+    catch {
+        Write-Status "  ! Failed to set transcript retention: $_" -Color Yellow
+    }
+}
+
 function Update-FileSuggestion {
     <#
     .SYNOPSIS

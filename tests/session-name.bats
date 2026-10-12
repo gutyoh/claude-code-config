@@ -66,8 +66,8 @@ record_model() {
 
 # bats test_tags=unit
 @test "a time zone override records its offset instead of Z" {
-    CLAUDE_SESSION_NAME_TZ=America/Panama hook start "$(input "" claude-opus-5-5)"
-    [[ "$(cat "${STATE}/${SID}.start")" =~ ^[0-9]{8}T[0-9]{6}-0500$ ]]
+    CLAUDE_SESSION_NAME_TZ=Asia/Tokyo hook start "$(input "" claude-opus-5-5)"
+    [[ "$(cat "${STATE}/${SID}.start")" =~ ^[0-9]{8}T[0-9]{6}\+0900$ ]]
 }
 
 # bats test_tags=unit
@@ -132,8 +132,8 @@ record_model() {
 @test "an untitled prompt without state is named now, as claude" {
     hook prompt "$(input)"
     [[ "${title}" =~ ^claude-[0-9]{8}T[0-9]{6}Z$ ]]
-    CLAUDE_SESSION_NAME_TZ=America/Panama hook prompt "$(input)"
-    [[ "${title}" =~ ^claude-[0-9]{8}T[0-9]{6}-0500$ ]]
+    CLAUDE_SESSION_NAME_TZ=Asia/Tokyo hook prompt "$(input)"
+    [[ "${title}" =~ ^claude-[0-9]{8}T[0-9]{6}\+0900$ ]]
 }
 
 # bats test_tags=unit
