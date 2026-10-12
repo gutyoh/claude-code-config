@@ -99,12 +99,17 @@ recorded_model() {
 }
 
 # Lowercase ASCII words joined by hyphens, at most <max> characters, cut at a
-# word boundary: a title must stay an address other sessions can type.
+# word boundary: a title must stay an address other sessions can type. Accents
+# go by Unicode decomposition (NFKD, marks removed), and the few letters that
+# do not decompose by name; iconv's transliteration differs by platform.
 slug() {
     local text="$1" max="$2" ascii
-    ascii=$(printf '%s' "${text}" | iconv -f UTF-8 -t ASCII//TRANSLIT 2>/dev/null) || ascii="${text}"
-    # macOS iconv spells an accent as a mark before the letter: an'alisis.
-    ascii=$(printf '%s' "${ascii}" | tr -d "'\"^\`~" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | tr -s '-')
+    ascii=$(printf '%s' "${text}" | perl -CSD -MUnicode::Normalize -ne '
+        $_ = NFKD($_); s/\pM//g;
+        s/\x{DF}/ss/g; s/[\x{E6}\x{C6}]/ae/g; s/[\x{153}\x{152}]/oe/g; s/[\x{FE}\x{DE}]/th/g;
+        tr/\x{F8}\x{D8}\x{142}\x{141}\x{111}\x{110}\x{F0}\x{D0}/oollddd/;
+        print lc' 2>/dev/null) || ascii="${text}"
+    ascii=$(printf '%s' "${ascii}" | LC_ALL=C tr -c 'a-z0-9' '-' | tr -s '-')
     ascii="${ascii#-}"
     ascii="${ascii%-}"
     while ((${#ascii} > max)) && [[ "${ascii}" == *-* ]]; do
