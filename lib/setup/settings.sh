@@ -17,7 +17,7 @@ import os
 import sys
 
 ref = os.environ.get('CLAUDE_DIR_REF', '~/.claude')
-data = {"hooks": {"PreToolUse": [{
+data = {"cleanupPeriodDays": 36500, "hooks": {"PreToolUse": [{
     "matcher": "mcp__ide__getDiagnostics",
     "hooks": [{"type": "command", "command": f"{ref}/hooks/open-file-in-ide.sh"}],
 }]}}
@@ -166,6 +166,32 @@ try:
         print("  ✓ Session naming hooks already configured")
 except Exception as e:
     print(f"  ⚠ Failed to add session naming hooks: {e}", file=sys.stderr)
+    sys.exit(1)
+PYTHON_SCRIPT
+}
+
+# Claude Code deletes session transcripts after 30 days unless told otherwise,
+# and with them every conversation `--resume` could reopen. Keep them for a
+# century; a value the user already set is theirs and stays.
+configure_transcript_retention() {
+    python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
+import json
+import sys
+
+settings_file = sys.argv[1]
+try:
+    with open(settings_file) as f:
+        data = json.load(f)
+    if 'cleanupPeriodDays' in data:
+        print(f"  ✓ Transcript retention already set ({data['cleanupPeriodDays']} days)")
+        sys.exit(0)
+    data['cleanupPeriodDays'] = 36500
+    with open(settings_file, 'w') as f:
+        json.dump(data, f, indent=2)
+        f.write('\n')
+    print("  ✓ Transcripts kept for 36500 days")
+except Exception as e:
+    print(f"  ⚠ Failed to set transcript retention: {e}", file=sys.stderr)
     sys.exit(1)
 PYTHON_SCRIPT
 }

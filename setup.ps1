@@ -426,7 +426,8 @@ elseif ($script:SettingsMode -eq "merge") {
     if (-not (Test-Path $script:SettingsJson)) {
         Write-Status "  Creating $($script:ClaudeDirRef)/settings.json with default hooks..."
         $hookConfig = [PSCustomObject]@{
-            hooks = [PSCustomObject]@{
+            cleanupPeriodDays = 36500
+            hooks             = [PSCustomObject]@{
                 PreToolUse = @(
                     [PSCustomObject]@{
                         matcher = "mcp__ide__getDiagnostics"
@@ -447,6 +448,7 @@ elseif ($script:SettingsMode -eq "merge") {
         Update-IdeHook
     }
     Update-SessionNameHook
+    Update-TranscriptRetention
 
     Write-Status ""
 
