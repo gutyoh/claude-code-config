@@ -138,6 +138,8 @@ flowchart TD
     STATUS --> RENDER
 ```
 
+Claude's usage is one reading per account, not per session. Claude Code sends each session the `rate_limits` of its own last response, so a quiet session would fall behind while others spend the same account. Every render merges what it sees, its stdin and the shared OAuth reading, into `claude-<account>` in the state directory and shows that file. A merge never goes back: a later reset is a newer window, and within one window usage only grows, so the higher reading is the newer one. With `refreshInterval` set (setup sets 60 seconds), an idle session redraws and picks up what another session spent.
+
 Every network reading shares one cache design:
 - **A TTL per source**: 180 seconds for Claude's OAuth API, which throttles hard, and 120 seconds for the ChatGPT and Muse plans. One reading serves every session on the host.
 - **Keyed by login**: Claude's by `CLAUDE_CONFIG_DIR`, the others by login file, so two accounts never show each other's usage.

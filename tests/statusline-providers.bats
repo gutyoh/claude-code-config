@@ -525,3 +525,109 @@ field() { printf '%s' "$1" | cut -f"$2"; }
     [[ "$output" == "opus-5.5 | 12%/58%" ]]
     [ ! -f "$BATS_TEST_TMPDIR/curl.argv" ]
 }
+
+# =========================================================================
+# Claude: one reading per account, shared by every session
+# =========================================================================
+
+claude_json() { # five_pct five_reset week_pct week_reset
+    printf '{"model":{"id":"claude-opus-5-5","display_name":"Opus 5.5"},"rate_limits":{"five_hour":{"used_percentage":%s,"resets_at":%s},"seven_day":{"used_percentage":%s,"resets_at":%s}}}' "$@"
+}
+
+render_claude() {
+    DATA_SESSION_PCT="--"
+    DATA_WEEKLY_PCT="--"
+    DATA_SESSION_PCT_STALE=0
+    DATA_WEEKLY_PCT_STALE=0
+    collect_data "$1"
+}
+
+@test "account: a quiet session shows what another session saw since" {
+    eval 'get_api_session_data() { return 1; }'
+    local r5=$((NOW + 3600)) r7=$((NOW + 86400))
+    render_claude "$(claude_json 5 $r5 61 $r7)"   # the busy session
+    render_claude "$(claude_json 4 $r5 60 $r7)"   # the quiet one, behind
+    [[ "$DATA_SESSION_PCT" == "5" ]]
+    [[ "$DATA_WEEKLY_PCT" == "61" ]]
+}
+
+@test "account: an older reading never replaces a newer one" {
+    eval 'get_api_session_data() { return 1; }'
+    local r5=$((NOW + 3600)) r7=$((NOW + 86400))
+    render_claude "$(claude_json 9 $r5 70 $r7)"
+    render_claude "$(claude_json 3 $r5 65 $r7)"
+    render_claude "$(claude_json 3 $r5 65 $r7)"
+    IFS=$'\t' read -r five week <"$(claude_account_file)"
+    [[ "${five%%|*}" == "9" ]]
+    [[ "${week%%|*}" == "70" ]]
+}
+
+@test "account: a new window replaces a higher reading of the old one" {
+    eval 'get_api_session_data() { return 1; }'
+    render_claude "$(claude_json 90 $((NOW - 60)) 61 $((NOW + 86400)))"
+    render_claude "$(claude_json 2 $((NOW + 18000)) 61 $((NOW + 86400)))"
+    [[ "$DATA_SESSION_PCT" == "2" ]]
+}
+
+@test "account: the shared OAuth reading counts when it is ahead of stdin" {
+    local iso5 iso7
+    iso5=$(date -u -d "@$((NOW + 3600))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -r "$((NOW + 3600))" +%Y-%m-%dT%H:%M:%SZ)
+    iso7=$(date -u -d "@$((NOW + 86400))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -r "$((NOW + 86400))" +%Y-%m-%dT%H:%M:%SZ)
+    printf '7.0\t%s\t62.0\t%s' "$iso5" "$iso7" >"$CACHE_FILE"
+    eval 'get_api_session_data() { return 1; }'
+    render_claude "$(claude_json 4 $((NOW + 3600)) 60 $((NOW + 86400)))"
+    [[ "$DATA_SESSION_PCT" == "7" ]]
+    [[ "$DATA_WEEKLY_PCT" == "62" ]]
+    [[ "$DATA_SESSION_PCT_STALE" == "0" ]]
+}
+
+@test "account: a held lock skips the write but still shows the shared reading" {
+    eval 'get_api_session_data() { return 1; }'
+    local r5=$((NOW + 3600)) r7=$((NOW + 86400))
+    render_claude "$(claude_json 8 $r5 66 $r7)"
+    mkdir "$_TMP_DIR/claude-account.lock"
+    render_claude "$(claude_json 2 $r5 50 $r7)"
+    [[ "$DATA_SESSION_PCT" == "8" ]]
+    rmdir "$_TMP_DIR/claude-account.lock"
+}
+
+@test "account: a lock left by a killed render is reclaimed" {
+    eval 'get_api_session_data() { return 1; }'
+    mkdir "$_TMP_DIR/claude-account.lock"
+    set_file_mtime "$_TMP_DIR/claude-account.lock" "$((NOW - 60))"
+    render_claude "$(claude_json 12 $((NOW + 3600)) 40 $((NOW + 86400)))"
+    [ -f "$(claude_account_file)" ]
+    [ ! -d "$_TMP_DIR/claude-account.lock" ]
+}
+
+@test "account: two Claude accounts keep separate readings" {
+    eval 'get_api_session_data() { return 1; }'
+    local r5=$((NOW + 3600)) r7=$((NOW + 86400))
+    _ACCOUNT_SUFFIX="-111"
+    render_claude "$(claude_json 30 $r5 80 $r7)"
+    _ACCOUNT_SUFFIX="-222"
+    render_claude "$(claude_json 1 $r5 10 $r7)"
+    [[ "$DATA_SESSION_PCT" == "1" ]]
+    [ -f "$(usage_state_dir)/claude-111" ]
+    [ -f "$(usage_state_dir)/claude-222" ]
+}
+
+@test "account: a reading nobody refreshed for a while is approximate" {
+    eval 'get_api_session_data() { return 1; }'
+    mkdir -p "$(usage_state_dir)"
+    printf '6|%s|%s\t61|%s|%s\n' "$((NOW + 3600))" "$((NOW - 2000))" "$((NOW + 86400))" "$((NOW - 2000))" >"$(claude_account_file)"
+    render_claude '{"model":{"id":"claude-opus-5-5"}}'
+    [[ "$DATA_SESSION_PCT" == "6" ]]
+    [[ "$DATA_SESSION_PCT_STALE" == "1" ]]
+    [[ "$DATA_WEEKLY_PCT_STALE" == "1" ]]
+}
+
+@test "statusline: a quiet session renders the account's newer reading" {
+    mkdir -p "$HOME/.claude"
+    printf 'components=model,usage,weekly\ntheme=none\n' >"$HOME/.claude/statusline.conf"
+    local r5=$((NOW + 3600)) r7=$((NOW + 86400))
+    env TMPDIR="$BATS_TEST_TMPDIR" COLUMNS=200 bash "$STATUSLINE" <<<"$(claude_json 5 $r5 61 $r7)" >/dev/null
+    run env TMPDIR="$BATS_TEST_TMPDIR" COLUMNS=200 bash "$STATUSLINE" <<<"$(claude_json 4 $r5 60 $r7)"
+    [ "$status" -eq 0 ]
+    [[ "$output" == "opus-5.5 | 5%/61%" ]]
+}

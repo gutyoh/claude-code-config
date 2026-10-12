@@ -718,50 +718,47 @@ EOF
     echo "    claude-proxy -p antigravity --models"
 }
 
+# The statusline redraws on a timer as well as on events, so an idle session
+# keeps its countdowns moving and picks up usage other sessions spent. A
+# statusline someone else configured is left as it is.
 configure_statusline() {
-    if python3 - "${SETTINGS_JSON}" <<'PYTHON_CHECK' 2>/dev/null; then
-import json
-import sys
-try:
-    with open(sys.argv[1]) as f:
-        data = json.load(f)
-    if 'statusLine' in data:
-        sys.exit(0)
-    sys.exit(1)
-except Exception:
-    sys.exit(1)
-PYTHON_CHECK
-        echo "  ✓ Statusline already configured"
-    else
-        echo "  Adding statusline to settings..."
-        python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
+    python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
 import json
 import os
 import sys
 
 settings_file = sys.argv[1]
 ref = os.environ.get('CLAUDE_DIR_REF', '~/.claude')
+REFRESH = 60
 
 try:
     with open(settings_file) as f:
         data = json.load(f)
 
-    data['statusLine'] = {
-        "type": "command",
-        "command": f"{ref}/scripts/statusline.sh",
-        "padding": 0
-    }
+    line = data.get('statusLine')
+    if line is None:
+        data['statusLine'] = {
+            "type": "command",
+            "command": f"{ref}/scripts/statusline.sh",
+            "padding": 0,
+            "refreshInterval": REFRESH,
+        }
+        message = "  ✓ Statusline configured"
+    elif (isinstance(line, dict) and 'refreshInterval' not in line
+          and str(line.get('command', '')).endswith('/scripts/statusline.sh')):
+        line['refreshInterval'] = REFRESH
+        message = f"  ✓ Statusline refreshes every {REFRESH}s"
+    else:
+        print("  ✓ Statusline already configured")
+        sys.exit(0)
 
     with open(settings_file, 'w') as f:
         json.dump(data, f, indent=2)
-
-    print("  ✓ Statusline configured")
-    sys.exit(0)
+    print(message)
 except Exception as e:
-    print(f"  ⚠ Failed to add statusline: {e}", file=sys.stderr)
+    print(f"  ⚠ Failed to configure the statusline: {e}", file=sys.stderr)
     sys.exit(1)
 PYTHON_SCRIPT
-    fi
 }
 
 remove_legacy_claude_sync_hooks() {

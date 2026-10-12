@@ -495,7 +495,8 @@ mock_api_failure() {
     source "$MODULES_DIR/utils.sh"
     source "$MODULES_DIR/data.sh"
     export HOOK_USAGE_CACHE="$BATS_TEST_TMPDIR/nonexistent.json"
-    write_cache_aged "11.0\t2026-03-05T20:00:00Z\t58.0\t2026-03-09T20:00:00Z" 1000
+    printf '11.0\t2026-03-05T20:00:00Z\t58.0\t2026-03-09T20:00:00Z' >"$CACHE_FILE"
+    set_file_mtime "$CACHE_FILE" "$(( $(date +%s) - 1000 ))"
     mock_api_failure
 
     DATA_SESSION_PCT_STALE=0

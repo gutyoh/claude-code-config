@@ -2,11 +2,11 @@
 # Path: .claude/scripts/lib/statusline/data.sh
 # Sourced by statusline.sh — do not execute directly.
 #
-# Usage data follows the session's model (providers.sh). For Claude models:
-#   1. Stdin JSON: rate_limits.five_hour / seven_day, when Claude Code sends them
-#   2. OAuth API:  /api/oauth/usage with stale-while-error, the weekly
-#      source until stdin has it
-#   3. Hook cache: ~/.claude/cache/claude-usage.json (5-hour only)
+# Usage data follows the session's model (providers.sh). For Claude models,
+# one reading per account, merged from every session's:
+#   - Stdin JSON: rate_limits.five_hour / seven_day, when Claude Code sends them
+#   - OAuth API:  /api/oauth/usage, cached and shared, with stale-while-error
+# and, only when the account has no reading at all, the hook cache (5-hour).
 
 # --- ccusage: SWR cache ------------------------------------------------------
 #
@@ -154,14 +154,128 @@ calculate_time_remaining_epoch() {
     echo "${hours}h${mins}m"
 }
 
+# Field <n> of a tab-separated line, empty when the line has fewer fields
+# (cut would print the whole line).
+_tab_field() {
+    printf '%s' "$2" | awk -F '\t' -v n="$1" 'NR == 1 { print $n }'
+}
+
 # Integer percentage, or -- for anything that is not a number.
 _usage_pct() {
     local pct="${1%%.*}"
     [[ "${pct}" =~ ^[0-9]+$ ]] && printf '%s' "${pct}" || printf '%s' "--"
 }
 
-# Priority 1: the rate_limits Claude Code passes on stdin, once a session has
-# had a response (documented for Pro and Max plans); each window may be absent.
+# --- Claude: one reading per account ------------------------------------------
+#
+# Claude Code sends each session the rate limits of its own last response, so a
+# quiet session falls behind while others spend the same account. Every render
+# merges what it sees (its stdin and the shared OAuth reading) into one file per
+# account and shows that file. A merge never goes back: a later reset is a newer
+# window, and within one window usage only grows.
+#
+# A window is "pct|reset|seen", epoch seconds; "||" when unknown.
+
+_CL_FIVE="||"
+_CL_WEEK="||"
+
+claude_account_file() {
+    printf '%s' "$(usage_state_dir)/claude${_ACCOUNT_SUFFIX:-}"
+}
+
+# Prints the newer of two readings of one window.
+_newer_window() {
+    local p1 r1 s1 p2 r2 s2 num='^[0-9]+$'
+    IFS='|' read -r p1 r1 s1 <<<"$1"
+    IFS='|' read -r p2 r2 s2 <<<"$2"
+    if ! [[ "${p2}" =~ ${num} && "${r2}" =~ ${num} && "${s2}" =~ ${num} ]]; then
+        printf '%s' "$1"
+    elif ! [[ "${p1}" =~ ${num} && "${r1}" =~ ${num} && "${s1}" =~ ${num} ]]; then
+        printf '%s' "$2"
+    elif ((r2 > r1 + 120)); then
+        printf '%s' "$2"
+    elif ((r1 > r2 + 120)); then
+        printf '%s' "$1"
+    elif ((p2 > p1)); then
+        printf '%s' "$2"
+    elif ((p1 > p2)); then
+        printf '%s' "$1"
+    else
+        printf '%s|%s|%s' "${p1}" "${r1}" "$((s1 > s2 ? s1 : s2))"
+    fi
+}
+
+# claude_observe <five_pct> <five_reset> <week_pct> <week_reset> <seen>
+# An unknown reset counts as 0, so any reading with a reset replaces it.
+claude_observe() {
+    local five week
+    five=$(_usage_pct "$1")
+    week=$(_usage_pct "$3")
+    [[ "${five}" == "--" ]] || _CL_FIVE=$(_newer_window "${_CL_FIVE}" "${five}|${2:-0}|$5")
+    [[ "${week}" == "--" ]] || _CL_WEEK=$(_newer_window "${_CL_WEEK}" "${week}|${4:-0}|$5")
+    return 0
+}
+
+_claude_read_shared() {
+    local five week
+    [[ -f "$1" ]] || return 0
+    IFS=$'\t' read -r five week <"$1" || true
+    _CL_FIVE=$(_newer_window "${_CL_FIVE}" "${five}")
+    _CL_WEEK=$(_newer_window "${_CL_WEEK}" "${week}")
+}
+
+# Merges this render's readings with the account file and writes the result
+# back. A lock held by another render skips the write, never the read; a lock
+# left by a killed render is reclaimed after a few seconds.
+claude_share() {
+    local file lock age
+    file=$(claude_account_file)
+    mkdir -p "${file%/*}" 2>/dev/null || return 0
+    lock="${_TMP_DIR:-${TMPDIR:-/tmp}}/claude-account${_ACCOUNT_SUFFIX:-}.lock"
+    if [[ -d "${lock}" ]]; then
+        age=$(get_file_age "${lock}" 2>/dev/null) || age=0
+        ((age > 10)) && rmdir "${lock}" 2>/dev/null
+    fi
+    if ! mkdir "${lock}" 2>/dev/null; then
+        _claude_read_shared "${file}"
+        return 0
+    fi
+    _claude_read_shared "${file}"
+    printf '%s\t%s\n' "${_CL_FIVE}" "${_CL_WEEK}" >"${file}.tmp.$$" 2>/dev/null \
+        && mv -f "${file}.tmp.$$" "${file}" 2>/dev/null
+    rmdir "${lock}" 2>/dev/null
+    return 0
+}
+
+# Shows the account reading; fails when no window is known.
+apply_claude_account() {
+    local pct reset seen now shown=1
+    now=$(date +%s)
+    IFS='|' read -r pct reset seen <<<"${_CL_FIVE}"
+    if [[ "${pct}" =~ ^[0-9]+$ ]]; then
+        DATA_SESSION_PCT="${pct}"
+        DATA_TIME_LEFT=$(calculate_time_remaining_epoch "${reset}")
+        ((now - seen > ${USAGE_STALE_S:-900})) && DATA_SESSION_PCT_STALE=1
+        shown=0
+    fi
+    IFS='|' read -r pct reset seen <<<"${_CL_WEEK}"
+    if [[ "${pct}" =~ ^[0-9]+$ ]]; then
+        DATA_WEEKLY_PCT="${pct}"
+        DATA_WEEKLY_TIME_LEFT=$(calculate_time_remaining_epoch "${reset}")
+        ((now - seen > ${USAGE_STALE_S:-900})) && DATA_WEEKLY_PCT_STALE=1
+        shown=0
+    fi
+    return "${shown}"
+}
+
+# Integer percentage, or -- for anything that is not a number.
+_usage_pct() {
+    local pct="${1%%.*}"
+    [[ "${pct}" =~ ^[0-9]+$ ]] && printf '%s' "${pct}" || printf '%s' "--"
+}
+
+# The rate_limits Claude Code passes on stdin, once a session has had a
+# response (documented for Pro and Max plans); each window may be absent.
 get_native_usage_data() {
     local input="$1" line
     line=$(echo "${input}" | jq -r '.rate_limits // empty
@@ -170,21 +284,8 @@ get_native_usage_data() {
            .seven_day.used_percentage, .seven_day.resets_at]
         | map(if . == null then "" else tostring end) | join("\t")' 2>/dev/null)
     [[ -z "${line}" ]] && return 1
-
-    local five five_reset week week_reset
-    five=$(printf '%s' "${line}" | cut -f1)
-    five_reset=$(printf '%s' "${line}" | cut -f2)
-    week=$(printf '%s' "${line}" | cut -f3)
-    week_reset=$(printf '%s' "${line}" | cut -f4)
-    if [[ -n "${five}" ]]; then
-        DATA_SESSION_PCT=$(_usage_pct "${five}")
-        DATA_TIME_LEFT=$(calculate_time_remaining_epoch "${five_reset}")
-    fi
-    if [[ -n "${week}" ]]; then
-        DATA_WEEKLY_PCT=$(_usage_pct "${week}")
-        DATA_WEEKLY_TIME_LEFT=$(calculate_time_remaining_epoch "${week_reset}")
-    fi
-    return 0
+    claude_observe "$(_tab_field 1 "${line}")" "$(_tab_field 2 "${line}")" \
+        "$(_tab_field 3 "${line}")" "$(_tab_field 4 "${line}")" "$(date +%s)"
 }
 
 # A GPT or Muse plan's windows (providers.sh). A window the plan does not have
@@ -229,7 +330,7 @@ get_provider_usage_data() {
     return 0
 }
 
-# Priority 3: Read hook cache (PreToolUse Haiku ping headers)
+# Last resort: the hook cache (PreToolUse Haiku ping headers), 5-hour only
 # Staleness: if cache is older than HOOK_STALE_THRESHOLD (default 300s = 5 min),
 # prefix percentage with ~ to indicate approximate/stale data.
 HOOK_STALE_THRESHOLD="${HOOK_STALE_THRESHOLD:-300}"
@@ -264,36 +365,24 @@ get_hook_usage_data() {
     return 0
 }
 
-# Priority 2: OAuth API with stale-while-error
+# An ISO 8601 reset as epoch seconds, 0 when absent or unreadable (`date`
+# reads an empty string as today's midnight).
+_reset_epoch() {
+    [[ -n "$1" ]] && iso8601_to_epoch "$1" 2>/dev/null || echo 0
+}
+
+# The account's OAuth usage reading, shared by every session through its cache;
+# seen when it was fetched.
 get_oauth_usage_data() {
-    local api_data=""
+    local api_data="" cache_age five_reset week_reset
     api_data=$(get_cached_api_data) || return 1
     [[ -z "${api_data}" ]] && return 1
-
-    local utilization resets_at weekly_util weekly_reset
-    utilization=$(printf "%s" "${api_data}" | cut -f1)
-    resets_at=$(printf "%s" "${api_data}" | cut -f2)
-    weekly_util=$(printf "%s" "${api_data}" | cut -f3)
-    weekly_reset=$(printf "%s" "${api_data}" | cut -f4)
-    DATA_SESSION_PCT="${utilization%%.*}"
-    DATA_SESSION_PCT="${DATA_SESSION_PCT:-0}"
-    DATA_TIME_LEFT=$(calculate_time_remaining "${resets_at}")
-
-    if [[ -n "${weekly_util}" ]]; then
-        DATA_WEEKLY_PCT="${weekly_util%%.*}"
-        DATA_WEEKLY_PCT="${DATA_WEEKLY_PCT:-0}"
-        DATA_WEEKLY_TIME_LEFT=$(calculate_time_remaining "${weekly_reset}")
-    fi
-
-    # Served past its refresh after errors or throttling: mark it approximate.
-    local cache_age
     # shellcheck disable=SC2153 # CACHE_FILE is set by statusline.sh
     cache_age=$(get_file_age "${CACHE_FILE}" 2>/dev/null) || cache_age=0
-    if [[ ${cache_age} -gt ${USAGE_STALE_S:-900} ]]; then
-        DATA_SESSION_PCT_STALE=1
-        DATA_WEEKLY_PCT_STALE=1
-    fi
-    return 0
+    five_reset=$(_reset_epoch "$(_tab_field 2 "${api_data}")")
+    week_reset=$(_reset_epoch "$(_tab_field 4 "${api_data}")")
+    claude_observe "$(_tab_field 1 "${api_data}")" "${five_reset}" \
+        "$(_tab_field 3 "${api_data}")" "${week_reset}" "$(($(date +%s) - cache_age))"
 }
 
 # Records each session's current model for hooks/session-name.sh, which cannot
@@ -365,10 +454,13 @@ collect_data() {
     debug "--- Usage Data (${DATA_USAGE_PROVIDER}) ---"
     case "${DATA_USAGE_PROVIDER}" in
         claude)
-            if get_native_usage_data "${input}"; then
-                debug "Source: native stdin JSON (rate_limits)"
-            elif get_oauth_usage_data; then
-                debug "Source: OAuth API (/api/oauth/usage)"
+            _CL_FIVE="||"
+            _CL_WEEK="||"
+            get_native_usage_data "${input}" && debug "Observed: native stdin JSON (rate_limits)"
+            get_oauth_usage_data && debug "Observed: OAuth API (/api/oauth/usage)"
+            claude_share
+            if apply_claude_account; then
+                debug "Source: account reading (${_CL_FIVE} / ${_CL_WEEK})"
             elif get_hook_usage_data; then
                 debug "Source: hook cache (claude-usage.json)"
             else

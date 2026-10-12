@@ -128,7 +128,7 @@ The statusline shows plan usage (the 5-hour and weekly windows). Claude Code pas
 
 ### Decision
 
-Pick the plan from the session's `model.id`. For Claude models, try stdin `rate_limits` first, then the OAuth API, then the hook cache, which has no weekly window. For GPT and Muse models, read the ChatGPT or Muse Code plan from that provider's own login. Every reader is read-only and served through the same locked, backed-off, stale-while-error cache.
+Pick the plan from the session's `model.id`. For Claude models, keep one reading per account: every render merges its stdin `rate_limits` and the shared OAuth reading into it, never going back, and shows it; the hook cache, which has no weekly window, is used only when the account has no reading. The statusline redraws every 60 seconds, so a quiet session shows what others spent. For GPT and Muse models, read the ChatGPT or Muse Code plan from that provider's own login. Every reader is read-only and served through the same locked, backed-off, stale-while-error cache.
 
 ### Alternatives considered
 

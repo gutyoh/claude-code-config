@@ -1384,6 +1384,27 @@ Describe "Claude config directory resolution" {
             $env:CLAUDE_CONFIG_DIR = $script:SavedConfigDir
         }
 
+        It "gives a new statusline a 60s refresh" {
+            $env:CLAUDE_CONFIG_DIR = ""
+            Update-Statusline
+            $settings = Read-Utf8Text $script:SettingsJson | ConvertFrom-Json
+            $settings.statusLine.refreshInterval | Should -Be 60
+        }
+
+        It "adds the refresh to this repository's existing statusline only" {
+            Write-Utf8Text -Path $script:SettingsJson -Content '{"statusLine":{"type":"command","command":"~/.claude/scripts/statusline.sh","padding":0}}'
+            Update-Statusline
+            (Read-Utf8Text $script:SettingsJson | ConvertFrom-Json).statusLine.refreshInterval | Should -Be 60
+
+            Write-Utf8Text -Path $script:SettingsJson -Content '{"statusLine":{"type":"command","command":"~/.claude/scripts/statusline.sh","refreshInterval":5}}'
+            Update-Statusline
+            (Read-Utf8Text $script:SettingsJson | ConvertFrom-Json).statusLine.refreshInterval | Should -Be 5
+
+            Write-Utf8Text -Path $script:SettingsJson -Content '{"statusLine":{"type":"command","command":"npx ccstatusline"}}'
+            Update-Statusline
+            (Read-Utf8Text $script:SettingsJson | ConvertFrom-Json).statusLine.PSObject.Properties['refreshInterval'] | Should -BeNullOrEmpty
+        }
+
         It "writes ~/.claude commands when CLAUDE_CONFIG_DIR is unset" {
             $env:CLAUDE_CONFIG_DIR = ""
             Update-IdeHook
