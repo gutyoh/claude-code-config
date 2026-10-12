@@ -67,6 +67,10 @@ configure_statusline_conf() {
         fi
     fi
 
+    # Per-plan icons have no setup option; a rewrite keeps the user's own.
+    local kept=""
+    [[ -f "${conf_file}" ]] && kept=$(grep -E '^icon_(claude|openai|muse)=' "${conf_file}" 2>/dev/null || true)
+
     cat >"${conf_file}" <<EOF
 theme=${STATUSLINE_THEME}
 components=${STATUSLINE_COMPONENTS}
@@ -81,5 +85,6 @@ cc_status_position=${STATUSLINE_CC_STATUS_POSITION}
 cc_status_visibility=${STATUSLINE_CC_STATUS_VISIBILITY}
 cc_status_color=${STATUSLINE_CC_STATUS_COLOR}
 EOF
+    [[ -n "${kept}" ]] && printf '%s\n' "${kept}" >>"${conf_file}"
     echo "  ✓ Statusline config written (theme=${STATUSLINE_THEME}, bar=${STATUSLINE_BAR_STYLE})"
 }

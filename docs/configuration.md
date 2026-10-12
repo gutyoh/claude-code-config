@@ -91,6 +91,7 @@ Claude Code shows a name on the prompt bar only when a prompt hook sets it.
 | `compact` | `true`, `false` | `true` | No labels, merged tokens |
 | `color_scope` | `percentage`, `full` | `percentage` | Color usage only or entire line |
 | `icon` | Unicode string or empty | `""` | Prefix icon |
+| `icon_claude`, `icon_openai`, `icon_muse` | Unicode string or empty | `""` (use `icon`) | Prefix icon while the session's model is on that plan, for example `A\`, `֍` and `∞`. Claude Code does not draw Nerd Font or other private-use glyphs, so use standard Unicode |
 | `icon_style` | `plain`, `bold`, `bracketed`, `rounded`, `reverse`, `bold-color`, `angle`, `double-bracket` | `plain` | Icon styling |
 | `weekly_show_reset` | `true`, `false` | `false` | Show weekly reset countdown |
 | `cc_status_position` | `inline`, `newline` | `inline` | Status placement |

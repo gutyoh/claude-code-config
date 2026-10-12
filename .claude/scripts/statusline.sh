@@ -89,9 +89,12 @@ CONF_THEME="dark"
 CONF_COMPONENTS="model,usage,weekly,reset,tokens_in,tokens_out,tokens_cache,cost,burn_rate,email"
 CONF_BAR_STYLE="text"
 CONF_BAR_PCT_INSIDE="false"
-CONF_COMPACT="true"                # Compact mode: no verbose prefixes, tokens merged with /, burn_rate hidden
-CONF_COLOR_SCOPE="percentage"      # "percentage" = color usage component only, "full" = color entire line
-CONF_ICON=""                       # Prefix icon: e.g. "✻", "A\\", "❋", or "" for none
+CONF_COMPACT="true"           # Compact mode: no verbose prefixes, tokens merged with /, burn_rate hidden
+CONF_COLOR_SCOPE="percentage" # "percentage" = color usage component only, "full" = color entire line
+CONF_ICON=""                  # Prefix icon: e.g. "✻", "A\\", "❋", or "" for none
+CONF_ICON_CLAUDE=""           # Per plan, over icon: e.g. "A\\" for Claude,
+CONF_ICON_OPENAI=""           # "֍" for ChatGPT and "∞" for Muse
+CONF_ICON_MUSE=""
 CONF_ICON_STYLE="plain"            # plain|bold|bracketed|rounded|reverse|bold-color|angle|double-bracket
 CONF_WEEKLY_SHOW_RESET="false"     # Show weekly reset countdown inline with weekly %
 CONF_CC_STATUS_POSITION="inline"   # inline | newline
@@ -194,6 +197,13 @@ main() {
     # Render all components (usage component self-colors when color_scope=percentage)
     local output
     output=$(render_all_components)
+
+    # The icon of the plan behind the model, when one is set, over the default
+    case "${DATA_USAGE_PROVIDER}" in
+        claude) CONF_ICON="${CONF_ICON_CLAUDE:-${CONF_ICON}}" ;;
+        openai) CONF_ICON="${CONF_ICON_OPENAI:-${CONF_ICON}}" ;;
+        muse) CONF_ICON="${CONF_ICON_MUSE:-${CONF_ICON}}" ;;
+    esac
 
     # Prepend icon if configured, styled per icon_style
     local icon_prefix=""

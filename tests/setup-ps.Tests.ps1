@@ -227,6 +227,18 @@ Describe "Update-StatuslineConf" {
         $content | Should -Match "components=model,usage"
     }
 
+    It "keeps the per-plan icons when it rewrites the config" {
+        # Written as code points: this file stays ASCII for Windows PowerShell 5.1
+        $openai = "icon_openai=$([char]0x058D)"
+        $muse = "icon_muse=$([char]0x221E)"
+        Write-Utf8Text -Path $script:StatuslineConf -Content "theme=light`n$openai`n$muse`n"
+        Update-StatuslineConf -Force $true
+        $lines = (Read-Utf8Text $script:StatuslineConf) -split "`n"
+        $lines | Should -Contain "theme=dark"
+        $lines | Should -Contain $openai
+        $lines | Should -Contain $muse
+    }
+
     It "preserves existing config in non-force mode" {
         "theme=light" | Set-Content $script:StatuslineConf
         Update-StatuslineConf -Force $false

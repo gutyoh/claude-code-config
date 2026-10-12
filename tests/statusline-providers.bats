@@ -631,3 +631,44 @@ render_claude() {
     [ "$status" -eq 0 ]
     [[ "$output" == "opus-5.5 | 5%/61%" ]]
 }
+
+# =========================================================================
+# Icons per plan
+# =========================================================================
+
+render_icon() { # model
+    run env TMPDIR="$BATS_TEST_TMPDIR" COLUMNS=200 bash "$STATUSLINE" \
+        <<<'{"model":{"id":"'"$1"'","display_name":"'"$1"'"},"session_id":"si"}'
+}
+
+@test "icons: each plan shows its own icon, Claude keeps the default" {
+    openai_login
+    muse_login
+    mkdir -p "$HOME/.claude"
+    printf 'components=model\ntheme=none\nicon=A\\\nicon_openai=֍\nicon_muse=∞\n' >"$HOME/.claude/statusline.conf"
+    body '{"rate_limit":null}'
+    render_icon gpt-6.1-sol-fast
+    [[ "$output" == "֍ gpt-6.1-sol-fast" ]]
+    render_icon muse-spark-1.3
+    [[ "$output" == "∞ muse-spark-1.3" ]]
+    render_icon claude-opus-5-5
+    [[ "$output" == 'A\ claude-opus-5-5' ]]
+}
+
+@test "icons: icon_claude overrides the default for Claude only" {
+    mkdir -p "$HOME/.claude"
+    printf 'components=model\ntheme=none\nicon=*\nicon_claude=✻\n' >"$HOME/.claude/statusline.conf"
+    body '{"rate_limit":null}'
+    render_icon claude-opus-5-5
+    [[ "$output" == "✻ claude-opus-5-5" ]]
+    render_icon kimi-k3
+    [[ "$output" == "* kimi-k3" ]]
+}
+
+@test "icons: no per-plan icon set keeps the single icon everywhere" {
+    mkdir -p "$HOME/.claude"
+    printf 'components=model\ntheme=none\nicon=A\\\n' >"$HOME/.claude/statusline.conf"
+    body '{"rate_limit":null}'
+    render_icon gpt-6.1-sol
+    [[ "$output" == 'A\ gpt-6.1-sol' ]]
+}
