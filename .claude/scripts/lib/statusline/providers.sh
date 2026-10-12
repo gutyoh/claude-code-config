@@ -40,11 +40,18 @@ muse_auth_path() {
     printf '%s' "${STATUSLINE_MUSE_AUTH:-${MUSE_AUTH_PATH:-${XDG_CONFIG_HOME:-${HOME}/.config}/muse/auth.json}}"
 }
 
+# First existing file a path or glob names. Plain globbing, not compgen, which
+# non-interactive bash builds leave out; IFS stays empty so spaces never split.
 _first_file() {
-    local match
-    while IFS= read -r match; do
+    local IFS="" match nullglob
+    nullglob=$(shopt -p nullglob)
+    shopt -s nullglob
+    # shellcheck disable=SC2206 # the pattern is meant to expand
+    local matches=($1)
+    eval "${nullglob}"
+    for match in ${matches[@]+"${matches[@]}"}; do
         [[ -f "${match}" ]] && printf '%s' "${match}" && return 0
-    done < <(compgen -G "$1" 2>/dev/null)
+    done
     return 1
 }
 

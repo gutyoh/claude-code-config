@@ -303,6 +303,44 @@ field() { printf '%s' "$1" | cut -f"$2"; }
     grep -q "x-api-version: 1.0.0" "$BATS_TEST_TMPDIR/curl.argv"
 }
 
+@test "login lookup works without compgen, which some bash builds lack" {
+    mkdir -p "$BATS_TEST_TMPDIR/router/muse/auth"
+    printf '{"dca_token":"dca:x"}' >"$BATS_TEST_TMPDIR/router/muse/auth/meta-b.json"
+    enable -n compgen
+    run _first_file "$BATS_TEST_TMPDIR/router/muse/auth/meta-*.json"
+    enable compgen
+    [ "$status" -eq 0 ]
+    [[ "$output" == "$BATS_TEST_TMPDIR/router/muse/auth/meta-b.json" ]]
+}
+
+@test "login lookup keeps a path with spaces whole" {
+    mkdir -p "$BATS_TEST_TMPDIR/Application Support/codex"
+    printf '{}' >"$BATS_TEST_TMPDIR/Application Support/codex/auth.json"
+    run _first_file "$BATS_TEST_TMPDIR/Application Support/codex/auth.json"
+    [ "$status" -eq 0 ]
+    [[ "$output" == "$BATS_TEST_TMPDIR/Application Support/codex/auth.json" ]]
+    run _first_file "$BATS_TEST_TMPDIR/Application Support/*/auth.json"
+    [[ "$output" == "$BATS_TEST_TMPDIR/Application Support/codex/auth.json" ]]
+}
+
+@test "login lookup: a missing file or an unmatched glob finds nothing" {
+    run _first_file "$BATS_TEST_TMPDIR/nope/auth.json"
+    [ "$status" -ne 0 ]
+    run _first_file "$BATS_TEST_TMPDIR/nope/meta-*.json"
+    [ "$status" -ne 0 ]
+    [ -z "$output" ]
+}
+
+@test "login lookup leaves the caller's nullglob as it was" {
+    shopt -u nullglob
+    _first_file "$BATS_TEST_TMPDIR/nope/*" || true
+    ! shopt -q nullglob
+    shopt -s nullglob
+    _first_file "$BATS_TEST_TMPDIR/nope/*" || true
+    shopt -q nullglob
+    shopt -u nullglob
+}
+
 # =========================================================================
 # Cache and statusline data
 # =========================================================================
