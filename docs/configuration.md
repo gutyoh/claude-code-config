@@ -30,43 +30,36 @@ what Claude Code itself does. See [A second profile](#a-second-profile).
 | `PreToolUse` | `mcp__brave-search__.*` | `rate-limit-brave-search.sh` | Rate limit Brave Search calls |
 | `Stop` | `""` | `refresh-usage-cache.sh` | Refresh usage cache when agent stops |
 | `SessionStart` | `startup` | `session-name.sh` | Record when a session started (see [Session names](#session-names)) |
-| `UserPromptSubmit` | `""` | `session-name.sh` | Name the session; swap its provider prefix after a model switch |
+| `UserPromptSubmit` | `""` | `session-name.sh` | Name the session once, at its first prompt |
 
 #### Session names
 
-Each session gets a name such as `claude-20261011T193012Z`: the model's
-provider, then the start time in ISO 8601 basic format. It appears on the
-prompt bar, in `/resume`, in the terminal title and in the Remote Control
-session list, and `claude --resume <name>` finds the session by it.
+Each session is named once, at its first prompt, for example
+`claude-20261012T141205Z-btree-page-splits`, and never renamed. The name is the
+session's address: `claude --resume <name>`, `/resume`, the Remote Control list
+and messages between sessions all find it by that name, so it must not move.
 
-- **Provider**: the first part of the model id (`claude-opus-5-5` gives
-  `claude`, `gpt-6.1-sol` gives `gpt`). When a `/model` switch moves the
-  session to another provider, the next prompt swaps the prefix
-  (`claude-20261011T193012Z` becomes `muse-20261011T193012Z`). The statusline
-  records the current model, so the swap needs the repo statusline.
-- **Time**: set once and never updated. UTC by default, written with a `Z`;
-  set `CLAUDE_SESSION_NAME_TZ` to an IANA zone to use local time with its
-  offset instead, for example `claude-20261012T043012+0900` for
-  `Asia/Tokyo`.
+- **Provider**: the first part of the model id at the first prompt
+  (`claude-opus-5-5` gives `claude`, `gpt-6.1-sol` gives `gpt`). A later
+  `/model` switch keeps the name.
+- **Time**: when the session started. UTC by default, written with a `Z`; set
+  `CLAUDE_SESSION_NAME_TZ` to an IANA zone to use local time with its offset,
+  for example `claude-20261012T043012+0900` for `Asia/Tokyo`.
 - **Topic**: a small model (`haiku`, `CLAUDE_SESSION_NAME_MODEL`) names the
-  topic in the background from the first prompt, and again every
-  `CLAUDE_SESSION_NAME_REFRESH` prompts (default 10, `0` keeps the first):
-  `claude-20261012T141205Z-btree-page-splits`. The name shows it from the next
-  prompt. The run uses no hooks, tools, MCP servers or saved transcript, and
-  no prompt text is stored. `CLAUDE_SESSION_NAME_TOPIC=off` names without it.
+  topic from the first prompt, so that prompt waits up to 8 seconds once. An
+  answer longer than four words, or none in time, gives way to the prompt's
+  first words. The run uses no hooks, tools, MCP servers or saved transcript,
+  and no prompt text is stored. `CLAUDE_SESSION_NAME_TOPIC=off` names without
+  a topic.
 - **herdr tab**: inside herdr, the session's tab is named `<icon> <topic>`,
   with the plan's `icon_claude`, `icon_openai` or `icon_muse` from
   `statusline.conf` (Nerd Font icons work), else the provider's name. Only a
-  numbered tab or one this hook named, holding one pane, is renamed.
-- **Your names win**: the hooks change only names in this exact format. A
-  name set with `/rename`, `claude --name` or the Claude app, and a tab you
-  named, are never touched.
+  numbered tab, holding one pane, is renamed.
+- **Your names win**: a session that already has a name, from `/rename`,
+  `claude --name`, the Claude app or this hook, is never renamed.
 - **Interactive sessions only**: `claude -p` and SDK runs keep no name, so
   an agent that starts one inside a session never renames that session.
 - **Opt out**: `CLAUDE_SESSION_NAME=off`.
-
-The name is set on the first prompt, with the time the session started:
-Claude Code shows a name on the prompt bar only when a prompt hook sets it.
 
 ### statusLine
 
@@ -148,7 +141,6 @@ Both use `${VAR}` syntax for runtime environment variable expansion.
 | `CLAUDE_SESSION_NAME_TZ` | `UTC` | IANA time zone for [session names](#session-names) |
 | `CLAUDE_SESSION_NAME` | — | `off` disables [session names](#session-names) |
 | `CLAUDE_SESSION_NAME_TOPIC` | — | `off` names sessions without a topic |
-| `CLAUDE_SESSION_NAME_REFRESH` | `10` | Prompts between topic refreshes; `0` keeps the first |
 | `CLAUDE_SESSION_NAME_MODEL` | `haiku` | Model that names the topic |
 | `MCP_KEYS_ENV_FILE` | `<config dir>/mcp-keys.env` | Where `mcp-env-inject` and `mcp-key-rotate` read MCP keys |
 
