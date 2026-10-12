@@ -289,6 +289,19 @@ wait_for() {
     return 1
 }
 
+# A PATH of real binaries without timeout(1), as on macOS, plus the stubs.
+no_timeout_path() {
+    local bin="${BATS_TEST_TMPDIR}/notimeout" real p tool
+    mkdir -p "$bin"
+    # Real binaries only: a version manager's shim cannot run on this PATH.
+    real=$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '/shims' | paste -sd: -)
+    for tool in bash sh jq cat head tail tr iconv cut grep find mkdir rmdir mv printf env sort sleep perl uname date seq; do
+        p=$(PATH="$real" command -v "$tool") && ln -sf "$p" "$bin/$tool"
+    done
+    ln -sf "${STUB_DIR}/claude" "$bin/claude"
+    printf '%s' "$bin"
+}
+
 prompt_input() { # <title> <prompt> [transcript]
     jq -nc --arg title "$1" --arg prompt "$2" --arg sid "$SID" --arg tp "${3:-}" \
         '{session_id: $sid, session_title: $title, prompt: $prompt, transcript_path: $tp}
@@ -359,13 +372,17 @@ prompt_input() { # <title> <prompt> [transcript]
 # bats test_tags=unit
 @test "topic: the first prompt waits for the model at most 8 seconds" {
     stub_claude "sleep 30"
-    # perl's alarm, not timeout(1): macOS runners have no coreutils.
-    SECONDS=0
-    run perl -e 'alarm shift; exec @ARGV' 14 bash -c 'printf "%s" "$2" | bash "$1"' _ "$HOOK" \
-        "$(jq -c '. + {hook_event_name: "UserPromptSubmit"}' <<<"$(prompt_input "" "slow model here")")"
-    [ "$status" -eq 0 ]
-    [ "${SECONDS}" -lt 13 ]
-    [[ "$(jq -r .hookSpecificOutput.sessionTitle <<<"${output}")" =~ -slow-model-here$ ]]
+    local paths=("$PATH")
+    paths+=("$(no_timeout_path)")
+    for path in "${paths[@]}"; do
+        # perl's alarm, not timeout(1): macOS runners have no coreutils.
+        SECONDS=0
+        run perl -e 'alarm shift; exec @ARGV' 14 env PATH="$path" bash -c 'printf "%s" "$2" | bash "$1"' _ "$HOOK" \
+            "$(jq -c '. + {hook_event_name: "UserPromptSubmit"}' <<<"$(prompt_input "" "slow model here")")"
+        [ "$status" -eq 0 ]
+        [ "${SECONDS}" -lt 13 ]
+        [[ "$(jq -r .hookSpecificOutput.sessionTitle <<<"${output}")" =~ -slow-model-here$ ]]
+    done
 }
 
 # bats test_tags=unit
@@ -430,16 +447,7 @@ conf_icons() {
 # bats test_tags=unit
 @test "topic: without timeout(1), as on macOS, the model still runs" {
     stub_claude
-    local bin="${BATS_TEST_TMPDIR}/notimeout"
-    mkdir -p "$bin"
-    # Real binaries only: a version manager's shim cannot run on this PATH.
-    local real
-    real=$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '/shims' | paste -sd: -)
-    for tool in bash jq cat head tail tr iconv cut grep find mkdir rmdir mv printf env sort sleep perl uname date seq; do
-        p=$(PATH="$real" command -v "$tool") && ln -sf "$p" "$bin/$tool"
-    done
-    ln -sf "${STUB_DIR}/claude" "$bin/claude"
-    run env PATH="$bin" bash -c 'printf "%s" "$2" | bash "$1"' _ "$HOOK" \
+    run env PATH="$(no_timeout_path)" bash -c 'printf "%s" "$2" | bash "$1"' _ "$HOOK" \
         "$(jq -c '. + {hook_event_name: "UserPromptSubmit"}' <<<"$(prompt_input "" "page splits")")"
     [[ "$(jq -r .hookSpecificOutput.sessionTitle <<<"${output}")" =~ -postgresql-btree-page-splits$ ]]
 }

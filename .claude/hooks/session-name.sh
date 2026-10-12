@@ -75,7 +75,12 @@ limited() {
     elif command -v gtimeout &>/dev/null; then
         gtimeout "${seconds}" "$@"
     else
-        perl -e 'alarm shift; exec @ARGV or exit 127' "${seconds}" "$@"
+        # The command runs in its own process group, all of which goes at
+        # the deadline: a child left alive would hold the output pipe open.
+        perl -e '$t = shift; $pid = fork // exit 127;
+            if (!$pid) { setpgrp(0, 0); exec @ARGV or exit 127 }
+            $SIG{ALRM} = sub { kill "KILL", -$pid; exit 124 };
+            alarm $t; waitpid($pid, 0); exit($? >> 8)' "${seconds}" "$@"
     fi
 }
 
@@ -147,9 +152,6 @@ sync_tab() {
     limited 5 "${herdr}" tab rename "${HERDR_TAB_ID}" "${name}" >/dev/null 2>&1 || return 0
     printf '%s\n' "${name}" >"${STATE_DIR}/${session}.tab"
 }
-
-
-
 
 on_start() {
     local title="$1" session="$2" model="$3" stamp
