@@ -8,9 +8,13 @@
 # and a refresh token spent here would sign that refresher out.
 #
 # Readers print one normalized line, which is also the cache format:
-#   session_pct<TAB>session_reset<TAB>weekly_pct<TAB>weekly_reset<TAB>fetched_at
-# Resets and fetched_at are epoch seconds. An empty field means the plan
-# reports no such window, so the statusline hides it rather than showing "--".
+#   session_pct<TAB>session_reset<TAB>weekly_pct<TAB>weekly_reset<TAB>fetched_at<TAB>weekly_seen_at
+# Times are epoch seconds; weekly_seen_at is when the provider last reported the
+# weekly window, older than fetched_at when a reading is carried. An empty field
+# means the plan reports no such window, so the statusline hides it.
+#
+# Readings live in the state directory, not a temp one: a weekly reading carried
+# through an idle window must outlive a reboot.
 
 # Both endpoints answer in under a second; Claude Code cancels a long render.
 readonly PROVIDER_CONNECT_TIMEOUT=2
@@ -87,13 +91,14 @@ fetch_openai_usage() {
         | ($w | map(select((.limit_window_seconds // 0) < 86400)) | first) as $s
         | ($w | map(select((.limit_window_seconds // 0) >= 86400)) | first) as $k
         | select($s != null or $k != null)
-        | [$s.used_percent, $s.reset_at, $k.used_percent, $k.reset_at, $now]
+        | [$s.used_percent, $s.reset_at, $k.used_percent, $k.reset_at, $now,
+           (if $k != null then $now else null end)]
         | map(if . == null then "" else tostring end) | join("\t")' 2>/dev/null
 }
 
 # Muse Code plan windows. The response omits them while the 5-hour window is
-# idle: that window is then at 0, and the weekly one keeps its last reading
-# until it resets.
+# idle: that window is then at 0, and the weekly one keeps its last reading,
+# and when it was seen, until it resets.
 fetch_muse_usage() {
     local auth token body now
     auth=$(_first_file "$(muse_auth_path)") || return 1
@@ -112,30 +117,40 @@ fetch_muse_usage() {
         | ($now | tonumber) as $t
         | ($prev | split("\t")) as $p
         | if .subs_usage == null then
-            [0, "",
-             (if (($p[3] // "") | tonumber? // 0) > $t then $p[2] else "" end),
-             (if (($p[3] // "") | tonumber? // 0) > $t then $p[3] else "" end)]
+            ((($p[3] // "") | tonumber? // 0) > $t) as $keep
+            | [0, "",
+               (if $keep then $p[2] else "" end),
+               (if $keep then $p[3] else "" end),
+               $t,
+               (if $keep then ([$p[5], $p[4]] | map(select(. != null and . != "")) | first // "")
+                else "" end)]
           else
             .subs_usage as $u
             | [(if ($u.window.resets_at // 0) > $t then $u.window.used_percent else 0 end),
                (if ($u.window.resets_at // 0) > $t then $u.window.resets_at else "" end),
-               $u.weekly.used_percent, $u.weekly.resets_at]
+               $u.weekly.used_percent, $u.weekly.resets_at, $t,
+               (if $u.weekly.used_percent != null then $t else null end)]
           end
-        | . + [$t]
         | map(if . == null then "" else tostring end) | join("\t")' 2>/dev/null
 }
 
+usage_state_dir() {
+    printf '%s' "${_STATE_DIR:-${XDG_STATE_HOME:-${HOME}/.local/state}/claude-code/statusline}"
+}
+
 # Serves a provider's line through its own cache, keyed by login file so two
-# logins never share a reading.
+# logins never share a reading. Lock and backoff stay in the temp directory.
 get_provider_usage() {
-    local provider="$1" auth key
+    local provider="$1" auth key dir
     case "${provider}" in
         openai) auth=$(openai_auth_path) ;;
         muse) auth=$(muse_auth_path) ;;
         *) return 1 ;;
     esac
     key="${provider}-$(printf '%s' "${auth}" | cksum | cut -d' ' -f1)"
-    local CACHE_FILE="${_TMP_DIR}/usage-${key}"
+    dir=$(usage_state_dir)
+    mkdir -p "${dir}" 2>/dev/null || dir="${_TMP_DIR}"
+    local CACHE_FILE="${dir}/usage-${key}"
     local LOCK_DIR="${_TMP_DIR}/usage-${key}.lock"
     local BACKOFF_FILE="${_TMP_DIR}/usage-${key}.backoff"
     local CACHE_TTL="${PROVIDER_CACHE_TTL}"

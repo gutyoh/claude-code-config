@@ -138,12 +138,15 @@ flowchart TD
     STATUS --> RENDER
 ```
 
+Claude's usage is one reading per account, not per session. Claude Code sends each session the `rate_limits` of its own last response, so a quiet session would fall behind while others spend the same account. Every render merges what it sees, its stdin and the shared OAuth reading, into `claude-<account>` in the state directory and shows that file. A merge never goes back: a later reset is a newer window, and within one window usage only grows, so the higher reading is the newer one. With `refreshInterval` set (setup sets 60 seconds), an idle session redraws and picks up what another session spent.
+
 Every network reading shares one cache design:
 - **A TTL per source**: 180 seconds for Claude's OAuth API, which throttles hard, and 120 seconds for the ChatGPT and Muse plans. One reading serves every session on the host.
 - **Keyed by login**: Claude's by `CLAUDE_CONFIG_DIR`, the others by login file, so two accounts never show each other's usage.
+- **Persistent readings**: every reading lives in `${XDG_STATE_HOME:-~/.local/state}/claude-code/statusline`, so a weekly window outlives a reboot: Claude's survives a failed first fetch, and Muse's survives an idle window. Locks and backoff stay in the temp directory; a state directory that cannot be written falls back to it.
 - **Atomic mkdir-based locking** to prevent thundering herd across concurrent sessions
 - **Decorrelated jitter backoff** (30s-300s) on API failures
-- **Stale-while-error**: serves last known good value when the API is down, marked with `~` once it is older than 15 minutes
+- **Stale-while-error**: serves last known good value when the API is down, marked with `~` once it is older than 15 minutes. Each window is judged by its own reading: a weekly window carried through an idle stretch is marked even when the fetch serving it is new.
 
 The readers never refresh a login: each login has exactly one refresher (Claude Code, Codex, the Muse CLI or a router), and a refresh token spent elsewhere signs that refresher out. Bearer tokens reach curl on stdin, never in its arguments, so they do not show in the process list. `STATUSLINE_HTTPS_PROXY` overrides the proxy inherited from Claude Code, for a router that intercepts Claude Code's traffic. Windows a plan does not have are hidden: a ChatGPT plan with only a weekly limit shows one figure, not `--`.
 

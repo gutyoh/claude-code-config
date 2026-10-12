@@ -227,6 +227,18 @@ Describe "Update-StatuslineConf" {
         $content | Should -Match "components=model,usage"
     }
 
+    It "keeps the per-plan icons when it rewrites the config" {
+        # Written as code points: this file stays ASCII for Windows PowerShell 5.1
+        $openai = "icon_openai=$([char]0x058D)"
+        $muse = "icon_muse=$([char]0x221E)"
+        Write-Utf8Text -Path $script:StatuslineConf -Content "theme=light`n$openai`n$muse`n"
+        Update-StatuslineConf -Force $true
+        $lines = (Read-Utf8Text $script:StatuslineConf) -split "`n"
+        $lines | Should -Contain "theme=dark"
+        $lines | Should -Contain $openai
+        $lines | Should -Contain $muse
+    }
+
     It "preserves existing config in non-force mode" {
         "theme=light" | Set-Content $script:StatuslineConf
         Update-StatuslineConf -Force $false
@@ -1382,6 +1394,27 @@ Describe "Claude config directory resolution" {
 
         AfterEach {
             $env:CLAUDE_CONFIG_DIR = $script:SavedConfigDir
+        }
+
+        It "gives a new statusline a 60s refresh" {
+            $env:CLAUDE_CONFIG_DIR = ""
+            Update-Statusline
+            $settings = Read-Utf8Text $script:SettingsJson | ConvertFrom-Json
+            $settings.statusLine.refreshInterval | Should -Be 60
+        }
+
+        It "adds the refresh to this repository's existing statusline only" {
+            Write-Utf8Text -Path $script:SettingsJson -Content '{"statusLine":{"type":"command","command":"~/.claude/scripts/statusline.sh","padding":0}}'
+            Update-Statusline
+            (Read-Utf8Text $script:SettingsJson | ConvertFrom-Json).statusLine.refreshInterval | Should -Be 60
+
+            Write-Utf8Text -Path $script:SettingsJson -Content '{"statusLine":{"type":"command","command":"~/.claude/scripts/statusline.sh","refreshInterval":5}}'
+            Update-Statusline
+            (Read-Utf8Text $script:SettingsJson | ConvertFrom-Json).statusLine.refreshInterval | Should -Be 5
+
+            Write-Utf8Text -Path $script:SettingsJson -Content '{"statusLine":{"type":"command","command":"npx ccstatusline"}}'
+            Update-Statusline
+            (Read-Utf8Text $script:SettingsJson | ConvertFrom-Json).statusLine.PSObject.Properties['refreshInterval'] | Should -BeNullOrEmpty
         }
 
         It "writes ~/.claude commands when CLAUDE_CONFIG_DIR is unset" {

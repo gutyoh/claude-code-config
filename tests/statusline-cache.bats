@@ -495,7 +495,8 @@ mock_api_failure() {
     source "$MODULES_DIR/utils.sh"
     source "$MODULES_DIR/data.sh"
     export HOOK_USAGE_CACHE="$BATS_TEST_TMPDIR/nonexistent.json"
-    write_cache_aged "11.0\t2026-03-05T20:00:00Z\t58.0\t2026-03-09T20:00:00Z" 1000
+    printf '11.0\t2026-03-05T20:00:00Z\t58.0\t2026-03-09T20:00:00Z' >"$CACHE_FILE"
+    set_file_mtime "$CACHE_FILE" "$(( $(date +%s) - 1000 ))"
     mock_api_failure
 
     DATA_SESSION_PCT_STALE=0
@@ -660,10 +661,26 @@ mock_api_failure() {
     grep -q 'claude-statusline-\${UID' "$statusline"
 }
 
-@test "cache, lock, and backoff paths are under UID-scoped dir" {
+@test "lock and backoff are under the UID-scoped dir, readings in the user's state dir" {
     local statusline="$BATS_TEST_DIRNAME/../.claude/scripts/statusline.sh"
-    # All three should reference _TMP_DIR, not /tmp directly
-    grep -q 'CACHE_FILE="\${_TMP_DIR}/' "$statusline"
+    # Never a shared /tmp path: locks in _TMP_DIR, readings under HOME
+    grep -q 'CACHE_FILE="\${_STATE_DIR}/' "$statusline"
+    grep -q '_STATE_DIR="\${XDG_STATE_HOME:-\${HOME}/.local/state}/' "$statusline"
     grep -q 'LOCK_DIR="\${_TMP_DIR}/' "$statusline"
     grep -q 'BACKOFF_FILE="\${_TMP_DIR}/' "$statusline"
+}
+
+@test "statusline: a Claude reading survives a wiped temp directory" {
+    isolate_home
+    mkdir -p "$HOME/.claude"
+    printf 'components=model,usage,weekly\ntheme=none\n' >"$HOME/.claude/statusline.conf"
+    local state="$HOME/.local/state/claude-code/statusline"
+    mkdir -p "$state"
+    printf '4.0\t2099-01-01T00:00:00Z\t61.0\t2099-01-05T00:00:00Z' >"$state/api-cache"
+    set_file_mtime "$state/api-cache" "$(( $(date +%s) - 2000 ))"
+    # No credentials: the refresh fails, the persisted reading is served marked ~
+    run env TMPDIR="$BATS_TEST_TMPDIR/fresh-tmp" COLUMNS=200 bash "$BATS_TEST_DIRNAME/../.claude/scripts/statusline.sh" \
+        <<<'{"model":{"id":"claude-opus-5-5","display_name":"Opus 5.5"},"session_id":"s9"}'
+    [ "$status" -eq 0 ]
+    [[ "$output" == "opus-5.5 | ~4%/~61%" ]]
 }

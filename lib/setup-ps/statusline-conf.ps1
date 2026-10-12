@@ -68,6 +68,12 @@ function Update-StatuslineConf {
         }
     }
 
+    # Per-plan icons have no setup option; a rewrite keeps the user's own.
+    $kept = @()
+    if (Test-Path $confFile) {
+        $kept = @((Read-Utf8Text $confFile) -split "`r?`n" | Where-Object { $_ -match '^icon_(claude|openai|muse)=' })
+    }
+
     # Write the config file (LF line endings for cross-platform compat)
     $content = @(
         "theme=$($script:StatuslineTheme)"
@@ -82,7 +88,7 @@ function Update-StatuslineConf {
         "cc_status_position=$($script:StatuslineCcStatusPosition)"
         "cc_status_visibility=$($script:StatuslineCcStatusVisibility)"
         "cc_status_color=$($script:StatuslineCcStatusColor)"
-    ) -join "`n"
+    ) + $kept -join "`n"
 
     Write-Utf8Text -Path $confFile -Content ($content + "`n")
     Write-Status "  + Statusline config written (theme=$($script:StatuslineTheme), bar=$($script:StatuslineBarStyle))" -Color Green

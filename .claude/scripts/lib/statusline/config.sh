@@ -29,6 +29,9 @@ load_config() {
             compact) CONF_COMPACT="${value}" ;;
             color_scope) CONF_COLOR_SCOPE="${value}" ;;
             icon) CONF_ICON="${value}" ;;
+            icon_claude) CONF_ICON_CLAUDE="${value}" ;;
+            icon_openai) CONF_ICON_OPENAI="${value}" ;;
+            icon_muse) CONF_ICON_MUSE="${value}" ;;
             icon_style) CONF_ICON_STYLE="${value}" ;;
             weekly_show_reset) CONF_WEEKLY_SHOW_RESET="${value}" ;;
             cc_status_position) CONF_CC_STATUS_POSITION="${value}" ;;

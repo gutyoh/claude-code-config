@@ -11,19 +11,44 @@ HOOK="$BATS_TEST_DIRNAME/../.claude/hooks/refresh-usage-cache.sh"
 
 setup() {
     source "$BATS_TEST_DIRNAME/helpers.bash"
-    export CACHE_DIR="$BATS_TEST_TMPDIR"
-    export CACHE_FILE="$BATS_TEST_TMPDIR/claude-usage.json"
+    # The hook derives its cache from HOME, so an isolated HOME keeps every
+    # test off the developer's real ~/.claude/cache.
+    isolate_home
+    export CACHE_DIR="$HOME/.claude/cache"
+    export CACHE_FILE="$CACHE_DIR/claude-usage.json"
+    mkdir -p "$CACHE_DIR"
     # Short TTL for testing
     export USAGE_CACHE_TTL=5
     rm -f "$CACHE_FILE"
 }
 
-teardown() {
-    rm -f "$CACHE_FILE"
+# A login and a curl that records each request and answers with usage headers,
+# so a test can count requests instead of timing the hook.
+stub_usage_ping() {
+    printf '{"claudeAiOauth":{"accessToken":"tok-test"}}' >"$HOME/.claude/.credentials.json"
+    stub_bin security "printf '%s' '{\"claudeAiOauth\":{\"accessToken\":\"tok-test\"}}'"
+    stub_bin secret-tool 'exit 1'
+    stub_bin curl \
+        "echo call >>'$BATS_TEST_TMPDIR/curl.calls'" \
+        "printf 'HTTP/2 200\r\nanthropic-ratelimit-unified-5h-utilization: 0.13\r\nanthropic-ratelimit-unified-5h-reset: 1772740800\r\n\r\n{}'"
 }
 
-now_ms() {
-    "${_PY}" -c "import time; print(int(time.time() * 1000))"
+curl_calls() {
+    [[ -f "$BATS_TEST_TMPDIR/curl.calls" ]] && wc -l <"$BATS_TEST_TMPDIR/curl.calls" | tr -d ' ' || echo 0
+}
+
+# Waits, up to a bound, for the hook's background request to land.
+wait_for_calls() {
+    local want="$1" i
+    for i in $(seq 100); do
+        [[ "$(curl_calls)" -ge "$want" ]] && return 0
+        sleep 0.1
+    done
+    return 1
+}
+
+teardown() {
+    rm -f "$CACHE_FILE"
 }
 
 # Portable helper: set file mtime to a target epoch (works on macOS + Linux)
@@ -51,16 +76,16 @@ set_file_mtime() {
     echo '{}' | bash "$HOOK"
 }
 
-@test "hook fast-exits when cache is fresh (< 200ms)" {
+@test "hook makes no request while the cache is fresh" {
+    stub_usage_ping
     echo '{"five_hour_pct":10,"five_hour_reset_epoch":9999999999,"fetched_at":0}' > "$CACHE_FILE"
-    local start end elapsed
-    start=$(now_ms)
     echo '{}' | bash "$HOOK"
-    end=$(now_ms)
-    elapsed=$((end - start))
-    # Windows Git Bash spawns processes slower (~2-5s); Unix is <200ms
-    local threshold="$(perf_threshold_ms 200)"
-    [[ "$elapsed" -lt "$threshold" ]]
+    # Control: once stale, the same hook does make its request. Any request
+    # from the fresh run would have landed by the time this one does.
+    set_file_mtime "$CACHE_FILE" "$(( $(date +%s) - USAGE_CACHE_TTL - 5 ))"
+    echo '{}' | bash "$HOOK"
+    wait_for_calls 1
+    [ "$(curl_calls)" -eq 1 ]
 }
 
 @test "hook consumes stdin without error" {
@@ -76,16 +101,29 @@ set_file_mtime() {
 # --- Cache freshness ---
 
 @test "hook skips fetch when cache age < USAGE_CACHE_TTL" {
+    stub_usage_ping
     echo '{"five_hour_pct":10}' > "$CACHE_FILE"
-    # Cache is 0 seconds old, TTL is 5 — should skip
-    local start end elapsed
-    start=$(now_ms)
+    # 0 seconds old against a TTL of 5: no request, and the cache is untouched
     echo '{}' | bash "$HOOK"
-    end=$(now_ms)
-    elapsed=$((end - start))
-    # Should be very fast (no curl); Windows Git Bash is slower to spawn
-    local threshold="$(perf_threshold_ms 200)"
-    [[ "$elapsed" -lt "$threshold" ]]
+    echo '{}' | bash "$HOOK"
+    set_file_mtime "$CACHE_FILE" "$(( $(date +%s) - USAGE_CACHE_TTL - 5 ))"
+    echo '{}' | bash "$HOOK"
+    wait_for_calls 1
+    [ "$(curl_calls)" -eq 1 ]
+}
+
+@test "a stale cache is refreshed from the response headers" {
+    stub_usage_ping
+    echo '{"five_hour_pct":10}' > "$CACHE_FILE"
+    set_file_mtime "$CACHE_FILE" "$(( $(date +%s) - USAGE_CACHE_TTL - 5 ))"
+    echo '{}' | bash "$HOOK"
+    local i
+    for i in $(seq 100); do
+        [[ "$(jq -r '.five_hour_pct' "$CACHE_FILE" 2>/dev/null)" == "13" ]] && break
+        sleep 0.1
+    done
+    [[ "$(jq -r '.five_hour_pct' "$CACHE_FILE")" == "13" ]]
+    [[ "$(jq -r '.five_hour_reset_epoch' "$CACHE_FILE")" == "1772740800" ]]
 }
 
 @test "hook attempts fetch when cache age > USAGE_CACHE_TTL" {
@@ -98,12 +136,14 @@ set_file_mtime() {
 }
 
 @test "hook respects custom USAGE_CACHE_TTL" {
+    stub_usage_ping
     export USAGE_CACHE_TTL=1
     echo '{"five_hour_pct":10}' > "$CACHE_FILE"
-    sleep 2
-    # Cache should now be stale (age > 1s)
-    # Hook exits 0 either way (background fetch)
+    # Two seconds old: stale against a TTL of 1, so the hook asks once
+    set_file_mtime "$CACHE_FILE" "$(( $(date +%s) - 2 ))"
     echo '{}' | bash "$HOOK"
+    wait_for_calls 1
+    [ "$(curl_calls)" -eq 1 ]
 }
 
 # --- Rounding ---

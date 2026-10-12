@@ -176,16 +176,27 @@ function Update-Statusline {
     try {
         $settings = Read-Utf8Text $script:SettingsJson | ConvertFrom-Json
 
+        # Redraws on a timer too, so an idle session keeps its countdowns moving
+        # and picks up usage other sessions spent. Another statusline is left alone.
         if ($settings.statusLine) {
-            Write-Status "  + Statusline already configured" -Color Green
+            $line = $settings.statusLine
+            if ($null -eq $line.PSObject.Properties['refreshInterval'] -and "$($line.command)" -like '*/scripts/statusline.sh') {
+                $line | Add-Member -NotePropertyName "refreshInterval" -NotePropertyValue 60 -Force
+                Write-JsonFile -Path $script:SettingsJson -InputObject $settings
+                Write-Status "  + Statusline refreshes every 60s" -Color Green
+            }
+            else {
+                Write-Status "  + Statusline already configured" -Color Green
+            }
         }
         else {
             Write-Status "  Adding statusline to settings..."
 
             $settings | Add-Member -NotePropertyName "statusLine" -NotePropertyValue ([PSCustomObject]@{
                     type    = "command"
-                    command = "$(Get-ClaudeConfigDirRef)/scripts/statusline.sh"
-                    padding = 0
+                    command         = "$(Get-ClaudeConfigDirRef)/scripts/statusline.sh"
+                    padding         = 0
+                    refreshInterval = 60
                 }) -Force
 
             Write-JsonFile -Path $script:SettingsJson -InputObject $settings

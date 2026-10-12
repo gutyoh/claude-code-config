@@ -70,7 +70,10 @@ _ACCOUNT_SUFFIX=""
 if [[ -n "${CLAUDE_CONFIG_DIR:-}" ]]; then
     _ACCOUNT_SUFFIX="-$(printf '%s' "${CLAUDE_CONFIG_DIR}" | cksum | cut -d' ' -f1)"
 fi
-CACHE_FILE="${_TMP_DIR}/api-cache${_ACCOUNT_SUFFIX}"
+# Readings live in the state directory, so a weekly window survives a reboot
+# followed by a failed fetch. Locks and backoff stay in the temp directory.
+_STATE_DIR="${XDG_STATE_HOME:-${HOME}/.local/state}/claude-code/statusline"
+CACHE_FILE="${_STATE_DIR}/api-cache${_ACCOUNT_SUFFIX}"
 CACHE_TTL=180 # The usage endpoint throttles hard; one call per 3 minutes per account
 LOCK_DIR="${_TMP_DIR}/api-lock${_ACCOUNT_SUFFIX}"
 readonly LOCK_MAX_AGE_S=30 # Force-remove stale locks from killed processes
@@ -86,9 +89,12 @@ CONF_THEME="dark"
 CONF_COMPONENTS="model,usage,weekly,reset,tokens_in,tokens_out,tokens_cache,cost,burn_rate,email"
 CONF_BAR_STYLE="text"
 CONF_BAR_PCT_INSIDE="false"
-CONF_COMPACT="true"                # Compact mode: no verbose prefixes, tokens merged with /, burn_rate hidden
-CONF_COLOR_SCOPE="percentage"      # "percentage" = color usage component only, "full" = color entire line
-CONF_ICON=""                       # Prefix icon: e.g. "✻", "A\\", "❋", or "" for none
+CONF_COMPACT="true"           # Compact mode: no verbose prefixes, tokens merged with /, burn_rate hidden
+CONF_COLOR_SCOPE="percentage" # "percentage" = color usage component only, "full" = color entire line
+CONF_ICON=""                  # Prefix icon: e.g. "✻", "A\\", "❋", or "" for none
+CONF_ICON_CLAUDE=""           # Per plan, over icon: e.g. "A\\" for Claude,
+CONF_ICON_OPENAI=""           # "֍" for ChatGPT and "∞" for Muse
+CONF_ICON_MUSE=""
 CONF_ICON_STYLE="plain"            # plain|bold|bracketed|rounded|reverse|bold-color|angle|double-bracket
 CONF_WEEKLY_SHOW_RESET="false"     # Show weekly reset countdown inline with weekly %
 CONF_CC_STATUS_POSITION="inline"   # inline | newline
@@ -168,6 +174,7 @@ source "${_STATUSLINE_DIR}/lib/statusline/assembly.sh"
 main() {
     # Ensure user-specific tmp dir exists (prevents /tmp symlink attacks)
     [[ ! -d "${_TMP_DIR}" ]] && mkdir -p "${_TMP_DIR}" 2>/dev/null
+    mkdir -p "${_STATE_DIR}" 2>/dev/null || CACHE_FILE="${_TMP_DIR}/api-cache${_ACCOUNT_SUFFIX}"
 
     load_config
     load_theme
@@ -190,6 +197,13 @@ main() {
     # Render all components (usage component self-colors when color_scope=percentage)
     local output
     output=$(render_all_components)
+
+    # The icon of the plan behind the model, when one is set, over the default
+    case "${DATA_USAGE_PROVIDER}" in
+        claude) CONF_ICON="${CONF_ICON_CLAUDE:-${CONF_ICON}}" ;;
+        openai) CONF_ICON="${CONF_ICON_OPENAI:-${CONF_ICON}}" ;;
+        muse) CONF_ICON="${CONF_ICON_MUSE:-${CONF_ICON}}" ;;
+    esac
 
     # Prepend icon if configured, styled per icon_style
     local icon_prefix=""
