@@ -26,6 +26,9 @@ fi
 # session history. Call first in setup().
 isolate_home() {
     unset CLAUDE_CONFIG_DIR CLAUDE_DIR_REF MCP_KEYS_ENV_FILE
+    # mise shims (jq, curl, ...) refuse to run once HOME moves away from the
+    # trust records they keep under the real HOME.
+    export MISE_STATE_DIR="${MISE_STATE_DIR:-${XDG_STATE_HOME:-${HOME}/.local/state}/mise}"
     export HOME="${BATS_TEST_TMPDIR}/home"
     export XDG_CONFIG_HOME="${HOME}/.config"
     export XDG_CACHE_HOME="${HOME}/.cache"

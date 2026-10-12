@@ -2,6 +2,14 @@
 # Path: .claude/scripts/lib/statusline/api.sh
 # Sourced by statusline.sh — do not execute directly.
 
+# curl config line for the statusline's own requests. STATUSLINE_HTTPS_PROXY
+# overrides the session's proxy, and set but empty means direct: a router that
+# intercepts Claude Code's traffic would otherwise fail these requests' TLS.
+curl_proxy_config() {
+    [[ -n "${STATUSLINE_HTTPS_PROXY+set}" ]] || return 0
+    printf 'proxy = "%s"\n' "${STATUSLINE_HTTPS_PROXY}"
+}
+
 get_oauth_token() {
     local creds=""
 
@@ -58,8 +66,11 @@ get_oauth_token() {
 fetch_api_usage() {
     local token="$1"
 
-    curl -s --max-time "${CURL_TIMEOUT}" "${API_URL}" \
-        -H "Authorization: Bearer ${token}" \
+    # The token goes in on stdin, so it never shows in the process list.
+    {
+        curl_proxy_config
+        printf 'header = "Authorization: Bearer %s"\n' "${token}"
+    } | curl -s -K - --max-time "${CURL_TIMEOUT}" "${API_URL}" \
         -H "Accept: application/json" \
         -H "anthropic-beta: ${API_BETA_HEADER}" 2>/dev/null || return 1
 }

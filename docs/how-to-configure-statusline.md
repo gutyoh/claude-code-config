@@ -66,8 +66,8 @@ cc_status_color=full
 | Key | Description | Wide mode | Narrow/compact mode |
 |-----|-------------|-----------|---------------------|
 | `model` | Model name | `opus-4.5` | `opus-4.5` |
-| `usage` | Session utilization | Progress bar | `21%` |
-| `weekly` | Weekly utilization | `weekly: 63%` | `63%` |
+| `usage` | 5-hour window of the model's plan | Progress bar | `21%` |
+| `weekly` | Weekly window of the model's plan | `weekly: 63%` | `63%` |
 | `reset` | Reset countdown | `resets: 2h15m` | `2h15m` |
 | `tokens_in` | Input tokens | `in: 15.4k` | `15.4k` |
 | `tokens_out` | Output tokens | `out: 2.1k` | `2.1k` |
@@ -80,6 +80,31 @@ cc_status_color=full
 | `lines` | Lines added/removed | `+2109 -103` | `+2109/-103` |
 | `session_time` | Session elapsed time | `37m` | `37m` |
 | `cwd` | Working directory | Full path | Basename only |
+
+## Usage for GPT and Muse models
+
+When Claude Code runs a GPT or Muse model, through a model router for example, `usage`, `weekly` and `reset` show that plan instead of Claude's. The statusline reads the provider's login without ever refreshing it:
+
+| Models | Plan | Login read |
+|--------|------|------------|
+| `claude-*` | Claude | stdin `rate_limits`, then Claude Code's own login |
+| `gpt-*`, `o*`, `codex-*` | ChatGPT | `$CODEX_HOME/auth.json`, default `~/.codex/auth.json` |
+| `muse-*` | Muse Code | `$MUSE_AUTH_PATH`, default `${XDG_CONFIG_HOME:-~/.config}/muse/auth.json` |
+
+A router that keeps its own logins points the statusline at them. Glob patterns are allowed; the first match is used:
+
+```bash
+export STATUSLINE_OPENAI_AUTH="$HOME/.local/state/my-router/chatgpt/auth.json"
+export STATUSLINE_MUSE_AUTH="$HOME/.local/state/my-router/muse/auth/meta-*.json"
+```
+
+The statusline inherits Claude Code's environment, proxy included. A router that intercepts Claude Code's traffic would break the statusline's own requests, so it sends them direct instead. `STATUSLINE_HTTPS_PROXY` sets the statusline's proxy, and set but empty means direct:
+
+```bash
+export STATUSLINE_HTTPS_PROXY=""
+```
+
+A window the plan does not have is hidden: a ChatGPT plan with only a weekly limit shows one figure. Other models show `--`.
 
 ## Available bar styles
 
@@ -127,14 +152,14 @@ ccusage --version
 | Problem | Cause | Fix |
 |---------|-------|-----|
 | Statusline not visible | Missing `statusLine` in settings.json | Re-run `./setup.sh` or add manually |
-| Shows `--` for usage | `ccusage` not installed | `npm install -g ccusage` |
+| Shows `--` for usage | No reading yet, or no login for the model's plan | Check the login in [Usage for GPT and Muse models](#usage-for-gpt-and-muse-models); `STATUSLINE_DEBUG=1` shows the source tried |
 | Shows `--` for cost | No active billing block | Start a new conversation to begin a billing block |
 | No colors | `NO_COLOR` env var is set | Unset it: `unset NO_COLOR` |
-| Stale usage data (prefixed with `~`) | Hook cache older than 5 minutes | Normal — data refreshes on next tool call |
+| Stale usage data (prefixed with `~`) | The last reading is old: the API failed or throttled | Normal; it refreshes once the API answers |
 | Config changes not taking effect | Old session running | Start a new Claude Code session |
 
 ## See also
 
 - [Configuration](configuration.md): full reference for all 12 statusline.conf keys
-- [Architecture](architecture.md): how the 3-tier usage data pipeline works
+- [Architecture](architecture.md): how the usage data pipeline works
 - [Project Structure](project-structure.md): statusline module file listing

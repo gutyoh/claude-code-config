@@ -120,25 +120,27 @@ Use BATS (Bash Automated Testing System). 11 test files covering hooks, statusli
 - **Benefits**: regression protection for critical hooks. CI integration via `just test`. Confidence when refactoring.
 - **Trade-offs**: BATS is a dependency (installed via npm/brew). Test files add maintenance overhead.
 
-## ADR-7: Three-tier statusline data priority
+## ADR-7: Statusline usage follows the session's model
 
 ### Context
 
-The statusline needs real-time usage data (session percentage, weekly percentage). Three data sources exist: native Claude Code fields (future), hook cache (background Haiku API), and OAuth API.
+The statusline shows plan usage (the 5-hour and weekly windows). Claude Code passes `rate_limits` on stdin, documented for Pro and Max plans and sent only after a session's first response; before then, and on a plan that gets none, the weekly figure needs the OAuth usage API. A model router also lets Claude Code run GPT and Muse models, and Claude's usage says nothing about those plans.
 
 ### Decision
 
-Three-tier priority chain. Try native fields first, fall back to hook cache, fall back to OAuth API with SWR caching.
+Pick the plan from the session's `model.id`. For Claude models, try stdin `rate_limits` first, then the OAuth API, then the hook cache, which has no weekly window. For GPT and Muse models, read the ChatGPT or Muse Code plan from that provider's own login. Every reader is read-only and served through the same locked, backed-off, stale-while-error cache.
 
 ### Alternatives considered
 
-- **OAuth API only**: call the API every time the statusline renders. Rejected because statusline renders every few seconds. Rate limiting and latency would degrade the experience.
-- **Hook cache only**: rely entirely on the background hook. Rejected because hooks may not fire frequently enough, and the cache has a staleness threshold (5 minutes).
+- **OAuth API only**: called on every render. Rejected: the statusline renders every few seconds and the endpoint throttles hard.
+- **Hook cache before the OAuth API**: the order this replaced. Rejected: the hook cache has no weekly window, so a stale one hid the weekly figure.
+- **Spawning `codex app-server` for ChatGPT usage**: an official interface, but a full Codex client that may refresh the login it reads. Rejected for a direct read-only request.
+- **Sending Claude Code's User-Agent to dodge throttling**: impersonates Anthropic's client. Rejected; a longer shared TTL and backoff are used instead.
 
 ### Consequences
 
-- **Benefits**: resilience — if any data source fails, the next tier provides data. Performance — hook cache and native fields are instant (no API call). Future-proof — when Anthropic adds native rate limit fields, they take priority automatically.
-- **Trade-offs**: complexity — three code paths for the same data. Stale data is prefixed with `~` to signal uncertainty.
+- **Benefits**: the figures match the plan doing the work, including after a `/model` switch. The weekly limit shows on every Claude plan. New providers add one reader and one `usage_provider` pattern.
+- **Trade-offs**: the ChatGPT and Muse endpoints are undocumented and may change; a failed read falls back to the last good value, then to `--`. Muse omits its windows while the 5-hour one is idle, so that window reads 0 and the weekly one keeps its last reading. Muse Contributor models show the plan's reading, the only one Meta reports.
 
 ## ADR-8: MCP key pools with rotation
 
