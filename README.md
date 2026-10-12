@@ -595,11 +595,14 @@ Displays real-time session metrics in Claude Code's status bar, including model 
 | Metric | Description |
 |--------|-------------|
 | Model | Current model (e.g., `opus-4.5`) |
-| Session % | Percentage of 5-hour billing window used |
+| Session % | Percentage of the 5-hour window used |
+| Weekly % | Percentage of the weekly window used |
 | Resets | Time until session resets |
 | In/Out | Input and output tokens |
 | Cache | Cache read tokens |
 | Cost | Current cost + burn rate |
+
+Usage comes from the plan behind the session's model: Claude's, or the ChatGPT or Muse Code plan when Claude Code runs a GPT or Muse model through a router. See [Usage for GPT and Muse models](docs/how-to-configure-statusline.md#usage-for-gpt-and-muse-models).
 
 **Two-Tier Display (adapts to terminal width):**
 

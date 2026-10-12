@@ -2,10 +2,11 @@
 # Path: .claude/scripts/lib/statusline/data.sh
 # Sourced by statusline.sh — do not execute directly.
 #
-# Usage data priority chain (future-proof):
-#   1. Stdin JSON: rate_limit.five_hour_percentage (future Anthropic native)
-#   2. Hook cache: ~/.claude/cache/claude-usage.json (PreToolUse Haiku ping)
-#   3. OAuth API:  /api/oauth/usage with stale-while-error (legacy fallback)
+# Usage data follows the session's model (providers.sh). For Claude models:
+#   1. Stdin JSON: rate_limits.five_hour / seven_day, when Claude Code sends them
+#   2. OAuth API:  /api/oauth/usage with stale-while-error, the weekly
+#      source until stdin has it
+#   3. Hook cache: ~/.claude/cache/claude-usage.json (5-hour only)
 
 # --- ccusage: SWR cache ------------------------------------------------------
 #
@@ -153,28 +154,74 @@ calculate_time_remaining_epoch() {
     echo "${hours}h${mins}m"
 }
 
-# Priority 1: Check stdin JSON for native rate_limit data (future Anthropic feature)
+# Integer percentage, or -- for anything that is not a number.
+_usage_pct() {
+    local pct="${1%%.*}"
+    [[ "${pct}" =~ ^[0-9]+$ ]] && printf '%s' "${pct}" || printf '%s' "--"
+}
+
+# Priority 1: the rate_limits Claude Code passes on stdin, once a session has
+# had a response (documented for Pro and Max plans); each window may be absent.
 get_native_usage_data() {
-    local input="$1"
-    local pct
-    pct=$(echo "${input}" | jq -r '.rate_limit.five_hour_percentage // empty' 2>/dev/null)
-    [[ -z "${pct}" ]] && return 1
+    local input="$1" line
+    line=$(echo "${input}" | jq -r '.rate_limits // empty
+        | select(.five_hour.used_percentage != null or .seven_day.used_percentage != null)
+        | [.five_hour.used_percentage, .five_hour.resets_at,
+           .seven_day.used_percentage, .seven_day.resets_at]
+        | map(if . == null then "" else tostring end) | join("\t")' 2>/dev/null)
+    [[ -z "${line}" ]] && return 1
 
-    local reset
-    reset=$(echo "${input}" | jq -r '.rate_limit.five_hour_reset_seconds // empty' 2>/dev/null)
-
-    DATA_SESSION_PCT="${pct%%.*}"
-    DATA_SESSION_PCT="${DATA_SESSION_PCT:-0}"
-
-    if [[ -n "${reset}" && "${reset}" != "0" ]]; then
-        local hours=$((reset / 3600))
-        local mins=$(((reset % 3600) / 60))
-        DATA_TIME_LEFT="${hours}h${mins}m"
+    local five five_reset week week_reset
+    five=$(printf '%s' "${line}" | cut -f1)
+    five_reset=$(printf '%s' "${line}" | cut -f2)
+    week=$(printf '%s' "${line}" | cut -f3)
+    week_reset=$(printf '%s' "${line}" | cut -f4)
+    if [[ -n "${five}" ]]; then
+        DATA_SESSION_PCT=$(_usage_pct "${five}")
+        DATA_TIME_LEFT=$(calculate_time_remaining_epoch "${five_reset}")
+    fi
+    if [[ -n "${week}" ]]; then
+        DATA_WEEKLY_PCT=$(_usage_pct "${week}")
+        DATA_WEEKLY_TIME_LEFT=$(calculate_time_remaining_epoch "${week_reset}")
     fi
     return 0
 }
 
-# Priority 2: Read hook cache (PreToolUse Haiku ping headers)
+# A GPT or Muse plan's windows (providers.sh). A window the plan does not have
+# is emptied, so its component is hidden.
+get_provider_usage_data() {
+    local line
+    line=$(get_provider_usage "$1") || return 1
+    [[ -z "${line}" ]] && return 1
+
+    local five five_reset week week_reset fetched_at
+    five=$(printf '%s' "${line}" | cut -f1)
+    five_reset=$(printf '%s' "${line}" | cut -f2)
+    week=$(printf '%s' "${line}" | cut -f3)
+    week_reset=$(printf '%s' "${line}" | cut -f4)
+    fetched_at=$(printf '%s' "${line}" | cut -f5)
+
+    DATA_SESSION_PCT=""
+    DATA_TIME_LEFT=""
+    if [[ -n "${five}" ]]; then
+        DATA_SESSION_PCT=$(_usage_pct "${five}")
+        # An idle window has no reset to count down to
+        [[ -n "${five_reset}" ]] && DATA_TIME_LEFT=$(calculate_time_remaining_epoch "${five_reset}")
+    fi
+    DATA_WEEKLY_PCT=""
+    DATA_WEEKLY_TIME_LEFT="--"
+    if [[ -n "${week}" ]]; then
+        DATA_WEEKLY_PCT=$(_usage_pct "${week}")
+        DATA_WEEKLY_TIME_LEFT=$(calculate_time_remaining_epoch "${week_reset}")
+    fi
+    if [[ "${fetched_at}" =~ ^[0-9]+$ ]] && (($(date +%s) - fetched_at > ${USAGE_STALE_S:-900})); then
+        DATA_SESSION_PCT_STALE=1
+        DATA_WEEKLY_PCT_STALE=1
+    fi
+    return 0
+}
+
+# Priority 3: Read hook cache (PreToolUse Haiku ping headers)
 # Staleness: if cache is older than HOOK_STALE_THRESHOLD (default 300s = 5 min),
 # prefix percentage with ~ to indicate approximate/stale data.
 HOOK_STALE_THRESHOLD="${HOOK_STALE_THRESHOLD:-300}"
@@ -209,7 +256,7 @@ get_hook_usage_data() {
     return 0
 }
 
-# Priority 3: OAuth API with stale-while-error (legacy fallback)
+# Priority 2: OAuth API with stale-while-error
 get_oauth_usage_data() {
     local api_data=""
     api_data=$(get_cached_api_data) || return 1
@@ -228,6 +275,15 @@ get_oauth_usage_data() {
         DATA_WEEKLY_PCT="${weekly_util%%.*}"
         DATA_WEEKLY_PCT="${DATA_WEEKLY_PCT:-0}"
         DATA_WEEKLY_TIME_LEFT=$(calculate_time_remaining "${weekly_reset}")
+    fi
+
+    # Served past its refresh after errors or throttling: mark it approximate.
+    local cache_age
+    # shellcheck disable=SC2153 # CACHE_FILE is set by statusline.sh
+    cache_age=$(get_file_age "${CACHE_FILE}" 2>/dev/null) || cache_age=0
+    if [[ ${cache_age} -gt ${USAGE_STALE_S:-900} ]]; then
+        DATA_SESSION_PCT_STALE=1
+        DATA_WEEKLY_PCT_STALE=1
     fi
     return 0
 }
@@ -294,24 +350,31 @@ collect_data() {
     # Claude Code service health status (cached, non-blocking)
     collect_service_status
 
-    # Usage data: priority chain (1→2→3)
-    debug "--- Usage Data Priority Chain ---"
-    debug "Trying source 1: native stdin JSON..."
-    if get_native_usage_data "${input}"; then
-        debug "Source: native stdin JSON (rate_limit fields)"
-    else
-        debug "Trying source 2: hook cache..."
-        if get_hook_usage_data; then
-            debug "Source: hook cache (claude-usage.json)"
-        else
-            debug "Trying source 3: OAuth API..."
-            if get_oauth_usage_data; then
+    # Usage data: the plan behind the session's model
+    local model_id
+    model_id=$(echo "${input}" | jq -r '.model.id // empty' 2>/dev/null)
+    DATA_USAGE_PROVIDER=$(usage_provider "${model_id}")
+    debug "--- Usage Data (${DATA_USAGE_PROVIDER}) ---"
+    case "${DATA_USAGE_PROVIDER}" in
+        claude)
+            if get_native_usage_data "${input}"; then
+                debug "Source: native stdin JSON (rate_limits)"
+            elif get_oauth_usage_data; then
                 debug "Source: OAuth API (/api/oauth/usage)"
+            elif get_hook_usage_data; then
+                debug "Source: hook cache (claude-usage.json)"
             else
                 debug "Source: NONE - all data sources failed"
             fi
-        fi
-    fi
+            ;;
+        openai | muse)
+            get_provider_usage_data "${DATA_USAGE_PROVIDER}" \
+                || debug "Source: NONE - ${DATA_USAGE_PROVIDER} usage unavailable"
+            ;;
+        *)
+            debug "Source: NONE - no usage reader for model ${model_id}"
+            ;;
+    esac
     debug_var "DATA_SESSION_PCT" "${DATA_SESSION_PCT}"
     debug_var "DATA_WEEKLY_PCT" "${DATA_WEEKLY_PCT}"
     debug_var "DATA_TIME_LEFT" "${DATA_TIME_LEFT}"

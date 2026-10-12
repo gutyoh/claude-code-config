@@ -108,33 +108,44 @@ Each hook solves a specific problem:
 
 ## The statusline data pipeline
 
-The statusline renders real-time metrics in Claude Code's status bar. It uses a 3-tier priority chain for usage data, ensuring resilience when any single data source is unavailable.
+The statusline renders real-time metrics in Claude Code's status bar. Its usage figures come from the plan behind the session's model: Claude's for Claude models, the ChatGPT plan's for GPT models and the Muse Code plan's for Muse models, which Claude Code can run through a model router. A `/model` switch changes the plan shown at the next render.
 
 ```mermaid
 flowchart TD
-    INPUT["Claude Code stdin<br/><i>JSON with model, version, cost</i>"]
-    P1["Priority 1: Native fields<br/><i>rate_limit.five_hour_percentage</i><br/>(future Anthropic feature)"]
-    P2["Priority 2: Hook cache<br/><i>~/.claude/cache/claude-usage.json</i><br/>(written by refresh-usage-cache hook)"]
-    P3["Priority 3: OAuth API<br/><i>api.anthropic.com/api/oauth/usage</i><br/>(with SWR caching + backoff)"]
+    INPUT["Claude Code stdin<br/><i>model.id, rate_limits, cost</i>"]
+    PICK{"Plan behind<br/>model.id"}
+    P1["1: stdin rate_limits<br/><i>five_hour, seven_day</i><br/>(when Claude Code sends them)"]
+    P2["2: OAuth API<br/><i>api.anthropic.com/api/oauth/usage</i><br/>(the weekly source until stdin has it)"]
+    P3["3: Hook cache<br/><i>~/.claude/cache/claude-usage.json</i><br/>(5-hour only)"]
+    GPT["ChatGPT plan<br/><i>chatgpt.com/backend-api/wham/usage</i><br/>Codex login"]
+    MUSE["Muse Code plan<br/><i>api.meta.ai/muse-code/key</i><br/>Muse device login"]
     CCUSAGE["ccusage blocks --json<br/><i>Token counts + cost</i>"]
     STATUS["status.claude.com API<br/><i>Service health</i>"]
     RENDER["Render components<br/><i>15 renderers, adaptive width</i>"]
 
-    INPUT --> P1
-    P1 -->|not available| P2
-    P2 -->|stale or missing| P3
-    P1 -->|available| RENDER
-    P2 -->|fresh| RENDER
+    INPUT --> PICK
+    PICK -->|claude-*| P1
+    PICK -->|gpt-*, o*| GPT
+    PICK -->|muse-*| MUSE
+    P1 -->|absent| P2
+    P2 -->|no reading| P3
+    P1 --> RENDER
+    P2 --> RENDER
     P3 --> RENDER
+    GPT --> RENDER
+    MUSE --> RENDER
     CCUSAGE --> RENDER
     STATUS --> RENDER
 ```
 
-The OAuth API cache uses production-grade patterns:
-- **30-second TTL** for fresh cache
+Every network reading shares one cache design:
+- **A TTL per source**: 180 seconds for Claude's OAuth API, which throttles hard, and 120 seconds for the ChatGPT and Muse plans. One reading serves every session on the host.
+- **Keyed by login**: Claude's by `CLAUDE_CONFIG_DIR`, the others by login file, so two accounts never show each other's usage.
 - **Atomic mkdir-based locking** to prevent thundering herd across concurrent sessions
 - **Decorrelated jitter backoff** (30s-300s) on API failures
-- **Stale-while-error**: serves last known good value when the API is down
+- **Stale-while-error**: serves last known good value when the API is down, marked with `~` once it is older than 15 minutes
+
+The readers never refresh a login: each login has exactly one refresher (Claude Code, Codex, the Muse CLI or a router), and a refresh token spent elsewhere signs that refresher out. Bearer tokens reach curl on stdin, never in its arguments, so they do not show in the process list. `STATUSLINE_HTTPS_PROXY` overrides the proxy inherited from Claude Code, for a router that intercepts Claude Code's traffic. Windows a plan does not have are hidden: a ChatGPT plan with only a weekly limit shows one figure, not `--`.
 
 The service status cache (status.claude.com) uses a separate SWR pattern: 5-minute fresh TTL, 15-minute max stale, background refresh via disowned subshell.
 

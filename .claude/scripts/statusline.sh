@@ -4,14 +4,14 @@
 #
 # Displays real-time session metrics in Claude Code's status bar.
 #
-# Usage data priority chain (future-proof):
-#   1. Stdin JSON rate_limit.* fields (future Anthropic native — not yet available)
-#   2. Hook cache ~/.claude/cache/claude-usage.json (PreToolUse Haiku ping headers)
-#   3. OAuth API /api/oauth/usage with stale-while-error (legacy fallback)
-#
-# The PreToolUse/Stop hooks (refresh-usage-cache.sh) fire a tiny Haiku API
-# call (~$0.00001) every 60s and cache rate limit headers. The statusline
-# reads the cache file — zero API calls in the render path.
+# Usage follows the session's model (lib/statusline/providers.sh):
+#   Claude models:
+#     1. Stdin JSON rate_limits.five_hour / seven_day (when Claude Code sends them)
+#     2. OAuth API /api/oauth/usage, cached with stale-while-error
+#     3. Hook cache ~/.claude/cache/claude-usage.json (5-hour only)
+#   GPT models:  the ChatGPT plan's windows, from the Codex login
+#   Muse models: the Muse Code plan's windows, from the Muse login
+# Every read is read-only: no login is ever refreshed here.
 #
 # Uses ccusage for token breakdown, cost, and burn rate.
 #
@@ -30,7 +30,7 @@
 # Config: ~/.claude/statusline.conf (key=value). Respects NO_COLOR env var.
 # Legacy: single-line theme name still supported (auto-detected).
 #
-# Prerequisites: jq, curl, awk, ccusage (optional for token/cost data)
+# Prerequisites: jq, curl, awk, cksum, ccusage (optional for token/cost data)
 # Platforms:     macOS (Keychain), Linux (Secret Service / libsecret),
 #                Windows Git Bash (Credential Manager via PowerShell)
 
@@ -64,11 +64,18 @@ readonly DEFAULT_TERM_WIDTH=120
 readonly WIDE_THRESHOLD=110
 # Use TMPDIR if set (cross-platform), otherwise /tmp (Unix) or $TEMP (Windows)
 readonly _TMP_DIR="${TMPDIR:-${TEMP:-/tmp}}/claude-statusline-${UID:-$(id -u 2>/dev/null || echo $$)}"
-readonly CACHE_FILE="${_TMP_DIR}/api-cache"
-readonly CACHE_TTL=30
-readonly LOCK_DIR="${_TMP_DIR}/api-lock"
+# Keyed by Claude account, so profiles in their own CLAUDE_CONFIG_DIR never
+# show each other's usage. Not readonly: each provider scopes its own copy.
+_ACCOUNT_SUFFIX=""
+if [[ -n "${CLAUDE_CONFIG_DIR:-}" ]]; then
+    _ACCOUNT_SUFFIX="-$(printf '%s' "${CLAUDE_CONFIG_DIR}" | cksum | cut -d' ' -f1)"
+fi
+CACHE_FILE="${_TMP_DIR}/api-cache${_ACCOUNT_SUFFIX}"
+CACHE_TTL=180 # The usage endpoint throttles hard; one call per 3 minutes per account
+LOCK_DIR="${_TMP_DIR}/api-lock${_ACCOUNT_SUFFIX}"
 readonly LOCK_MAX_AGE_S=30 # Force-remove stale locks from killed processes
-readonly BACKOFF_FILE="${_TMP_DIR}/api-backoff"
+BACKOFF_FILE="${_TMP_DIR}/api-backoff${_ACCOUNT_SUFFIX}"
+readonly USAGE_STALE_S=900    # Older readings are marked with ~
 readonly BACKOFF_INITIAL_S=30 # First backoff after 429/failure
 readonly BACKOFF_MAX_S=300    # Cap at 5 minutes
 readonly CONF_FILE="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/statusline.conf"
@@ -103,6 +110,8 @@ COLOR_RESET=""
 DATA_MODEL=""
 DATA_SESSION_PCT="--"
 DATA_SESSION_PCT_STALE=0
+DATA_WEEKLY_PCT_STALE=0
+DATA_USAGE_PROVIDER="claude"
 DATA_TIME_LEFT="--"
 DATA_INPUT_TOKENS=0
 DATA_OUTPUT_TOKENS=0
@@ -146,6 +155,7 @@ source "${_STATUSLINE_DIR}/lib/statusline/config.sh"
 source "${_STATUSLINE_DIR}/lib/statusline/utils.sh"
 source "${_STATUSLINE_DIR}/lib/statusline/api.sh"
 source "${_STATUSLINE_DIR}/lib/statusline/cache.sh"
+source "${_STATUSLINE_DIR}/lib/statusline/providers.sh"
 source "${_STATUSLINE_DIR}/lib/statusline/data.sh"
 source "${_STATUSLINE_DIR}/lib/statusline/bar.sh"
 source "${_STATUSLINE_DIR}/lib/statusline/color.sh"
@@ -222,9 +232,9 @@ main() {
     # Use the most critical (highest) utilization across session and weekly
     if [[ "${CONF_COLOR_SCOPE}" == "full" ]]; then
         local color="" max_pct="${DATA_SESSION_PCT}"
-        if [[ "${max_pct}" == "--" ]]; then
+        if [[ "${max_pct}" == "--" || -z "${max_pct}" ]]; then
             max_pct="${DATA_WEEKLY_PCT}"
-        elif [[ "${DATA_WEEKLY_PCT}" != "--" && "${DATA_WEEKLY_PCT}" -gt "${max_pct}" ]]; then
+        elif [[ "${DATA_WEEKLY_PCT}" =~ ^[0-9]+$ && "${DATA_WEEKLY_PCT}" -gt "${max_pct}" ]]; then
             max_pct="${DATA_WEEKLY_PCT}"
         fi
         color=$(get_color_for_pct "${max_pct}")

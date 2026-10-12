@@ -109,8 +109,9 @@ Dot-sourced by `setup.ps1`. PowerShell port of `lib/setup/` with arrow-key TUI, 
 | `config.sh` | `load_config`, `load_theme` | Config and theme loading |
 | `utils.sh` | `format_num`, `iso8601_to_epoch`, `format_duration_ms` | Formatting utilities |
 | `api.sh` | `get_oauth_token`, `fetch_api_usage`, `get_api_session_data` | OAuth credential retrieval and API calls |
-| `cache.sh` | `get_file_age`, `try_acquire_lock`, `refresh_api_cache`, `get_cached_api_data` | API cache with locking, backoff, stale-while-error |
-| `data.sh` | `get_ccusage_block`, `calculate_time_remaining`, `collect_data` | Data collection (3-tier priority chain) |
+| `cache.sh` | `get_file_age`, `try_acquire_lock`, `cached_fetch`, `get_cached_api_data` | API cache with locking, backoff, stale-while-error |
+| `providers.sh` | `usage_provider`, `fetch_openai_usage`, `fetch_muse_usage`, `get_provider_usage` | Plan usage for GPT and Muse models |
+| `data.sh` | `get_ccusage_block`, `calculate_time_remaining`, `collect_data` | Data collection, usage by the model's plan |
 | `bar.sh` | `render_progress_bar`, `_overlay_pct_inside` | Progress bar rendering (6 styles) |
 | `color.sh` | `get_color_for_pct`, `get_utilization_color`, `get_cc_status_color` | Color helpers |
 | `status.sh` | `collect_service_status` | Claude Code service health (status.claude.com) |
@@ -183,6 +184,7 @@ Dot-sourced by `setup.ps1`. PowerShell port of `lib/setup/` with arrow-key TUI, 
 | `rate-limit-brave-search.bats` | Rate limiting hook |
 | `statusline-utils.bats` | Statusline utility functions |
 | `statusline-cache.bats` | API cache with locking and backoff |
+| `statusline-providers.bats` | GPT and Muse plan usage, provider choice, end-to-end renders |
 | `mcp-key-rotate.bats` | Key rotation script |
 | `mcp-env-inject.bats` | MCP environment injection |
 | `mcp-env-inject-sync.bats` | Sync variant of env injection |

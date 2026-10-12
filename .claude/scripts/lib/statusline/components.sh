@@ -7,6 +7,8 @@ render_component_model() {
 }
 
 render_component_usage() {
+    # Empty: the plan has no 5-hour window
+    [[ -z "${DATA_SESSION_PCT}" ]] && return
     local raw=""
     local display_pct="${DATA_SESSION_PCT}"
     # Prefix with ~ when data is stale (cache older than HOOK_STALE_THRESHOLD)
@@ -40,12 +42,17 @@ render_component_usage() {
 }
 
 render_component_weekly() {
-    local raw=""
+    # Empty: the plan has no weekly window
+    [[ -z "${DATA_WEEKLY_PCT}" ]] && return
+    local raw="" display_pct="${DATA_WEEKLY_PCT}"
+    if [[ "${DATA_WEEKLY_PCT_STALE:-0}" == "1" && "${DATA_WEEKLY_PCT}" != "--" ]]; then
+        display_pct="~${DATA_WEEKLY_PCT}"
+    fi
 
     if [[ "${IS_WIDE}" == "true" && "${CONF_COMPACT}" != "true" ]]; then
-        raw=$(printf "weekly: %s%%" "${DATA_WEEKLY_PCT}")
+        raw=$(printf "weekly: %s%%" "${display_pct}")
     else
-        raw=$(printf "%s%%" "${DATA_WEEKLY_PCT}")
+        raw=$(printf "%s%%" "${display_pct}")
     fi
 
     # Append reset countdown if configured
@@ -68,6 +75,7 @@ render_component_weekly() {
 }
 
 render_component_reset() {
+    [[ -z "${DATA_TIME_LEFT}" ]] && return
     if [[ "${IS_WIDE}" == "true" && "${CONF_COMPACT}" != "true" ]]; then
         printf "resets: %s" "${DATA_TIME_LEFT}"
     else

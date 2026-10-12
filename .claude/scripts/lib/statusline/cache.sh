@@ -128,7 +128,16 @@ refresh_api_cache() {
 
 # --- Main Entry Point ---
 
+# Claude's OAuth usage through the shared cache.
 get_cached_api_data() {
+    cached_fetch get_api_session_data
+}
+
+# Serves <fetch_fn>'s output through CACHE_FILE, LOCK_DIR, BACKOFF_FILE and
+# CACHE_TTL. A caller scopes them to its own source with `local`, so every
+# provider gets the same lock, backoff and stale-while-error.
+cached_fetch() {
+    local fetch_fn="$1"
     local cache_age=999999
 
     debug "get_cached_api_data: checking cache at ${CACHE_FILE}"
@@ -152,9 +161,9 @@ get_cached_api_data() {
     if try_acquire_lock; then
         debug "get_cached_api_data: acquired lock"
         if ! should_backoff; then
-            debug "get_cached_api_data: calling get_api_session_data..."
+            debug "get_cached_api_data: calling ${fetch_fn}..."
             local data
-            if data=$(get_api_session_data) && [[ -n "${data}" ]]; then
+            if data=$("${fetch_fn}") && [[ -n "${data}" ]]; then
                 debug "get_cached_api_data: API success, caching data"
                 local tmp_cache="${CACHE_FILE}.tmp.$$"
                 printf "%s" "${data}" >"${tmp_cache}"

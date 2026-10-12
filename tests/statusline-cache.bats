@@ -44,6 +44,8 @@ setup() {
 
     # Source only the modules under test (no readonly declarations)
     source "$MODULES_DIR/cache.sh"
+    _TMP_DIR="$BATS_TEST_TMPDIR"
+    source "$MODULES_DIR/providers.sh"
 
     # Stub for collect_service_status (defined in status.sh, called by data.sh)
     # Not needed in cache-focused tests; avoids sourcing status.sh readonly vars
@@ -399,10 +401,10 @@ mock_api_failure() {
 }
 
 # =========================================================================
-# Priority chain: native stdin > hook cache > OAuth API
+# Priority chain: native stdin > OAuth API > hook cache
 # =========================================================================
 
-@test "priority 1: native stdin rate_limit wins over everything" {
+@test "priority 1: native stdin rate_limits win over everything" {
     source "$MODULES_DIR/utils.sh"
     source "$MODULES_DIR/data.sh"
 
@@ -415,32 +417,95 @@ mock_api_failure() {
     mock_api_failure
 
     DATA_SESSION_PCT="--"
-    # Stdin JSON has native rate_limit (future Anthropic feature)
-    local json='{"model":{"display_name":"Opus 4.6"},"version":"1.0","cost":{},"rate_limit":{"five_hour_percentage":25,"five_hour_reset_seconds":7200}}'
+    DATA_WEEKLY_PCT="--"
+    local reset=$(( $(date +%s) + 7200 ))
+    local json='{"model":{"id":"claude-opus-5-5","display_name":"Opus"},"version":"1.0","cost":{},"rate_limits":{"five_hour":{"used_percentage":25.4,"resets_at":'"$reset"'},"seven_day":{"used_percentage":58,"resets_at":'"$reset"'}}}'
     collect_data "$json"
 
-    # Should be 25 (from stdin native), not 14 (hook) or 11 (OAuth)
+    # 25 and 58 from stdin, not 14 (hook) or 11 (OAuth)
     [[ "$DATA_SESSION_PCT" == "25" ]]
+    [[ "$DATA_WEEKLY_PCT" == "58" ]]
+    [[ "$DATA_TIME_LEFT" == "1h59m" || "$DATA_TIME_LEFT" == "2h0m" ]]
 }
 
-@test "priority 2: hook cache wins over OAuth API" {
+@test "priority 1: one native window is enough, the other stays --" {
+    source "$MODULES_DIR/utils.sh"
+    source "$MODULES_DIR/data.sh"
+    mock_api_failure
+
+    DATA_SESSION_PCT="--"
+    DATA_WEEKLY_PCT="--"
+    local json='{"model":{"id":"claude-opus-5-5"},"rate_limits":{"seven_day":{"used_percentage":40,"resets_at":9999999999}}}'
+    collect_data "$json"
+
+    [[ "$DATA_SESSION_PCT" == "--" ]]
+    [[ "$DATA_WEEKLY_PCT" == "40" ]]
+}
+
+@test "priority 1: the old rate_limit field name is not read" {
+    source "$MODULES_DIR/utils.sh"
+    source "$MODULES_DIR/data.sh"
+    export HOOK_USAGE_CACHE="$BATS_TEST_TMPDIR/nonexistent.json"
+    mock_api_failure
+
+    DATA_SESSION_PCT="--"
+    local json='{"model":{"display_name":"Opus"},"rate_limit":{"five_hour_percentage":25}}'
+    collect_data "$json"
+
+    [[ "$DATA_SESSION_PCT" == "--" ]]
+}
+
+@test "priority 2: OAuth API wins over a stale hook cache, and brings the weekly" {
     source "$MODULES_DIR/utils.sh"
     source "$MODULES_DIR/data.sh"
 
-    # Hook cache says 14%
+    # Hook cache says 14%, 5-hour only
     export HOOK_USAGE_CACHE="$BATS_TEST_TMPDIR/hook-cache.json"
     echo '{"five_hour_pct":14,"five_hour_reset_epoch":1772740800}' > "$HOOK_USAGE_CACHE"
 
-    # OAuth cache says 11%
-    write_cache_aged "11.0\t2026-03-05T20:00:00Z\t\t" 0
+    # OAuth cache says 11% session, 58% weekly
+    printf '11.0\t2026-03-05T20:00:00Z\t58.0\t2026-03-09T20:00:00Z' > "$CACHE_FILE"
+    mock_api_failure
+
+    DATA_SESSION_PCT="--"
+    DATA_WEEKLY_PCT="--"
+    local json='{"model":{"display_name":"Opus 4.6"},"version":"1.0","cost":{}}'
+    collect_data "$json"
+
+    [[ "$DATA_SESSION_PCT" == "11" ]]
+    [[ "$DATA_WEEKLY_PCT" == "58" ]]
+}
+
+@test "priority 3: hook cache used when the OAuth API has nothing" {
+    source "$MODULES_DIR/utils.sh"
+    source "$MODULES_DIR/data.sh"
+
+    export HOOK_USAGE_CACHE="$BATS_TEST_TMPDIR/hook-cache.json"
+    echo '{"five_hour_pct":14,"five_hour_reset_epoch":1772740800}' > "$HOOK_USAGE_CACHE"
     mock_api_failure
 
     DATA_SESSION_PCT="--"
     local json='{"model":{"display_name":"Opus 4.6"},"version":"1.0","cost":{}}'
     collect_data "$json"
 
-    # Should be 14 (from hook cache), not 11 (OAuth)
     [[ "$DATA_SESSION_PCT" == "14" ]]
+}
+
+@test "OAuth reading older than USAGE_STALE_S is marked approximate" {
+    source "$MODULES_DIR/utils.sh"
+    source "$MODULES_DIR/data.sh"
+    export HOOK_USAGE_CACHE="$BATS_TEST_TMPDIR/nonexistent.json"
+    write_cache_aged "11.0\t2026-03-05T20:00:00Z\t58.0\t2026-03-09T20:00:00Z" 1000
+    mock_api_failure
+
+    DATA_SESSION_PCT_STALE=0
+    DATA_WEEKLY_PCT_STALE=0
+    USAGE_STALE_S=900
+    collect_data '{"model":{"display_name":"Opus"}}'
+
+    [[ "$DATA_SESSION_PCT" == "11" ]]
+    [[ "$DATA_SESSION_PCT_STALE" == "1" ]]
+    [[ "$DATA_WEEKLY_PCT_STALE" == "1" ]]
 }
 
 @test "priority 3: OAuth API used when no hook cache exists" {
