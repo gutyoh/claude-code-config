@@ -45,7 +45,7 @@ if [[ $1 == auth && $2 == login ]]; then
     printf 'login %s\n' "${*:3}" >>"$HOME/logins"
     jq --arg e "${STUB_EMAIL:-$4}" --arg t "${STUB_TYPE:-claude_pro}" --arg o "${STUB_ORG:-Org}" \
         '.oauthAccount = {emailAddress: $e, organizationType: $t, organizationName: $o, organizationUuid: ($o + "-id")}' \
-        "$acct" >"$acct.tmp" && mv "$acct.tmp" "$acct"
+        "$acct" >"$acct.tmp" && cat "$acct.tmp" >"$acct" && rm "$acct.tmp"
     exit 0
 fi
 if [[ $1 == -p && $2 == --resume ]]; then
@@ -56,8 +56,8 @@ if [[ $1 == -p && $2 == --resume ]]; then
     fi
     exit 0
 fi
-if [[ $1 == --version && -n ${STUB_VERSION:-} ]]; then
-    echo "${STUB_VERSION} (Claude Code)"
+if [[ $1 == --version ]]; then
+    echo "${STUB_VERSION:-2.1.296} (Claude Code)"
     exit 0
 fi
 printf 'RAN set=%s home=%s args=%s\n' "${CLAUDE_CONFIG_DIR+1}" "${CLAUDE_CONFIG_DIR:-}" "$*"
@@ -155,10 +155,10 @@ two_accounts() {
 
 @test "~/.claude runs with CLAUDE_CONFIG_DIR unset, others with their exact path" {
     two_accounts
-    CLAUDE_CONFIG_DIR="${HOME}/.claude-home" run "$SCRIPT" work.example --version
-    [[ ${output} == *"RAN set= home= args=--version"* ]]
-    CLAUDE_CONFIG_DIR="${HOME}/.claude" run "$SCRIPT" home.example --version
-    [[ ${output} == *"RAN set=1 home=${HOME}/.claude-home args=--version"* ]]
+    CLAUDE_CONFIG_DIR="${HOME}/.claude-home" run "$SCRIPT" work.example doctor
+    [[ ${output} == *"RAN set= home= args=doctor"* ]]
+    CLAUDE_CONFIG_DIR="${HOME}/.claude" run "$SCRIPT" home.example doctor
+    [[ ${output} == *"RAN set=1 home=${HOME}/.claude-home args=doctor"* ]]
 }
 
 @test "CLAUDE_AS chooses the account when claude options come first" {
@@ -176,11 +176,11 @@ two_accounts() {
     two_accounts
     CLAUDE_CODE_OAUTH_TOKEN=secret-value-1 ANTHROPIC_API_KEY=secret-value-2 \
         CLAUDE_SECURESTORAGE_CONFIG_DIR=/elsewhere ANTHROPIC_AUTH_TOKEN=secret-value-3 \
-        run "$SCRIPT" home --version
+        run "$SCRIPT" home doctor
     [[ ${output} == *"ENV oauth=unset key=unset store=unset"* ]]
     [[ ${output} == *"warning: ANTHROPIC_AUTH_TOKEN set"* ]]
     [[ ${output} != *secret-value* ]]
-    CLAUDE_CODE_OAUTH_TOKEN=secret-value-1 run "$SCRIPT" work --version
+    CLAUDE_CODE_OAUTH_TOKEN=secret-value-1 run "$SCRIPT" work doctor
     [[ ${output} == *"RAN set= home="*"ENV oauth=unset"* ]]
 }
 
@@ -265,6 +265,9 @@ two_accounts() {
     [ "$status" -eq 0 ]
     [ "$(grep -c 'ok    sees the shared session history' <<<"${output}")" -eq 2 ]
     [ "$(grep -c 'ok    signed in' <<<"${output}")" -eq 2 ]
+    # The canary session is gone again: the history holds only real sessions.
+    [ -z "$(find "${HOME}/.claude/projects" -name '*.jsonl')" ]
+    [ ! -e "${XDG_STATE_HOME}/claude-as/canary" ]
 }
 
 @test "--check fails a home with its own history, a missing link or no login" {

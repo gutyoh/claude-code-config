@@ -231,6 +231,8 @@ link_shared() {
 add() {
     local email=$1 home base n=1 line
     shift
+    # The home and its account file are the account's alone.
+    umask 077
     [[ ${email} =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] || die "'${email}' is not an email" 2
     [[ -d ${shared} ]] || die "$(short "${shared}") does not exist; run claude once first"
     while IFS=$'\037' read -r home line _; do
@@ -281,24 +283,30 @@ added() {
 
 # A transcript only the shared projects folder holds: a home that can resume
 # it sees the shared history. Claude Code refuses to resume it without a
-# prompt, before any model call, so the check costs no usage.
+# prompt, before any model call, so the check costs no usage, and the
+# transcript is removed once every home was asked.
+CANARY_ID=00000000-0000-4000-8000-0000000c1a5e
+canary_dir="${XDG_STATE_HOME:-${HOME}/.local/state}/claude-as/canary"
+canary_key=$(printf '%s' "${canary_dir}" | sed 's/[^A-Za-z0-9]/-/g')
+
 canary() {
-    local dir="${XDG_STATE_HOME:-${HOME}/.local/state}/claude-as/canary" id key
-    id=00000000-0000-4000-8000-0000000c1a5e
-    key=$(printf '%s' "${dir}" | sed 's/[^A-Za-z0-9]/-/g')
-    mkdir -p "${dir}" "${shared}/projects/${key}"
-    jq -nc --arg id "${id}" --arg cwd "${dir}" \
+    mkdir -p "${canary_dir}" "${shared}/projects/${canary_key}"
+    jq -nc --arg id "${CANARY_ID}" --arg cwd "${canary_dir}" \
         '{type: "user", message: {role: "user", content: "claude-as canary"},
           uuid: "00000000-0000-4000-8000-00000000c1a5", parentUuid: null,
           sessionId: $id, cwd: $cwd, timestamp: "2026-01-01T00:00:00.000Z",
           isSidechain: false, userType: "external"}' \
-        >"${shared}/projects/${key}/${id}.jsonl"
-    printf '%s\n' "${id}"
+        >"${shared}/projects/${canary_key}/${CANARY_ID}.jsonl"
+}
+
+canary_gone() {
+    rm -f "${shared}/projects/${canary_key}/${CANARY_ID}.jsonl"
+    rmdir "${shared}/projects/${canary_key}" "${canary_dir}" 2>/dev/null || true
 }
 
 check() {
-    local id problems=0 home email org plan uuid status out name src dst managed version
-    id=$(canary)
+    local problems=0 home email org plan uuid status out name src dst managed version
+    canary
     # Claude Code gives each home its own Keychain entry from 2.1.144 on.
     if [[ $(uname -s) == Darwin ]]; then
         version=$("${claude_bin}" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
@@ -331,7 +339,7 @@ check() {
                 fi
             done
         fi
-        out=$(cd / && in_home "${home}" -p --resume "${id}" </dev/null 2>&1 || true)
+        out=$(cd / && in_home "${home}" -p --resume "${CANARY_ID}" </dev/null 2>&1 || true)
         if [[ ${out} == *"No conversation found"* ]]; then
             printf '  FAIL  cannot see the shared session history\n'
             problems=$((problems + 1))
@@ -339,6 +347,7 @@ check() {
             printf '  ok    sees the shared session history\n'
         fi
     done < <(accounts)
+    canary_gone
     ((problems == 0)) || die "${problems} problem(s)"
 }
 
