@@ -3,11 +3,13 @@
 # Path: .claude/hooks/session-name.sh
 #
 # Names each session once, at its first prompt, as
-# <provider>-<YYYYMMDDTHHMMSS><zone>-<topic>, for example
-# claude-20261012T141205Z-btree-page-splits, and never renames it: the name is
-# the session's address for --resume and for messages between sessions. A
-# small model writes the topic from the first prompt; when it does not answer
-# with a topic in time, the prompt's first words are the topic.
+# <provider>-<YYYYMMDDTHHMM><zone>-<topic>-<id>, for example
+# claude-20261012T1412Z-btree-page-splits-0ed0b890, and never renames it: the
+# name is the session's address for --resume and for messages between
+# sessions. <id> is the first 8 characters of the session id, which name its
+# transcript (projects/*/<id>*.jsonl) and keep two names apart. A small model
+# writes the topic from the first prompt; when it does not answer with a
+# topic in time, the prompt's first words are the topic.
 #
 # In herdr, the session's tab gets the same topic after the plan's icon, the
 # icon_claude, icon_openai or icon_muse of statusline.conf, else its name.
@@ -58,9 +60,9 @@ timestamp() {
     if [[ -z "${tzdir}" && ! -d /usr/share/zoneinfo && -d /etc/zoneinfo ]]; then
         tzdir=/etc/zoneinfo
     fi
-    stamp=$(TZDIR="${tzdir}" TZ="${CLAUDE_SESSION_NAME_TZ:-UTC}" date +%Y%m%dT%H%M%S%z) || return 1
+    stamp=$(TZDIR="${tzdir}" TZ="${CLAUDE_SESSION_NAME_TZ:-UTC}" date +%Y%m%dT%H%M%z) || return 1
     case "${stamp: -5}" in
-        +0000 | -0000) echo "${stamp:0:15}Z" ;;
+        +0000 | -0000) echo "${stamp:0:13}Z" ;;
         *) echo "${stamp}" ;;
     esac
 }
@@ -198,7 +200,7 @@ on_prompt() {
     provider=$(provider_of "${model}")
     topic=""
     [[ -n "${prompt// /}" ]] && topic=$(topic_of "${prompt}")
-    emit UserPromptSubmit "${provider}-${stamp}${topic:+-${topic}}"
+    emit UserPromptSubmit "${provider}-${stamp}${topic:+-${topic}}-${session:0:8}"
     # Detached from the hook's output, which Claude Code reads to the end.
     sync_tab "${session}" "${provider}" "${topic}" </dev/null >/dev/null 2>&1 &
     disown 2>/dev/null || true
