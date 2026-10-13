@@ -1,0 +1,94 @@
+# How to Use Multiple Claude Accounts
+
+Keep several Claude accounts signed in at once (for example, a work Team seat
+and a personal Pro or Max plan) and pick one by email when you start Claude
+Code. A session started as one account can be continued as another.
+
+## How it works
+
+Claude Code keeps one login per configuration directory, and its
+[authentication docs](https://code.claude.com/docs/en/authentication#log-in-with-multiple-accounts)
+recommend one directory per account through `CLAUDE_CONFIG_DIR`. `claude-as`
+builds on that:
+
+- `~/.claude` stays the main home. Each extra account gets `~/.claude-<email>`.
+- An extra home links back to `~/.claude` for what every account shares:
+  settings, hooks, skills, agents, rules, plugins, statusline, plans, file
+  history and the session history in `projects/`. That is why `--resume`
+  and `--continue` find any session, whichever account started it.
+- It keeps its own login, `.claude.json`, prompt history (`history.jsonl`; Claude Code refuses a linked one), the organization's
+  managed settings, caches, and anything a later Claude Code release adds.
+- Accounts are found, not configured: `claude-as` reads the email, plan and
+  organization each home signed in with. Folder names do not matter.
+
+## Add an account
+
+```bash
+claude-as --add you@example.com
+```
+
+This creates the home and opens Claude Code's own sign-in for that email. On a
+machine without a browser, open the printed link elsewhere and paste the code
+back. Use a private browser window when the browser is signed in to another
+Claude account. Arguments after the email go to `claude auth login`, for
+example `--sso` for an Enterprise login.
+
+Each account signs in once per machine. Never copy a credentials file between
+machines: Claude Code rotates the token, so both copies stop working.
+
+## Use an account
+
+```bash
+claude-as                        # list accounts: email, plan, organization, home
+claude-as you@example.com        # start Claude Code as that account
+claude-as example.com --continue # any part of the email that names one account
+CLAUDE_AS=example.com claude-as -p "hi"   # a default, per shell or per folder
+```
+
+When one email belongs to two organizations, such as a personal plan and a team,
+add `/<organization or plan>`: `claude-as you@example.com/team`. A home's path
+names it directly: `claude-as ~/.claude-work`. One account signed in to two
+homes runs from `~/.claude`, or else the first.
+
+Plain `claude` keeps using `~/.claude`.
+
+## Continue a session as another account
+
+When one account reaches its usage limit:
+
+```bash
+/exit
+claude-as other@example.com --continue
+```
+
+Accounts on Free, Pro and Max plans fall under Anthropic's consumer terms; Team
+and Enterprise fall under the commercial terms. Continuing a work session as a
+personal account sends that work to the personal account. Check its
+[privacy settings](https://claude.ai/settings/data-privacy-controls) first.
+
+Do not open the same session in two accounts at the same time: both would write
+to one transcript.
+
+## Check every account
+
+```bash
+claude-as --check    # signed in, links in place, sees the shared history
+claude-as --relink   # link what a home is missing; anything else is left alone
+```
+
+`--check` makes no model request. It writes a small canary session to the
+shared history and asks each home to find it, so a Claude Code release that
+stops reading linked history shows up as a failure.
+
+## Notes
+
+- Remote Control, claude.ai connectors and usage limits belong to each account.
+  On your phone, switch the Claude app to the account whose sessions you want.
+- `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`,
+  `ANTHROPIC_PROFILE` and the cloud provider switches outrank every login.
+  `claude-as` warns when one is set.
+- On a machine whose managed settings set `forceLoginOrgUUID`, homes of other
+  organizations refuse to start. `--check` notes such a policy.
+- On macOS the login is in the Keychain, one entry per home. The statusline
+  reads the entry of the home in use.
+- Settings are shared, so changing the model in one account changes it in all.

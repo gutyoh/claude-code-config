@@ -212,6 +212,14 @@ main() {
         echo "    Run: chmod +x ${REPO_DIR}/bin/claude-proxy"
     fi
 
+    if [[ -x "${REPO_DIR}/bin/claude-as" ]]; then
+        ln -sf "${REPO_DIR}/bin/claude-as" "${bin_dir}/claude-as"
+        echo "  ✓ ~/.local/bin/claude-as -> ${REPO_DIR}/bin/claude-as"
+    else
+        echo "  ⚠ bin/claude-as not found or not executable (skipping)"
+        echo "    Run: chmod +x ${REPO_DIR}/bin/claude-as"
+    fi
+
     if [[ "${INSTALL_AGENTS_SKILLS}" == "true" ]]; then
         install_managed_entries "${REPO_DIR}/.claude/skills" "${CLAUDE_DIR}/skills" "skills"
         install_managed_entries "${REPO_DIR}/.claude/agents" "${CLAUDE_DIR}/agents" "agents"

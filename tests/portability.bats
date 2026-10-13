@@ -41,6 +41,25 @@ all_shipped() {
     { shipped_scripts; shipped_configs; } | sort -u
 }
 
+# --- Bash 3.2 (macOS /bin/bash) -------------------------------------------
+
+# bats test_tags=unit,portability
+@test "no shipped script writes ~ through \${var/#\$HOME/\\~}" {
+    # bash 3.2 keeps the backslash (\~/x) and bash 5 drops it, while an
+    # unescaped ~ expands back to $HOME on bash 5: neither form is portable.
+    local hits
+    hits="$(cd "$REPO_ROOT" && all_shipped | while read -r f; do
+        [[ -n "$f" ]] || continue
+        grep -Hn -E '/#\$\{?HOME\}?/\\?~' "$f" 2>/dev/null |
+            grep -v -E '^[^:]+:[0-9]+:[[:space:]]*#' || true
+    done)"
+    [ -z "$hits" ] || {
+        echo "Use a case on \"\${HOME}\"/* instead:"
+        echo "$hits"
+        false
+    }
+}
+
 # --- Hardcoded home directories -------------------------------------------
 
 # bats test_tags=unit,portability

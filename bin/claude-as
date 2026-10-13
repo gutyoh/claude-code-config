@@ -1,0 +1,424 @@
+#!/usr/bin/env bash
+# claude-as
+# Path: bin/claude-as
+#
+# Run Claude Code as one of several accounts, each signed in once and chosen
+# by the email it signed in with. Claude Code keeps one login per config
+# directory (CLAUDE_CONFIG_DIR), so each account gets a home: ~/.claude and
+# any ~/.claude-* holding a .claude.json. The extra homes link what is shared
+# back to ~/.claude (settings, hooks, skills, plugins, session history...):
+# every account is the same Claude Code, and a session started as one account
+# continues as another.
+#
+# Usage:
+#   claude-as                         list accounts
+#   claude-as <who> [claude args]     run claude as the account <who> names
+#   claude-as --add <email> [args]    new home for an account, then sign it in
+#   claude-as --check                 every home: login, links, shared history
+#   claude-as --relink                link shared items a home is missing
+#
+# <who> is an email or any part of one that names a single account. One email
+# can sign in to several organizations (a personal plan and a team): add
+# /<org or plan> to pick one, as in `claude-as me@example.com/team`. A home's
+# path (`claude-as ~/.claude-work`) names it directly.
+# With CLAUDE_AS set, a first argument that is a claude option runs as it.
+# --add passes [args] to `claude auth login` (for example --sso).
+#
+# Env:
+#   CLAUDE_AS          default <who>
+#   CLAUDE_AS_HOMES    homes to use, colon-separated (default: ~/.claude ~/.claude-*)
+#   CLAUDE_AS_SHARED   the home the others link to (default: ~/.claude)
+#   CLAUDE_AS_SHARE    names linked into each home (default: SHARE below)
+#   CLAUDE_AS_CLAUDE   the claude to run (default: claude on PATH)
+
+set -euo pipefail
+
+# What every account shares. Anything else stays per account: the login,
+# .claude.json, prompt history (Claude Code refuses a linked history.jsonl),
+# the organization's managed settings, caches, and files a release adds.
+SHARE="CLAUDE.md settings.json keybindings.json statusline.conf agents commands
+hooks output-styles plans plugins projects rules scripts skills file-history
+tasks teams"
+
+# Credentials Claude Code takes over a /login, whichever home is in use.
+# These stand for another account and are dropped: the account was chosen.
+DROPPED="ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN CLAUDE_SECURESTORAGE_CONFIG_DIR"
+# These choose a gateway, a profile or a cloud provider: kept, with a warning.
+OVERRIDES="ANTHROPIC_AUTH_TOKEN ANTHROPIC_PROFILE CLAUDE_CODE_USE_BEDROCK
+CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY"
+
+shared=${CLAUDE_AS_SHARED:-${HOME}/.claude}
+shared=${shared%/}
+claude_bin=${CLAUDE_AS_CLAUDE:-claude}
+
+die() {
+    printf 'claude-as: %s\n' "$1" >&2
+    exit "${2:-1}"
+}
+
+usage() {
+    sed -n '/^# Usage:/,/^# Env:/p' "$0" | sed -e '$d' -e 's/^# \{0,1\}//'
+}
+
+lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+
+# ~ for HOME. Not ${1/#$HOME/\~}: bash 3.2 (macOS) keeps the backslash.
+short() {
+    case $1 in
+        "${HOME}" | "${HOME}"/*) printf '~%s\n' "${1#"${HOME}"}" ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
+
+# Claude Code keeps .claude.json beside ~/.claude unless CLAUDE_CONFIG_DIR is
+# set; a home from an old release may still hold .config.json.
+account_file() {
+    if [[ -f $1/.config.json ]]; then
+        printf '%s\n' "$1/.config.json"
+    elif [[ $1 == "${HOME}/.claude" ]]; then
+        printf '%s\n' "${HOME}/.claude.json"
+    else
+        printf '%s\n' "$1/.claude.json"
+    fi
+}
+
+# Every home, the shared one first. Another tool's ~/.claude-something is
+# not a home: a home has an account file.
+homes() {
+    local h
+    if [[ -n ${CLAUDE_AS_HOMES:-} ]]; then
+        tr ':' '\n' <<<"${CLAUDE_AS_HOMES}" | sed -e 's:/*$::' -e '/^$/d'
+        return
+    fi
+    [[ -d ${shared} ]] && printf '%s\n' "${shared}"
+    for h in "${HOME}"/.claude-*; do
+        [[ -d ${h} && ! -L ${h} && ${h} != "${shared}" && -f $(account_file "${h}") ]] \
+            && printf '%s\n' "${h}"
+    done
+    return 0
+}
+
+# One line per home, fields split by the unit separator so an empty one
+# survives `read`: home, email, organization, plan, org id.
+# The plan is the organization type plus the rate tier Claude Code refreshes
+# at start, so a new plan shows up without a change here.
+accounts() {
+    local home file
+    while IFS= read -r home; do
+        file=$(account_file "${home}")
+        if [[ -r ${file} ]]; then
+            jq -r --arg h "${home}" '.oauthAccount // {} | [$h, .emailAddress // "",
+                .organizationName // "",
+                ((.organizationType // "" | sub("^claude_"; ""))
+                  + ((.userRateLimitTier // .organizationRateLimitTier // "")
+                     | sub("^default_(claude_)?"; "")
+                     | if . == "" or . == "ai" or test("^raven") then "" else "/" + . end)),
+                .organizationUuid // ""] | join("\u001f")' "${file}" 2>/dev/null \
+                || printf '%s\037\037\037\037\n' "${home}"
+        else
+            printf '%s\037\037\037\037\n' "${home}"
+        fi
+    done < <(homes)
+}
+
+list() {
+    local home email org plan uuid
+    printf '%-36s %-14s %-24.24s %s\n' EMAIL PLAN ORGANIZATION HOME
+    while IFS=$'\037' read -r home email org plan uuid; do
+        printf '%-36s %-14s %-24.24s %s\n' "${email:-(not signed in)}" "${plan:--}" \
+            "${org:--}" "$(short "${home}")"
+    done < <(accounts)
+}
+
+# The one home <who> names: "<email part>[/<organization or plan part>]",
+# or the home's own path.
+resolve() {
+    local want who qual home email org plan uuid exact=() partial=() keys=""
+    if [[ $1 == /* || $1 == "~/"* ]]; then
+        want="${HOME}/${1#"~/"}"
+        [[ $1 == /* ]] && want=$1
+        want=${want%/}
+        while IFS= read -r home; do
+            [[ ${home} == "${want}" ]] && {
+                printf '%s\n' "${home}"
+                return
+            }
+        done < <(homes)
+        die "$1 is not a home; run claude-as to list them"
+    fi
+    want=$(lower "$1")
+    who=${want%%/*}
+    qual=""
+    [[ ${want} == */* ]] && qual=${want#*/}
+    while IFS=$'\037' read -r home email org plan uuid; do
+        [[ -n ${email} ]] || continue
+        email=$(lower "${email}")
+        if [[ -n ${qual} && $(lower "${org}") != *"${qual}"* && ${plan} != *"${qual}"* ]]; then
+            continue
+        fi
+        [[ ${email} == "${who}" ]] && exact+=("${home}")
+        [[ ${email} == *"${who}"* ]] && partial+=("${home}")
+    done < <(accounts)
+    local -a found=()
+    if ((${#exact[@]} > 0)); then
+        found=("${exact[@]}")
+    elif ((${#partial[@]} > 0)); then
+        found=("${partial[@]}")
+    fi
+    # One account signed in to several homes is still one account: the
+    # shared home, or else the first, runs it.
+    if ((${#found[@]} > 1)); then
+        while IFS=$'\037' read -r home email org plan uuid; do
+            for want in "${found[@]}"; do
+                [[ ${home} == "${want}" ]] && keys+="$(lower "${email}")/${uuid}"$'\n'
+            done
+        done < <(accounts)
+        if (($(printf '%s' "${keys}" | sort -u | grep -c .) == 1)); then
+            home=${found[0]}
+            for want in "${found[@]}"; do
+                [[ ${want} == "${shared}" ]] && home=${want}
+            done
+            printf 'claude-as: one account in %d homes; using %s\n' "${#found[@]}" "$(short "${home}")" >&2
+            found=("${home}")
+        fi
+    fi
+    case ${#found[@]} in
+        0) die "no account matches '$1'; run claude-as to list them, or claude-as --add <email>" ;;
+        1) printf '%s\n' "${found[0]}" ;;
+        *)
+            for home in "${found[@]}"; do
+                printf '  %s\n' "$(accounts_of "${home}")" >&2
+            done
+            die "'$1' names ${#found[@]} accounts; add more of the email, or /<organization or plan>"
+            ;;
+    esac
+}
+
+accounts_of() {
+    local home email org plan uuid
+    while IFS=$'\037' read -r home email org plan uuid; do
+        [[ ${home} == "$1" ]] && printf '%s/%s (%s, %s)\n' "${email}" "${plan}" "${org}" "$(short "${home}")"
+    done < <(accounts)
+}
+
+# Credentials in the environment outrank every home's login.
+warn_overrides() {
+    local name set=""
+    for name in ${OVERRIDES}; do
+        [[ -n ${!name:-} ]] && set+=" ${name}"
+    done
+    [[ -z ${set} ]] || printf 'claude-as: warning:%s set; Claude Code uses it instead of the chosen login\n' "${set}" >&2
+}
+
+# Run claude in <home>. ~/.claude runs with CLAUDE_CONFIG_DIR unset: set to
+# any value, even that path, it names a different macOS Keychain entry.
+in_home() {
+    local home=$1 name
+    shift
+    for name in ${DROPPED}; do unset "${name}"; done
+    if [[ ${home} == "${HOME}/.claude" ]]; then
+        env -u CLAUDE_CONFIG_DIR "${claude_bin}" "$@"
+    else
+        CLAUDE_CONFIG_DIR=${home} "${claude_bin}" "$@"
+    fi
+}
+
+run_in() {
+    local home=$1 name
+    shift
+    warn_overrides
+    for name in ${DROPPED}; do unset "${name}"; done
+    if [[ ${home} == "${HOME}/.claude" ]]; then
+        exec env -u CLAUDE_CONFIG_DIR "${claude_bin}" "$@"
+    fi
+    CLAUDE_CONFIG_DIR=${home} exec "${claude_bin}" "$@"
+}
+
+# Whether version $1 is $2 or later (dotted numbers).
+at_least() {
+    local i have want
+    IFS=. read -ra have <<<"$1"
+    IFS=. read -ra want <<<"$2"
+    for i in 0 1 2; do
+        ((${have[i]:-0} > ${want[i]:-0})) && return 0
+        ((${have[i]:-0} < ${want[i]:-0})) && return 1
+    done
+    return 0
+}
+
+# Link each shared item <home> lacks; something already there is left alone.
+link_shared() {
+    local home=$1 name src dst
+    [[ ${home} == "${shared}" ]] && return 0
+    for name in ${CLAUDE_AS_SHARE:-${SHARE}}; do
+        src="${shared}/${name}"
+        dst="${home}/${name}"
+        [[ -e ${src} ]] || continue
+        if [[ -L ${dst} && $(readlink "${dst}") == "${src}" ]]; then
+            continue
+        elif [[ -e ${dst} || -L ${dst} ]]; then
+            printf 'left alone  %s: not a link to %s\n' "$(short "${dst}")" "$(short "${src}")"
+        else
+            ln -s "${src}" "${dst}"
+            printf 'linked      %s\n' "$(short "${dst}")"
+        fi
+    done
+}
+
+add() {
+    local email=$1 home base n=1 line
+    shift
+    # The home and its account file are the account's alone.
+    umask 077
+    [[ ${email} =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] || die "'${email}' is not an email" 2
+    [[ -d ${shared} ]] || die "$(short "${shared}") does not exist; run claude once first"
+    while IFS=$'\037' read -r home line _; do
+        if [[ $(lower "${line}") == "$(lower "${email}")" ]]; then
+            printf '%s is signed in already: %s\n' "${email}" "$(accounts_of "${home}")"
+            printf 'Signing in again, for another of its organizations: pick it in the browser.\n'
+        fi
+    done < <(accounts)
+    base="${HOME}/.claude-$(lower "${email}")"
+    home=${base}
+    while [[ -e ${home} ]]; do
+        n=$((n + 1))
+        home="${base}-${n}"
+    done
+    mkdir -p "${home}"
+    chmod 700 "${home}"
+    link_shared "${home}"
+    # Skip the first-run wizard and keep the folders already trusted: the
+    # account changes, the person and the machine do not.
+    jq '{hasCompletedOnboarding: true, projects: ((.projects // {})
+        | with_entries(select(.value.hasTrustDialogAccepted == true)
+          | .value = {hasTrustDialogAccepted: true}))}' "$(account_file "${shared}")" \
+        >"$(account_file "${home}")" 2>/dev/null \
+        || jq -n '{hasCompletedOnboarding: true}' >"$(account_file "${home}")"
+    chmod 600 "$(account_file "${home}")"
+    printf 'Signing in %s in %s\n' "${email}" "$(short "${home}")"
+    (cd / && in_home "${home}" auth login --email "${email}" "$@") \
+        || die "sign-in did not finish; run it again: claude-as --add ${email}"
+    added "${home}" "${email}"
+}
+
+# What the new login turned out to be, and why it may not work as hoped.
+added() {
+    local home=$1 email=$2 got org plan uuid other oemail ouuid
+    IFS=$'\037' read -r _ got org plan uuid < <(CLAUDE_AS_HOMES=${home} accounts)
+    [[ $(lower "${got}") == "$(lower "${email}")" ]] \
+        || die "signed in as '${got:-nobody}', not ${email}; sign in again: CLAUDE_CONFIG_DIR=$(short "${home}") claude auth login"
+    while IFS=$'\037' read -r other oemail _ _ ouuid; do
+        [[ ${other} != "${home}" && -n ${uuid} && ${ouuid} == "${uuid}" &&
+            $(lower "${oemail}") == "$(lower "${email}")" ]] \
+            && printf 'note: %s is the same account and organization as %s\n' "$(short "${home}")" "$(short "${other}")"
+    done < <(accounts)
+    case ${plan} in
+        free* | "") printf 'warning: %s has no paid plan; Claude Code needs Pro, Max, Team or Enterprise\n' "${email}" >&2 ;;
+    esac
+    printf 'Ready: claude-as %s/%s\n' "${email}" "${plan%%/*}"
+}
+
+# A transcript only the shared projects folder holds: a home that can resume
+# it sees the shared history. Claude Code refuses to resume it without a
+# prompt, before any model call, so the check costs no usage, and the
+# transcript is removed once every home was asked.
+CANARY_ID=00000000-0000-4000-8000-0000000c1a5e
+canary_dir="${XDG_STATE_HOME:-${HOME}/.local/state}/claude-as/canary"
+canary_key=$(printf '%s' "${canary_dir}" | sed 's/[^A-Za-z0-9]/-/g')
+
+canary() {
+    mkdir -p "${canary_dir}" "${shared}/projects/${canary_key}"
+    jq -nc --arg id "${CANARY_ID}" --arg cwd "${canary_dir}" \
+        '{type: "user", message: {role: "user", content: "claude-as canary"},
+          uuid: "00000000-0000-4000-8000-00000000c1a5", parentUuid: null,
+          sessionId: $id, cwd: $cwd, timestamp: "2026-01-01T00:00:00.000Z",
+          isSidechain: false, userType: "external"}' \
+        >"${shared}/projects/${canary_key}/${CANARY_ID}.jsonl"
+}
+
+canary_gone() {
+    rm -f "${shared}/projects/${canary_key}/${CANARY_ID}.jsonl"
+    rmdir "${shared}/projects/${canary_key}" "${canary_dir}" 2>/dev/null || true
+}
+
+check() {
+    local problems=0 home email org plan uuid status out name src dst managed version
+    canary
+    # Claude Code gives each home its own Keychain entry from 2.1.144 on.
+    if [[ $(uname -s) == Darwin ]]; then
+        version=$("${claude_bin}" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+        if ! at_least "${version:-0}" 2.1.144; then
+            printf 'FAIL  Claude Code %s keeps one Keychain login for every home; update it\n' "${version:-?}"
+            problems=$((problems + 1))
+        fi
+    fi
+    for managed in /etc/claude-code/managed-settings.json "/Library/Application Support/ClaudeCode/managed-settings.json"; do
+        [[ -r ${managed} ]] && jq -e '.forceLoginOrgUUID // .forceLoginMethod' "${managed}" >/dev/null 2>&1 \
+            && printf 'note: %s restricts logins; homes of other organizations may refuse to start\n' "${managed}"
+    done
+    while IFS=$'\037' read -r home email org plan uuid; do
+        printf '%s  %s %s\n' "$(short "${home}")" "${email:-(not signed in)}" "${plan:+(${plan})}"
+        status=$(cd / && in_home "${home}" auth status --json </dev/null 2>/dev/null || true)
+        if jq -e '.loggedIn == true' <<<"${status}" >/dev/null 2>&1; then
+            printf '  ok    signed in\n'
+        else
+            printf '  FAIL  not signed in: claude-as --add <email>\n'
+            problems=$((problems + 1))
+        fi
+        if [[ ${home} != "${shared}" ]]; then
+            for name in ${CLAUDE_AS_SHARE:-${SHARE}}; do
+                src="${shared}/${name}"
+                dst="${home}/${name}"
+                [[ -e ${src} ]] || continue
+                if ! [[ -L ${dst} && $(readlink "${dst}") == "${src}" ]]; then
+                    printf '  FAIL  %s is not linked to %s (claude-as --relink)\n' "${name}" "$(short "${src}")"
+                    problems=$((problems + 1))
+                fi
+            done
+        fi
+        out=$(cd / && in_home "${home}" -p --resume "${CANARY_ID}" </dev/null 2>&1 || true)
+        if [[ ${out} == *"No conversation found"* ]]; then
+            printf '  FAIL  cannot see the shared session history\n'
+            problems=$((problems + 1))
+        else
+            printf '  ok    sees the shared session history\n'
+        fi
+    done < <(accounts)
+    canary_gone
+    ((problems == 0)) || die "${problems} problem(s)"
+}
+
+command -v jq >/dev/null 2>&1 || die "needs jq"
+
+case ${1:-} in
+    -h | --help) usage ;;
+    --list) list ;;
+    --add)
+        [[ -n ${2:-} ]] || die "usage: claude-as --add <email> [claude auth login args]" 2
+        shift
+        add "$@"
+        ;;
+    --check) check ;;
+    --relink)
+        while IFS= read -r home; do link_shared "${home}"; done < <(homes)
+        ;;
+    "")
+        if [[ -z ${CLAUDE_AS:-} ]]; then
+            list
+            exit 0
+        fi
+        home=$(resolve "${CLAUDE_AS}")
+        run_in "${home}"
+        ;;
+    -*)
+        [[ -n ${CLAUDE_AS:-} ]] || die "name the account first (claude-as <who> $1), or set CLAUDE_AS" 2
+        home=$(resolve "${CLAUDE_AS}")
+        run_in "${home}" "$@"
+        ;;
+    *)
+        home=$(resolve "$1")
+        shift
+        [[ -t 2 ]] && printf 'claude-as: %s\n' "$(accounts_of "${home}")" >&2
+        run_in "${home}" "$@"
+        ;;
+esac

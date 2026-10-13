@@ -10,20 +10,33 @@ curl_proxy_config() {
     printf 'proxy = "%s"\n' "${STATUSLINE_HTTPS_PROXY}"
 }
 
+# Claude Code names its login entry after CLAUDE_CONFIG_DIR, exactly as set:
+# the base name plus "-" and the first 8 hex digits of its SHA-256.
+keychain_service() {
+    local dir="${CLAUDE_CONFIG_DIR:-}" sum
+    if [[ -z "${dir}" ]]; then
+        printf '%s' "${KEYCHAIN_SERVICE}"
+        return
+    fi
+    sum=$(printf '%s' "${dir}" | { shasum -a 256 2>/dev/null || sha256sum; } | cut -c1-8)
+    printf '%s-%s' "${KEYCHAIN_SERVICE}" "${sum}"
+}
+
 get_oauth_token() {
-    local creds=""
+    local creds="" service
+    service=$(keychain_service)
 
     debug "get_oauth_token: platform=${PLATFORM}"
 
     case "${PLATFORM}" in
         macos)
-            creds=$(security find-generic-password -s "${KEYCHAIN_SERVICE}" -w 2>/dev/null) || return 1
+            creds=$(security find-generic-password -s "${service}" -w 2>/dev/null) || return 1
             ;;
         linux)
             # Desktop sessions keep the login in the keyring; headless hosts
             # (servers, containers) have only the credentials file.
             if command -v secret-tool &>/dev/null; then
-                creds=$(secret-tool lookup service "${KEYCHAIN_SERVICE}" 2>/dev/null) || creds=""
+                creds=$(secret-tool lookup service "${service}" 2>/dev/null) || creds=""
             fi
             if [[ -z "${creds}" ]]; then
                 local creds_file="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/.credentials.json"
