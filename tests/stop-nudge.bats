@@ -146,7 +146,14 @@ stop() {
 	[ -z "${output}" ]
 }
 
-@test "the hook is registered as a Stop hook" {
-	jq -e '.hooks.Stop[].hooks[] | select(.command == "~/.claude/hooks/stop-nudge.sh")' \
+@test "the config-hooks plugin registers it as a Stop hook, and settings.json does not" {
+	local plugin="$BATS_TEST_DIRNAME/../.claude/skills/config-hooks"
+	jq -e '.name == "config-hooks"' "${plugin}/.claude-plugin/plugin.json"
+	jq -e '.hooks.Stop[].hooks[] | select(.command == "\"${CLAUDE_PLUGIN_ROOT}/../../hooks/stop-nudge.sh\"")' \
+		"${plugin}/hooks/hooks.json"
+	# The plugin's path resolves to this hook.
+	[ "$(cd "${plugin}/../../hooks" && pwd -P)/stop-nudge.sh" = "$(cd "$(dirname "$HOOK")" && pwd -P)/stop-nudge.sh" ]
+	run jq -e '.hooks.Stop[].hooks[] | select(.command | contains("stop-nudge"))' \
 		"$BATS_TEST_DIRNAME/../.claude/settings.json"
+	[ "$status" -ne 0 ]
 }
