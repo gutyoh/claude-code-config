@@ -10,10 +10,13 @@
 # Env:
 #   STOP_NUDGE=off          disable
 #   STOP_NUDGE_MODELS       space-separated globs (default "muse-*")
+#   STOP_NUDGE_MAX          nudges per session at most (default 6)
 #
 # A nudge goes back as Stop hook feedback (additionalContext). Another one is
 # given only after the model has called a tool since the last; Claude Code's
-# own cap (8 continuations in a row) stays the backstop. jq runs twice at
+# own cap (8 continuations in a row) stays the backstop. A turn that waits on
+# background work or a scheduled prompt is never nudged: its "I'll report
+# when…" is a promise, not a step left out. jq runs twice at
 # most: through a version manager's shim each start costs a quarter second.
 
 set -uo pipefail
@@ -36,11 +39,16 @@ record="${XDG_STATE_HOME:-${HOME}/.local/state}/claude-code/session-names/${sess
 # Without a record (a -p run has no statusline), the first turn's answer may
 # reach the transcript just after Stop fires: wait for it, 2 seconds at most.
 if [[ -z ${recorded} ]]; then
-    for _ in 1 2 3 4 5 6 7 8 9 10; do
-        tail -n 400 "${transcript}" | grep -q '"type":"assistant"' && break
-        sleep 0.2
-    done
+	for _ in 1 2 3 4 5 6 7 8 9 10; do
+		tail -n 400 "${transcript}" | grep -q '"type":"assistant"' && break
+		sleep 0.2
+	done
 fi
+
+# A session nudged STOP_NUDGE_MAX times is left alone from then on.
+max=${STOP_NUDGE_MAX:-6}
+[[ ${max} =~ ^[0-9]+$ ]] || max=6
+(($(grep -c '\[stop-nudge\] Your last message' "${transcript}" 2>/dev/null) >= max)) && exit 0
 
 # Globs become one anchored regex: "muse-* gpt-5*" -> ^(muse-.*|gpt-5.*)$
 read -ra globs <<<"${STOP_NUDGE_MODELS:-muse-*}"
@@ -70,7 +78,8 @@ tail -n 400 "${transcript}" | jq -rRn --argjson in "${input}" --arg pattern "${p
          and ($s | test("(?i)\\b(now|next|let me|i.ll|i will|going to|about to|voy a|vamos a|ahora|a continuaci[oó]n|procedo|sigo con|enseguida|paso a|empiezo|comienzo)\\b"))
          and ($s | test("(?i)\\b(done|listo|termin[eé]|completed|finished|hecho)\\b(?!\\.\\w)") | not)
        end) as $announces
-    | select(($model | test($pattern)) and $armed and $announces)
+    | ((($in.background_tasks // []) + ($in.session_crons // [])) | length == 0) as $idle
+    | select(($model | test($pattern)) and $armed and $idle and $announces)
     | {hookSpecificOutput: {hookEventName: "Stop",
         additionalContext: ($mark + " Your last message announced a next step, but the turn ended without a tool call. If that step is still needed, take it now with your tools; if you are waiting for the person, say so in one line.")}}
 ' 2>/dev/null
