@@ -12,20 +12,21 @@
 #
 # Usage:
 #   claude-as                         list accounts
-#   claude-as <who> [claude args]     run claude as the account <who> names
+#   claude-as <email> [claude args]   run claude as the account that email signed in
 #   claude-as --add <email> [args]    new home for an account, then sign it in
 #   claude-as --check                 every home: login, links, shared history
 #   claude-as --relink                link shared items a home is missing
 #
-# <who> is an email or any part of one that names a single account. One email
-# can sign in to several organizations (a personal plan and a team): add
-# /<org or plan> to pick one, as in `claude-as me@example.com/team`. A home's
-# path (`claude-as ~/.claude-work`) names it directly.
+# The email is matched whole, in any case; never a part of one, which a later
+# account could make name another. One email can sign in to several
+# organizations (a personal plan and a team): add /<organization>, /<plan> or
+# /<organization id>, as in `claude-as me@example.com/team`. A home's path
+# (`claude-as ~/.claude-work`) names it directly.
 # With CLAUDE_AS set, a first argument that is a claude option runs as it.
 # --add passes [args] to `claude auth login` (for example --sso).
 #
 # Env:
-#   CLAUDE_AS          default <who>
+#   CLAUDE_AS          default account, written as on the command line
 #   CLAUDE_AS_HOMES    homes to use, colon-separated (default: ~/.claude ~/.claude-*)
 #   CLAUDE_AS_SHARED   the home the others link to (default: ~/.claude)
 #   CLAUDE_AS_SHARE    names linked into each home (default: SHARE below)
@@ -130,10 +131,12 @@ list() {
     done < <(accounts)
 }
 
-# The one home <who> names: "<email part>[/<organization or plan part>]",
-# or the home's own path.
+# The one home <who> names: "<email>[/<organization, plan or org id>]", or the
+# home's own path. Each part must match whole, so adding an account never
+# changes what an existing name runs.
 resolve() {
-    local want who qual home email org plan uuid exact=() partial=() keys=""
+    local want who qual home email org plan uuid keys="" near=""
+    local -a found=()
     if [[ $1 == /* || $1 == "~/"* ]]; then
         want="${HOME}/${1#"~/"}"
         [[ $1 == /* ]] && want=$1
@@ -152,19 +155,16 @@ resolve() {
     [[ ${want} == */* ]] && qual=${want#*/}
     while IFS=$'\037' read -r home email org plan uuid; do
         [[ -n ${email} ]] || continue
-        email=$(lower "${email}")
-        if [[ -n ${qual} && $(lower "${org}") != *"${qual}"* && ${plan} != *"${qual}"* ]]; then
+        if [[ $(lower "${email}") != "${who}" ]]; then
+            [[ -n ${who} && $(lower "${email}") == *"${who}"* ]] && near+="  ${email}"$'\n'
             continue
         fi
-        [[ ${email} == "${who}" ]] && exact+=("${home}")
-        [[ ${email} == *"${who}"* ]] && partial+=("${home}")
+        if [[ -n ${qual} && ${qual} != "$(lower "${org}")" && ${qual} != "$(lower "${uuid}")" &&
+        ${qual} != "${plan}" && ${qual} != "${plan%%/*}" ]]; then
+            continue
+        fi
+        found+=("${home}")
     done < <(accounts)
-    local -a found=()
-    if ((${#exact[@]} > 0)); then
-        found=("${exact[@]}")
-    elif ((${#partial[@]} > 0)); then
-        found=("${partial[@]}")
-    fi
     # One account signed in to several homes is still one account: the
     # shared home, or else the first, runs it.
     if ((${#found[@]} > 1)); then
@@ -183,21 +183,51 @@ resolve() {
         fi
     fi
     case ${#found[@]} in
-        0) die "no account matches '$1'; run claude-as to list them, or claude-as --add <email>" ;;
+        0)
+            if [[ -n ${near} ]]; then
+                printf '%s' "${near}" | sort -u >&2
+                die "no account is '$1'; name one by its whole email, as listed above"
+            fi
+            die "no account is '$1'; run claude-as to list them, or claude-as --add <email>"
+            ;;
         1) printf '%s\n' "${found[0]}" ;;
         *)
             for home in "${found[@]}"; do
                 printf '  %s\n' "$(accounts_of "${home}")" >&2
             done
-            die "'$1' names ${#found[@]} accounts; add more of the email, or /<organization or plan>"
+            die "'$1' names ${#found[@]} accounts; add /<organization>, /<plan> or /<organization id>"
             ;;
     esac
+}
+
+# The shortest whole name for <home>'s account: its email, or the email with
+# the plan, or with the organization id when two of its organizations share one.
+name_of() {
+    local home email org plan uuid me="" family="" ids="" same=""
+    while IFS=$'\037' read -r home email org plan uuid; do
+        [[ ${home} == "$1" ]] && {
+            me=$(lower "${email}")
+            family=${plan%%/*}
+            ids=${uuid}
+        }
+    done < <(accounts)
+    while IFS=$'\037' read -r home email org plan uuid; do
+        [[ $(lower "${email}") == "${me}" && ${uuid} != "${ids}" ]] && same+="${plan%%/*}"$'\n'
+    done < <(accounts)
+    if [[ -z ${same} ]]; then
+        printf '%s\n' "${me}"
+    elif ! grep -qx "${family}" <<<"${same}"; then
+        printf '%s/%s\n' "${me}" "${family}"
+    else
+        printf '%s/%s\n' "${me}" "$(lower "${ids}")"
+    fi
 }
 
 accounts_of() {
     local home email org plan uuid
     while IFS=$'\037' read -r home email org plan uuid; do
-        [[ ${home} == "$1" ]] && printf '%s/%s (%s, %s)\n' "${email}" "${plan}" "${org}" "$(short "${home}")"
+        [[ ${home} == "$1" ]] \
+            && printf '%s/%s (%s, %s, %s)\n' "${email}" "${plan}" "${org}" "${uuid}" "$(short "${home}")"
     done < <(accounts)
 }
 
@@ -315,7 +345,7 @@ added() {
     case ${plan} in
         free* | "") printf 'warning: %s has no paid plan; Claude Code needs Pro, Max, Team or Enterprise\n' "${email}" >&2 ;;
     esac
-    printf 'Ready: claude-as %s/%s\n' "${email}" "${plan%%/*}"
+    printf 'Ready: claude-as %s\n' "$(name_of "${home}")"
 }
 
 # A transcript only the shared projects folder holds: a home that can resume

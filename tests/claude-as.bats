@@ -126,9 +126,9 @@ two_accounts() {
     [[ ${output} != *"claude-alias"* ]]
 }
 
-@test "an email, any part of one, in any case, names its account" {
+@test "a whole email, in any case, names its account" {
     two_accounts
-    for who in me@home.example home.example HOME ME@HOME.EXAMPLE; do
+    for who in me@home.example ME@HOME.EXAMPLE Me@Home.Example; do
         run "$SCRIPT" "${who}" -p hi
         [ "$status" -eq 0 ]
         [[ ${output} == *"home=${HOME}/.claude-home args=-p hi"* ]] || {
@@ -138,43 +138,72 @@ two_accounts() {
     done
 }
 
-@test "a part that names several accounts or none is refused" {
+@test "part of an email runs nothing and lists the whole emails it is part of" {
     two_accounts
+    for who in me@ home.example HOME me; do
+        run "$SCRIPT" "${who}" -p hi
+        [ "$status" -eq 1 ]
+        [[ ${output} != *RAN* ]] || {
+            echo "${who}: ${output}"
+            return 1
+        }
+        [[ ${output} == *"no account is '${who}'; name one by its whole email"* ]]
+    done
     run "$SCRIPT" me@ -p hi
-    [ "$status" -eq 1 ]
-    [[ ${output} == *"names 2 accounts"* ]]
     [[ ${output} == *"me@work.example"* && ${output} == *"me@home.example"* ]]
-    [[ ${output} != *RAN* ]]
     run "$SCRIPT" nobody -p hi
     [ "$status" -eq 1 ]
-    [[ ${output} == *"no account matches 'nobody'"* ]]
+    [[ ${output} == *"no account is 'nobody'; run claude-as to list them"* ]]
 }
 
-@test "one email in two organizations takes /organization or /plan" {
+@test "a name that runs one account keeps running it after another is added" {
     account "${HOME}/.claude" me@x.example claude_team Acme
+    run "$SCRIPT" me@x.example -p hi
+    [[ ${output} == *"RAN set= home= args=-p hi"* ]]
+    linked_home "${HOME}/.claude-y" me@x.example.org claude_pro Other
+    linked_home "${HOME}/.claude-z" ame@x.example claude_pro Other
+    run "$SCRIPT" me@x.example -p hi
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"RAN set= home= args=-p hi"* ]]
+}
+
+@test "one email in two organizations takes its /organization, /plan or /organization id" {
+    account "${HOME}/.claude" me@x.example claude_team Acme default_claude_max_5x
     linked_home "${HOME}/.claude-x" me@x.example claude_pro Personal
     run "$SCRIPT" me@x.example -p hi
     [ "$status" -eq 1 ]
     [[ ${output} == *"names 2 accounts"* ]]
-    run "$SCRIPT" me@x.example/acme -p hi
-    [[ ${output} == *"RAN set= home= args=-p hi"* ]]
-    run "$SCRIPT" me/pro -p hi
+    [[ ${output} == *"me@x.example/team/max_5x (Acme, Acme-id, ~/.claude)"* ]]
+    for who in me@x.example/acme me@x.example/team me@x.example/team/max_5x ME@X.EXAMPLE/Acme-ID; do
+        run "$SCRIPT" "${who}" -p hi
+        [[ ${output} == *"RAN set= home= args=-p hi"* ]] || {
+            echo "${who}: ${output}"
+            return 1
+        }
+    done
+    run "$SCRIPT" me@x.example/pro -p hi
     [[ ${output} == *"home=${HOME}/.claude-x args=-p hi"* ]]
+    # Part of an organization or plan is no name either.
+    for who in me@x.example/acm me@x.example/tea me@x/pro; do
+        run "$SCRIPT" "${who}" -p hi
+        [ "$status" -eq 1 ]
+        [[ ${output} != *RAN* ]]
+    done
 }
 
 @test "~/.claude runs with CLAUDE_CONFIG_DIR unset, others with their exact path" {
     two_accounts
-    CLAUDE_CONFIG_DIR="${HOME}/.claude-home" run "$SCRIPT" work.example doctor
+    CLAUDE_CONFIG_DIR="${HOME}/.claude-home" run "$SCRIPT" me@work.example doctor
     [[ ${output} == *"RAN set= home= args=doctor"* ]]
-    CLAUDE_CONFIG_DIR="${HOME}/.claude" run "$SCRIPT" home.example doctor
+    CLAUDE_CONFIG_DIR="${HOME}/.claude" run "$SCRIPT" me@home.example doctor
     [[ ${output} == *"RAN set=1 home=${HOME}/.claude-home args=doctor"* ]]
 }
 
 @test "CLAUDE_AS chooses the account when claude options come first" {
     two_accounts
-    CLAUDE_AS=home run "$SCRIPT" --continue
+    CLAUDE_AS=me@home.example run "$SCRIPT" --continue
     [[ ${output} == *"home=${HOME}/.claude-home args=--continue"* ]]
-    CLAUDE_AS=home run "$SCRIPT"
+    CLAUDE_AS=me@home.example run "$SCRIPT"
     [[ ${output} == *"home=${HOME}/.claude-home args="* ]]
     run "$SCRIPT" --continue
     [ "$status" -eq 2 ]
@@ -185,11 +214,11 @@ two_accounts() {
     two_accounts
     CLAUDE_CODE_OAUTH_TOKEN=secret-value-1 ANTHROPIC_API_KEY=secret-value-2 \
         CLAUDE_SECURESTORAGE_CONFIG_DIR=/elsewhere ANTHROPIC_AUTH_TOKEN=secret-value-3 \
-        run "$SCRIPT" home doctor
+        run "$SCRIPT" me@home.example doctor
     [[ ${output} == *"ENV oauth=unset key=unset store=unset"* ]]
     [[ ${output} == *"warning: ANTHROPIC_AUTH_TOKEN set"* ]]
     [[ ${output} != *secret-value* ]]
-    CLAUDE_CODE_OAUTH_TOKEN=secret-value-1 run "$SCRIPT" work doctor
+    CLAUDE_CODE_OAUTH_TOKEN=secret-value-1 run "$SCRIPT" me@work.example doctor
     [[ ${output} == *"RAN set= home="*"ENV oauth=unset"* ]]
 }
 
@@ -212,8 +241,8 @@ two_accounts() {
     jq -e '.oauthAccount.emailAddress == "New@Home.example"' "${h}/.claude.json"
     [ "$(file_mode "${h}/.claude.json")" = 600 ]
     grep -qx 'login --email New@Home.example --sso' "${HOME}/logins"
-    [[ ${output} == *"Ready: claude-as New@Home.example/pro"* ]]
-    run "$SCRIPT" new@home -p hi
+    [[ ${output} == *"Ready: claude-as new@home.example"$'\n'* || ${output} == *"Ready: claude-as new@home.example" ]]
+    run "$SCRIPT" new@home.example -p hi
     [[ ${output} == *"home=${h} args=-p hi"* ]]
 }
 
@@ -241,6 +270,8 @@ two_accounts() {
     [ "$status" -eq 0 ]
     [[ ${output} == *"is signed in already"* ]]
     [[ ${output} != *"same account and organization"* ]]
+    # Its name tells it apart from the email's other organization.
+    [[ ${output} == *"Ready: claude-as me@x.example/pro"* ]]
     STUB_ORG=Acme STUB_TYPE=claude_team run "$SCRIPT" --add me@x.example
     [[ ${output} == *"is the same account and organization as ~/.claude"* ]]
 }
@@ -302,7 +333,7 @@ two_accounts() {
 @test "--help prints the usage" {
     run "$SCRIPT" --help
     [ "$status" -eq 0 ]
-    [[ ${output} == *"claude-as <who> [claude args]"* ]]
+    [[ ${output} == *"claude-as <email> [claude args]"* ]]
     [[ ${output} != *"set -euo"* ]]
 }
 
@@ -333,7 +364,7 @@ two_accounts() {
 @test "one account signed in to two homes runs from the shared one" {
     account "${HOME}/.claude" me@x.example claude_team Acme
     linked_home "${HOME}/.claude-copy" me@x.example claude_team Acme
-    run "$SCRIPT" me@x -p hi
+    run "$SCRIPT" me@x.example -p hi
     [ "$status" -eq 0 ]
     [[ ${output} == *"one account in 2 homes; using ~/.claude"* ]]
     [[ ${output} == *"RAN set= home= args=-p hi"* ]]

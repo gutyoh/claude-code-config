@@ -693,7 +693,7 @@ The historical `--no-claude-sync` option is accepted as a compatibility no-op. `
 ```bash
 claude-as --add you@example.com     # once per account and machine
 claude-as                           # list: email, plan, organization
-claude-as example.com --continue    # any part of an email that names one account
+claude-as you@example.com --continue   # the whole email; /team or /pro when it has two
 ```
 
 See [docs/how-to-use-multiple-accounts.md](./docs/how-to-use-multiple-accounts.md).
