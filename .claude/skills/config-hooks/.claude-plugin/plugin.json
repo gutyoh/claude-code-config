@@ -1,0 +1,8 @@
+{
+  "name": "config-hooks",
+  "description": "Hooks of this configuration, loaded in place from wherever the repository is linked into ~/.claude/skills",
+  "author": {
+    "name": "claude-code-config"
+  },
+  "defaultEnabled": true
+}

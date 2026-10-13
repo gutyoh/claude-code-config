@@ -29,9 +29,30 @@ what Claude Code itself does. See [A second profile](#a-second-profile).
 | `PreToolUse` | `.*` | `refresh-usage-cache.sh` | Refresh usage cache on every tool call |
 | `PreToolUse` | `mcp__brave-search__.*` | `rate-limit-brave-search.sh` | Rate limit Brave Search calls |
 | `Stop` | `""` | `refresh-usage-cache.sh` | Refresh usage cache when agent stops |
-| `Stop` | `""` | `stop-nudge.sh` | Nudge a listed model (`STOP_NUDGE_MODELS`, default `muse-*`) that ends its turn announcing a step it never took; `STOP_NUDGE=off` disables |
 | `SessionStart` | `startup` | `session-name.sh` | Record when a session started (see [Session names](#session-names)) |
 | `UserPromptSubmit` | `""` | `session-name.sh` | Name the session once, at its first prompt |
+
+#### Plugin hooks
+
+Some hooks ship as a plugin instead, `.claude/skills/config-hooks`. Claude Code
+loads any folder in `~/.claude/skills/` that holds a `.claude-plugin/plugin.json`
+as a plugin in every session, in place, so an update to the repository reaches
+every session without touching `settings.json`. `setup.sh` links it with the
+other skills; check it with `claude plugin list` (`config-hooks@skills-dir`).
+
+| Event | Hook Script | Purpose |
+|-------|-------------|---------|
+| `Stop` | `stop-nudge.sh` | Nudge a listed model (`STOP_NUDGE_MODELS`, default `muse-*`) that ends its turn announcing a step it never took; `STOP_NUDGE=off` disables |
+
+A hook registered both in `settings.json` and in the plugin runs twice: remove
+the `settings.json` entry when the plugin is in place.
+
+#### Session links in commits
+
+This repository is public, so its `.claude/settings.json` sets
+`attribution.sessionUrl` to `false`: commits and pull requests made from a
+Remote Control or cloud session here carry no `Claude-Session` link. The link
+grants no access by itself; it only says which session made the change.
 
 #### Session names
 
