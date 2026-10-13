@@ -39,10 +39,10 @@ record="${XDG_STATE_HOME:-${HOME}/.local/state}/claude-code/session-names/${sess
 # Without a record (a -p run has no statusline), the first turn's answer may
 # reach the transcript just after Stop fires: wait for it, 2 seconds at most.
 if [[ -z ${recorded} ]]; then
-	for _ in 1 2 3 4 5 6 7 8 9 10; do
-		tail -n 400 "${transcript}" | grep -q '"type":"assistant"' && break
-		sleep 0.2
-	done
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        tail -n 400 "${transcript}" | grep -q '"type":"assistant"' && break
+        sleep 0.2
+    done
 fi
 
 # A session nudged STOP_NUDGE_MAX times is left alone from then on.
