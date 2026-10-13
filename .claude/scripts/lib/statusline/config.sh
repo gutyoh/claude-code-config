@@ -24,6 +24,7 @@ load_config() {
         case "${key}" in
             theme) CONF_THEME="${value}" ;;
             components) CONF_COMPONENTS="${value}" ;;
+            router_health) CONF_ROUTER_HEALTH="${value}" ;;
             bar_style) CONF_BAR_STYLE="${value}" ;;
             bar_pct_inside) CONF_BAR_PCT_INSIDE="${value}" ;;
             compact) CONF_COMPACT="${value}" ;;

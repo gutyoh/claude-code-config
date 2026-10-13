@@ -43,7 +43,7 @@ setup() {
     source "$MODULES_DIR/data.sh"
 
     NOW=$(date +%s)
-    unset CODEX_HOME MUSE_AUTH_PATH STATUSLINE_OPENAI_AUTH STATUSLINE_MUSE_AUTH STATUSLINE_HTTPS_PROXY
+    unset CODEX_HOME MUSE_AUTH_PATH STATUSLINE_OPENAI_AUTH STATUSLINE_MUSE_AUTH STATUSLINE_HTTPS_PROXY STATUSLINE_ROUTER_HEALTH CONF_ROUTER_HEALTH
 }
 
 # curl stub: records argv and stdin; answers body.json, or fails like -f on
@@ -671,4 +671,48 @@ render_icon() { # model
     body '{"rate_limit":null}'
     render_icon gpt-6.1-sol
     [[ "$output" == 'A\ gpt-6.1-sol' ]]
+}
+
+# =========================================================================
+# Router cache health
+# =========================================================================
+
+health_file() {
+    printf '%s' "$1" >"$BATS_TEST_TMPDIR/health.json"
+    export STATUSLINE_ROUTER_HEALTH="$BATS_TEST_TMPDIR/health.json"
+}
+
+@test "router health: a plan whose cache is missing is named, others are not" {
+    health_file '{"cache":{"Muse":{"cache":"missing"},"ChatGPT":{"cache":"ok"}}}'
+    [[ "$(router_health_warning)" == "⚠ Muse cache missing" ]]
+    health_file '{"cache":{"Muse":{"cache":"missing"},"ChatGPT":{"cache":"missing"}}}'
+    [[ "$(router_health_warning)" == "⚠ Muse, ChatGPT cache missing" || "$(router_health_warning)" == "⚠ ChatGPT, Muse cache missing" ]]
+}
+
+@test "router health: ok, no file, an unreadable file or off says nothing" {
+    health_file '{"cache":{"Muse":{"cache":"ok"}}}'
+    [[ -z "$(router_health_warning)" ]]
+    health_file 'not json'
+    [[ -z "$(router_health_warning)" ]]
+    STATUSLINE_ROUTER_HEALTH="$BATS_TEST_TMPDIR/absent.json"
+    [[ -z "$(router_health_warning)" ]]
+    unset STATUSLINE_ROUTER_HEALTH
+    [[ -z "$(router_health_warning)" ]]
+    health_file '{"cache":{"Muse":{"cache":"missing"}}}'
+    CONF_ROUTER_HEALTH=off
+    [[ -z "$(router_health_warning)" ]]
+}
+
+@test "statusline: a missing cache ends the line in red whatever the components" {
+    mkdir -p "$HOME/.claude"
+    printf 'components=model\ntheme=none\n' >"$HOME/.claude/statusline.conf"
+    health_file '{"cache":{"Muse":{"cache":"missing"}}}'
+    run env TMPDIR="$BATS_TEST_TMPDIR" COLUMNS=200 bash "$STATUSLINE" \
+        <<<'{"model":{"id":"claude-opus-5-5","display_name":"opus"},"session_id":"s9"}'
+    [ "$status" -eq 0 ]
+    [[ "$output" == "opus "$'\033[0;31m'"⚠ Muse cache missing"$'\033[0m' ]]
+    printf 'components=model\ntheme=none\nrouter_health=off\n' >"$HOME/.claude/statusline.conf"
+    run env TMPDIR="$BATS_TEST_TMPDIR" COLUMNS=200 bash "$STATUSLINE" \
+        <<<'{"model":{"id":"claude-opus-5-5","display_name":"opus"},"session_id":"s9"}'
+    [[ "$output" == "opus" ]]
 }

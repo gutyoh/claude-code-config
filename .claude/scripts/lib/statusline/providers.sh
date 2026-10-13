@@ -156,3 +156,15 @@ get_provider_usage() {
     local CACHE_TTL="${PROVIDER_CACHE_TTL}"
     cached_fetch "fetch_${provider}_usage"
 }
+
+# The model router's judgment of each plan's prompt cache: a warning naming
+# every plan whose recent warm turns reused nothing, else nothing at all.
+router_health_warning() {
+    [[ ${CONF_ROUTER_HEALTH:-on} == off ]] && return 0
+    local file=${STATUSLINE_ROUTER_HEALTH:-} plans
+    [[ -n ${file} && -s ${file} ]] || return 0
+    plans=$(jq -r '[(.cache // {}) | to_entries[] | select(.value.cache == "missing") | .key]
+        | join(", ")' "${file}" 2>/dev/null) || return 0
+    [[ -n ${plans} ]] && printf '⚠ %s cache missing' "${plans}"
+    return 0
+}
