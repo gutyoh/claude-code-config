@@ -36,22 +36,25 @@ what Claude Code itself does. See [A second profile](#a-second-profile).
 #### Session names
 
 Each session is named once, at its first prompt, for example
-`claude-20261012T141205Z-btree-page-splits`, and never renamed. The name is the
+`claude-20261012T1412Z-btree-page-splits-0ed0b890`, and never renamed. The name is the
 session's address: `claude --resume <name>`, `/resume`, the Remote Control list
 and messages between sessions all find it by that name, so it must not move.
 
 - **Provider**: the first part of the model id at the first prompt
   (`claude-opus-5-5` gives `claude`, `gpt-6.1-sol` gives `gpt`). A later
   `/model` switch keeps the name.
-- **Time**: when the session started. UTC by default, written with a `Z`; set
-  `CLAUDE_SESSION_NAME_TZ` to an IANA zone to use local time with its offset,
-  for example `claude-20261012T043012+0900` for `Asia/Tokyo`.
+- **Time**: when the session started, to the minute. UTC by default, written
+  with a `Z`; set `CLAUDE_SESSION_NAME_TZ` to an IANA zone to use local time
+  with its offset, for example `claude-20261012T0430+0900-…` for `Asia/Tokyo`.
 - **Topic**: a small model (`haiku`, `CLAUDE_SESSION_NAME_MODEL`) names the
   topic from the first prompt, so that prompt waits up to 8 seconds once. An
   answer longer than four words, or none in time, gives way to the prompt's
   first words. The run uses no hooks, tools, MCP servers or saved transcript,
   and no prompt text is stored. `CLAUDE_SESSION_NAME_TOPIC=off` names without
   a topic.
+- **Id**: the first 8 characters of the session id. They keep two sessions
+  started in the same minute on the same topic apart, and find the transcript:
+  `ls ~/.claude/projects/*/0ed0b890*.jsonl`.
 - **herdr tab**: inside herdr, the session's tab is named `<icon> <topic>`,
   with the plan's `icon_claude`, `icon_openai` or `icon_muse` from
   `statusline.conf` (Nerd Font icons work), else the provider's name. Only a

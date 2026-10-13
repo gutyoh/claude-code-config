@@ -64,13 +64,13 @@ record_model() {
     hook start "$(input "" claude-opus-5-5)"
     [ "$status" -eq 0 ]
     [ -z "${output}" ]
-    [[ "$(cat "${STATE}/${SID}.start")" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]
+    [[ "$(cat "${STATE}/${SID}.start")" =~ ^[0-9]{8}T[0-9]{4}Z$ ]]
 }
 
 # bats test_tags=unit
 @test "a time zone override records its offset instead of Z" {
     CLAUDE_SESSION_NAME_TZ=Asia/Tokyo hook start "$(input "" claude-opus-5-5)"
-    [[ "$(cat "${STATE}/${SID}.start")" =~ ^[0-9]{8}T[0-9]{6}\+0900$ ]]
+    [[ "$(cat "${STATE}/${SID}.start")" =~ ^[0-9]{8}T[0-9]{4}\+0900$ ]]
 }
 
 # bats test_tags=unit
@@ -108,7 +108,7 @@ record_model() {
     hook start "$(input "" claude-opus-5-5)"
     stamp=$(cat "${STATE}/${SID}.start")
     hook prompt "$(input)"
-    [ "${title}" = "claude-${stamp}" ]
+    [ "${title}" = "claude-${stamp}-${SID:0:8}" ]
     [ "$(jq -r .hookSpecificOutput.hookEventName <<<"${output}")" = "UserPromptSubmit" ]
 }
 
@@ -127,16 +127,16 @@ record_model() {
     for pair in gpt-6.1-sol:gpt muse-spark-1.3:muse claude-haiku-5-5:claude opus:claude; do
         record_model "${pair%%:*}"
         hook prompt "$(input)"
-        [[ "${title}" =~ ^${pair#*:}-[0-9]{8}T[0-9]{6}Z$ ]]
+        [[ "${title}" =~ ^${pair#*:}-[0-9]{8}T[0-9]{4}Z-[0-9a-f]{8}$ ]]
     done
 }
 
 # bats test_tags=unit
 @test "an untitled prompt without state is named now, as claude" {
     hook prompt "$(input)"
-    [[ "${title}" =~ ^claude-[0-9]{8}T[0-9]{6}Z$ ]]
+    [[ "${title}" =~ ^claude-[0-9]{8}T[0-9]{4}Z-[0-9a-f]{8}$ ]]
     CLAUDE_SESSION_NAME_TZ=Asia/Tokyo hook prompt "$(input)"
-    [[ "${title}" =~ ^claude-[0-9]{8}T[0-9]{6}\+0900$ ]]
+    [[ "${title}" =~ ^claude-[0-9]{8}T[0-9]{4}\+0900-[0-9a-f]{8}$ ]]
 }
 
 # bats test_tags=unit
@@ -313,7 +313,7 @@ prompt_input() { # <title> <prompt> [transcript]
     stub_claude
     record_model claude-opus-5-5
     hook prompt "$(prompt_input "" "Explain how PostgreSQL B-tree indexes handle page splits")"
-    [[ "${title}" =~ ^claude-[0-9]{8}T[0-9]{6}Z-postgresql-btree-page-splits$ ]]
+    [[ "${title}" =~ ^claude-[0-9]{8}T[0-9]{4}Z-postgresql-btree-page-splits-[0-9a-f]{8}$ ]]
     grep -qx -- '--setting-sources' "${BATS_TEST_TMPDIR}/claude.args"
     grep -qx -- '--no-session-persistence' "${BATS_TEST_TMPDIR}/claude.args"
     grep -qx -- '--strict-mcp-config' "${BATS_TEST_TMPDIR}/claude.args"
@@ -342,30 +342,30 @@ prompt_input() { # <title> <prompt> [transcript]
 @test "topic: a failed model run falls back to the prompt's first words" {
     stub_claude "exit 1"
     hook prompt "$(prompt_input "" "Análisis de pricing agregado para octubre")"
-    [[ "${title}" =~ -analisis-de-pricing-agregado$ ]]
+    [[ "${title}" =~ -analisis-de-pricing-agregado-[0-9a-f]{8}$ ]]
 }
 
 # bats test_tags=unit
 @test "topic: an answer to the prompt instead of a topic is refused" {
     stub_claude "printf '%s\\n' 'No PR list is in this session and I can check'"
     hook prompt "$(prompt_input "" "no PR list here, check the other session")"
-    [[ "${title}" =~ -no-pr-list-here$ ]]
+    [[ "${title}" =~ -no-pr-list-here-[0-9a-f]{8}$ ]]
 }
 
 # bats test_tags=unit
 @test "topic: the model's answer is made an address: ASCII, lowercase, hyphens" {
     stub_claude "printf '%s\\n' '**Análisis — Pricing: Cartera**' 'second line'"
     hook prompt "$(prompt_input "" "x")"
-    [[ "${title}" =~ -analisis-pricing-cartera$ ]]
+    [[ "${title}" =~ -analisis-pricing-cartera-[0-9a-f]{8}$ ]]
 }
 
 # bats test_tags=unit
 @test "topic: off, or an empty prompt, asks no model" {
     stub_claude
     CLAUDE_SESSION_NAME_TOPIC=off hook prompt "$(prompt_input "" "a real prompt")"
-    [[ "${title}" =~ ^claude-[0-9]{8}T[0-9]{6}Z$ ]]
+    [[ "${title}" =~ ^claude-[0-9]{8}T[0-9]{4}Z-[0-9a-f]{8}$ ]]
     hook prompt "$(prompt_input "" "   ")"
-    [[ "${title}" =~ ^claude-[0-9]{8}T[0-9]{6}Z$ ]]
+    [[ "${title}" =~ ^claude-[0-9]{8}T[0-9]{4}Z-[0-9a-f]{8}$ ]]
     [ ! -e "${BATS_TEST_TMPDIR}/claude.args" ]
 }
 
@@ -381,7 +381,7 @@ prompt_input() { # <title> <prompt> [transcript]
             "$(jq -c '. + {hook_event_name: "UserPromptSubmit"}' <<<"$(prompt_input "" "slow model here")")"
         [ "$status" -eq 0 ]
         [ "${SECONDS}" -lt 13 ]
-        [[ "$(jq -r .hookSpecificOutput.sessionTitle <<<"${output}")" =~ -slow-model-here$ ]]
+        [[ "$(jq -r .hookSpecificOutput.sessionTitle <<<"${output}")" =~ -slow-model-here-[0-9a-f]{8}$ ]]
     done
 }
 
@@ -449,7 +449,7 @@ conf_icons() {
     stub_claude
     run env PATH="$(no_timeout_path)" bash -c 'printf "%s" "$2" | bash "$1"' _ "$HOOK" \
         "$(jq -c '. + {hook_event_name: "UserPromptSubmit"}' <<<"$(prompt_input "" "page splits")")"
-    [[ "$(jq -r .hookSpecificOutput.sessionTitle <<<"${output}")" =~ -postgresql-btree-page-splits$ ]]
+    [[ "$(jq -r .hookSpecificOutput.sessionTitle <<<"${output}")" =~ -postgresql-btree-page-splits-[0-9a-f]{8}$ ]]
 }
 
 @test "tab: outside herdr nothing is renamed" {
