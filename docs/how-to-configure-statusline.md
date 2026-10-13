@@ -106,6 +106,8 @@ export STATUSLINE_HTTPS_PROXY=""
 
 A window the plan does not have is hidden: a ChatGPT plan with only a weekly limit shows one figure. Other models show `--`.
 
+A router that judges each plan's prompt cache from the turns it routes can name its file in `STATUSLINE_ROUTER_HEALTH`, a JSON object with `{"cache": {"<plan>": {"cache": "ok" | "missing"}}}`. While a plan's cache is `missing`, the line ends in a red `⚠ <plan> cache missing`, whatever the `components`: those turns re-read the whole conversation and use the plan faster. `router_health=off` in `statusline.conf` hides it.
+
 ## Available bar styles
 
 | Style | Appearance (42% fill) |

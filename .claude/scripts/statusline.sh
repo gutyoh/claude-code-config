@@ -261,6 +261,11 @@ main() {
         printf "%s%s" "${icon_prefix}" "${output}"
     fi
 
+    # Shown whatever the components: a lost prompt cache costs the plan quota.
+    local warning
+    warning=$(router_health_warning)
+    [[ -n ${warning} ]] && printf ' %s%s%s' $'\033[0;31m' "${warning}" $'\033[0m'
+
     # Newline mode: emit cc_status as a second line
     if [[ ",${CONF_COMPONENTS}," == *",cc_status,"* &&
         "${CONF_CC_STATUS_POSITION}" == "newline" &&
