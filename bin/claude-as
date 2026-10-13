@@ -13,6 +13,7 @@
 # Usage:
 #   claude-as                         list accounts
 #   claude-as <email> [claude args]   run claude as the account that email signed in
+#   claude-as <email> -a [args]       the same, with bypass permissions on from the start
 #   claude-as --add <email> [args]    new home for an account, then sign it in
 #   claude-as --check                 every home: login, links, shared history
 #   claude-as --relink                link shared items a home is missing
@@ -253,9 +254,19 @@ in_home() {
     fi
 }
 
+# The launcher defaults of the claude shell function setup.sh installs, so an
+# account starts as plain claude does: bypass permissions on Shift+Tab, or on
+# from the start with -a, --unsafe, --bypass or -adskp first.
 run_in() {
     local home=$1 name
     shift
+    case ${1:-} in
+        -a | --unsafe | --bypass | -adskp)
+            shift
+            set -- --dangerously-skip-permissions "$@"
+            ;;
+        *) set -- --allow-dangerously-skip-permissions "$@" ;;
+    esac
     warn_overrides
     for name in ${DROPPED}; do unset "${name}"; done
     if [[ ${home} == "${HOME}/.claude" ]]; then

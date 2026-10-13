@@ -131,7 +131,7 @@ two_accounts() {
     for who in me@home.example ME@HOME.EXAMPLE Me@Home.Example; do
         run "$SCRIPT" "${who}" -p hi
         [ "$status" -eq 0 ]
-        [[ ${output} == *"home=${HOME}/.claude-home args=-p hi"* ]] || {
+        [[ ${output} == *"home=${HOME}/.claude-home args=--allow-dangerously-skip-permissions -p hi"* ]] || {
             echo "${who}: ${output}"
             return 1
         }
@@ -159,12 +159,12 @@ two_accounts() {
 @test "a name that runs one account keeps running it after another is added" {
     account "${HOME}/.claude" me@x.example claude_team Acme
     run "$SCRIPT" me@x.example -p hi
-    [[ ${output} == *"RAN set= home= args=-p hi"* ]]
+    [[ ${output} == *"RAN set= home= args=--allow-dangerously-skip-permissions -p hi"* ]]
     linked_home "${HOME}/.claude-y" me@x.example.org claude_pro Other
     linked_home "${HOME}/.claude-z" ame@x.example claude_pro Other
     run "$SCRIPT" me@x.example -p hi
     [ "$status" -eq 0 ]
-    [[ ${output} == *"RAN set= home= args=-p hi"* ]]
+    [[ ${output} == *"RAN set= home= args=--allow-dangerously-skip-permissions -p hi"* ]]
 }
 
 @test "one email in two organizations takes its /organization, /plan or /organization id" {
@@ -176,13 +176,13 @@ two_accounts() {
     [[ ${output} == *"me@x.example/team/max_5x (Acme, Acme-id, ~/.claude)"* ]]
     for who in me@x.example/acme me@x.example/team me@x.example/team/max_5x ME@X.EXAMPLE/Acme-ID; do
         run "$SCRIPT" "${who}" -p hi
-        [[ ${output} == *"RAN set= home= args=-p hi"* ]] || {
+        [[ ${output} == *"RAN set= home= args=--allow-dangerously-skip-permissions -p hi"* ]] || {
             echo "${who}: ${output}"
             return 1
         }
     done
     run "$SCRIPT" me@x.example/pro -p hi
-    [[ ${output} == *"home=${HOME}/.claude-x args=-p hi"* ]]
+    [[ ${output} == *"home=${HOME}/.claude-x args=--allow-dangerously-skip-permissions -p hi"* ]]
     # Part of an organization or plan is no name either.
     for who in me@x.example/acm me@x.example/tea me@x/pro; do
         run "$SCRIPT" "${who}" -p hi
@@ -194,20 +194,40 @@ two_accounts() {
 @test "~/.claude runs with CLAUDE_CONFIG_DIR unset, others with their exact path" {
     two_accounts
     CLAUDE_CONFIG_DIR="${HOME}/.claude-home" run "$SCRIPT" me@work.example doctor
-    [[ ${output} == *"RAN set= home= args=doctor"* ]]
+    [[ ${output} == *"RAN set= home= args=--allow-dangerously-skip-permissions doctor"* ]]
     CLAUDE_CONFIG_DIR="${HOME}/.claude" run "$SCRIPT" me@home.example doctor
-    [[ ${output} == *"RAN set=1 home=${HOME}/.claude-home args=doctor"* ]]
+    [[ ${output} == *"RAN set=1 home=${HOME}/.claude-home args=--allow-dangerously-skip-permissions doctor"* ]]
 }
 
 @test "CLAUDE_AS chooses the account when claude options come first" {
     two_accounts
     CLAUDE_AS=me@home.example run "$SCRIPT" --continue
-    [[ ${output} == *"home=${HOME}/.claude-home args=--continue"* ]]
+    [[ ${output} == *"home=${HOME}/.claude-home args=--allow-dangerously-skip-permissions --continue"* ]]
     CLAUDE_AS=me@home.example run "$SCRIPT"
-    [[ ${output} == *"home=${HOME}/.claude-home args="* ]]
+    [[ ${output} == *"home=${HOME}/.claude-home args=--allow-dangerously-skip-permissions"* ]]
     run "$SCRIPT" --continue
     [ "$status" -eq 2 ]
     [[ ${output} == *"name the account first"* ]]
+}
+
+@test "an account starts as the claude shell function does: bypass on Shift+Tab, or on with -a" {
+    two_accounts
+    run "$SCRIPT" me@home.example
+    [[ ${output} == *"home=${HOME}/.claude-home args=--allow-dangerously-skip-permissions"$'\n'* ]]
+    for flag in -a --unsafe --bypass -adskp; do
+        run "$SCRIPT" me@home.example "${flag}" --continue
+        [[ ${output} == *"home=${HOME}/.claude-home args=--dangerously-skip-permissions --continue"* ]] || {
+            echo "${flag}: ${output}"
+            return 1
+        }
+    done
+    CLAUDE_AS=me@work.example run "$SCRIPT" -a
+    [[ ${output} == *"RAN set= home= args=--dangerously-skip-permissions"$'\n'* ]]
+    # Only first: a later -a is claude's own.
+    run "$SCRIPT" me@home.example --continue -a
+    [[ ${output} == *"args=--allow-dangerously-skip-permissions --continue -a"* ]]
+    # The shell functions setup.sh writes hold the same defaults.
+    grep -q 'command claude --allow-dangerously-skip-permissions' "$BATS_TEST_DIRNAME/../lib/setup/settings.sh"
 }
 
 @test "another account's credentials are dropped; a gateway's is named, never shown" {
@@ -243,7 +263,7 @@ two_accounts() {
     grep -qx 'login --email New@Home.example --sso' "${HOME}/logins"
     [[ ${output} == *"Ready: claude-as new@home.example"$'\n'* || ${output} == *"Ready: claude-as new@home.example" ]]
     run "$SCRIPT" new@home.example -p hi
-    [[ ${output} == *"home=${h} args=-p hi"* ]]
+    [[ ${output} == *"home=${h} args=--allow-dangerously-skip-permissions -p hi"* ]]
 }
 
 @test "--add never reuses a folder that exists" {
@@ -367,18 +387,18 @@ two_accounts() {
     run "$SCRIPT" me@x.example -p hi
     [ "$status" -eq 0 ]
     [[ ${output} == *"one account in 2 homes; using ~/.claude"* ]]
-    [[ ${output} == *"RAN set= home= args=-p hi"* ]]
+    [[ ${output} == *"RAN set= home= args=--allow-dangerously-skip-permissions -p hi"* ]]
 }
 
 @test "a home's path names it directly" {
     account "${HOME}/.claude" me@x.example claude_team Acme
     linked_home "${HOME}/.claude-copy" me@x.example claude_team Acme
     run "$SCRIPT" '~/.claude-copy' -p hi
-    [[ ${output} == *"home=${HOME}/.claude-copy args=-p hi"* ]]
+    [[ ${output} == *"home=${HOME}/.claude-copy args=--allow-dangerously-skip-permissions -p hi"* ]]
     run "$SCRIPT" "${HOME}/.claude-copy/" -p hi
-    [[ ${output} == *"home=${HOME}/.claude-copy args=-p hi"* ]]
+    [[ ${output} == *"home=${HOME}/.claude-copy args=--allow-dangerously-skip-permissions -p hi"* ]]
     run "$SCRIPT" "${HOME}/.claude" -p hi
-    [[ ${output} == *"RAN set= home= args=-p hi"* ]]
+    [[ ${output} == *"RAN set= home= args=--allow-dangerously-skip-permissions -p hi"* ]]
     run "$SCRIPT" '~/.nope' -p hi
     [ "$status" -eq 1 ]
     [[ ${output} == *"is not a home"* ]]
