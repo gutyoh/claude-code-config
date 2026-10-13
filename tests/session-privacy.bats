@@ -45,7 +45,7 @@ field() {
 {"hooks": {"Stop": [
   {"matcher": "", "hooks": [{"type": "command", "command": "~/.claude/hooks/stop-nudge.sh", "timeout": 10},
                             {"type": "command", "command": "~/bin/notify"}]},
-  {"matcher": "", "hooks": [{"type": "command", "command": "/home/u/.claude/hooks/stop-nudge.sh"}]}
+  {"matcher": "", "hooks": [{"type": "command", "command": "/home/example/.claude/hooks/stop-nudge.sh"}]}
 ], "SessionStart": [{"hooks": [{"type": "command", "command": "x"}]}]}}
 JSON
     run configure_session_privacy
