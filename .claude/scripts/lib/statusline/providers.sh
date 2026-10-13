@@ -163,7 +163,9 @@ router_health_warning() {
     [[ ${CONF_ROUTER_HEALTH:-on} == off ]] && return 0
     local file=${STATUSLINE_ROUTER_HEALTH:-} plans
     [[ -n ${file} && -s ${file} ]] || return 0
-    plans=$(jq -r '[(.cache // {}) | to_entries[] | select(.value.cache == "missing") | .key]
+    # A verdict no turn has refreshed for 6 h is stale: the plan may be unused.
+    plans=$(jq -r '[(.cache // {}) | to_entries[] | select(.value.cache == "missing"
+        and now - (.value.checked // .value.since // 0) < 21600) | .key]
         | join(", ")' "${file}" 2>/dev/null) || return 0
     [[ -n ${plans} ]] && printf '⚠ %s cache missing' "${plans}"
     return 0

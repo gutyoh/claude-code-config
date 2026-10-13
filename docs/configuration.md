@@ -44,8 +44,8 @@ other skills; check it with `claude plugin list` (`config-hooks@skills-dir`).
 |-------|-------------|---------|
 | `Stop` | `stop-nudge.sh` | Nudge a listed model (`STOP_NUDGE_MODELS`, default `muse-*`) that ends its turn announcing a step it never took; `STOP_NUDGE=off` disables |
 
-A hook registered both in `settings.json` and in the plugin runs twice: remove
-the `settings.json` entry when the plugin is in place.
+A hook registered both in `settings.json` and in the plugin runs twice, so
+`setup.sh` and `setup.ps1` remove a `stop-nudge.sh` entry from `settings.json`.
 
 #### Session links in commits
 
@@ -53,6 +53,8 @@ This repository is public, so its `.claude/settings.json` sets
 `attribution.sessionUrl` to `false`: commits and pull requests made from a
 Remote Control or cloud session here carry no `Claude-Session` link. The link
 grants no access by itself; it only says which session made the change.
+`setup.sh` and `setup.ps1` set the same value in your user `settings.json`, so
+every repository gets it, and keep a value you set yourself.
 
 #### Session names
 

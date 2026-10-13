@@ -196,6 +196,48 @@ except Exception as e:
 PYTHON_SCRIPT
 }
 
+# Commits and pull requests Claude writes name no claude.ai session link, as in
+# the repo's settings; a value the user set stays. The stop-nudge hook now
+# comes from the config-hooks plugin, so an older copy registered by hand in
+# settings.json, which would run it twice, is removed.
+configure_session_privacy() {
+    python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
+import json
+import sys
+
+settings_file = sys.argv[1]
+try:
+    with open(settings_file) as f:
+        data = json.load(f)
+    said = []
+    attribution = data.setdefault('attribution', {})
+    if 'sessionUrl' in attribution:
+        said.append(f"  ✓ Session links already set (sessionUrl {str(attribution['sessionUrl']).lower()})")
+    else:
+        attribution['sessionUrl'] = False
+        said.append("  ✓ Commits and pull requests name no session link")
+    stop = data.get('hooks', {}).get('Stop', [])
+    kept = []
+    for group in stop:
+        hooks = [h for h in group.get('hooks', []) if not str(h.get('command', '')).endswith('hooks/stop-nudge.sh')]
+        if hooks:
+            kept.append({**group, 'hooks': hooks})
+    if kept != stop:
+        if kept:
+            data['hooks']['Stop'] = kept
+        else:
+            del data['hooks']['Stop']
+        said.append("  ✓ Removed a hand-registered stop-nudge hook; the config-hooks plugin runs it")
+    with open(settings_file, 'w') as f:
+        json.dump(data, f, indent=2)
+        f.write('\n')
+    print('\n'.join(said))
+except Exception as e:
+    print(f"  ⚠ Failed to set session privacy: {e}", file=sys.stderr)
+    sys.exit(1)
+PYTHON_SCRIPT
+}
+
 configure_file_suggestion() {
     if python3 - "${SETTINGS_JSON}" <<'PYTHON_CHECK' 2>/dev/null; then
 import json

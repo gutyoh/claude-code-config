@@ -292,6 +292,33 @@ Describe "Settings JSON manipulation" {
         }
     }
 
+    Context "Update-SessionPrivacy" {
+        It "names no session link when the user made no choice" {
+            Update-SessionPrivacy
+            $settings = Get-Content $script:SettingsJson -Raw | ConvertFrom-Json
+            $settings.attribution.sessionUrl | Should -Be $false
+        }
+
+        It "keeps a choice the user made" {
+            @{ attribution = @{ sessionUrl = $true } } | ConvertTo-Json -Depth 5 | Set-Content $script:SettingsJson
+            Update-SessionPrivacy
+            $settings = Get-Content $script:SettingsJson -Raw | ConvertFrom-Json
+            $settings.attribution.sessionUrl | Should -Be $true
+        }
+
+        It "removes a hand-registered stop-nudge hook and keeps the others" {
+            @{ hooks = @{ Stop = @(@{ matcher = ""; hooks = @(
+                            @{ type = "command"; command = "~/.claude/hooks/stop-nudge.sh" },
+                            @{ type = "command"; command = "~/bin/notify" }) }) } } |
+                ConvertTo-Json -Depth 6 | Set-Content $script:SettingsJson
+            Update-SessionPrivacy
+            Update-SessionPrivacy
+            $settings = Get-Content $script:SettingsJson -Raw | ConvertFrom-Json
+            $commands = @($settings.hooks.Stop | ForEach-Object { $_.hooks } | ForEach-Object { $_.command })
+            $commands | Should -Be @("~/bin/notify")
+        }
+    }
+
     Context "Update-FileSuggestion" {
         It "adds file suggestion when not present" {
             Update-FileSuggestion

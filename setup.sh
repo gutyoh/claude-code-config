@@ -300,6 +300,7 @@ main() {
         fi
         configure_session_name_hooks
         configure_transcript_retention
+        configure_session_privacy
 
         echo ""
 
