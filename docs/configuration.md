@@ -29,6 +29,7 @@ what Claude Code itself does. See [A second profile](#a-second-profile).
 | `PreToolUse` | `.*` | `refresh-usage-cache.sh` | Refresh usage cache on every tool call |
 | `PreToolUse` | `mcp__brave-search__.*` | `rate-limit-brave-search.sh` | Rate limit Brave Search calls |
 | `Stop` | `""` | `refresh-usage-cache.sh` | Refresh usage cache when agent stops |
+| `Stop` | `""` | `stop-nudge.sh` | Nudge a listed model (`STOP_NUDGE_MODELS`, default `muse-*`) that ends its turn announcing a step it never took; `STOP_NUDGE=off` disables |
 | `SessionStart` | `startup` | `session-name.sh` | Record when a session started (see [Session names](#session-names)) |
 | `UserPromptSubmit` | `""` | `session-name.sh` | Name the session once, at its first prompt |
 
