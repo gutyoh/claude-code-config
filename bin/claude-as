@@ -19,7 +19,8 @@
 #
 # <who> is an email or any part of one that names a single account. One email
 # can sign in to several organizations (a personal plan and a team): add
-# /<org or plan> to pick one, as in `claude-as me@example.com/team`.
+# /<org or plan> to pick one, as in `claude-as me@example.com/team`. A home's
+# path (`claude-as ~/.claude-work`) names it directly.
 # With CLAUDE_AS set, a first argument that is a claude option runs as it.
 # --add passes [args] to `claude auth login` (for example --sso).
 #
@@ -129,9 +130,22 @@ list() {
     done < <(accounts)
 }
 
-# The one home <who> names: "<email part>[/<organization or plan part>]".
+# The one home <who> names: "<email part>[/<organization or plan part>]",
+# or the home's own path.
 resolve() {
-    local want who qual home email org plan uuid exact=() partial=()
+    local want who qual home email org plan uuid exact=() partial=() keys=""
+    if [[ $1 == /* || $1 == "~/"* ]]; then
+        want="${HOME}/${1#"~/"}"
+        [[ $1 == /* ]] && want=$1
+        want=${want%/}
+        while IFS= read -r home; do
+            [[ ${home} == "${want}" ]] && {
+                printf '%s\n' "${home}"
+                return
+            }
+        done < <(homes)
+        die "$1 is not a home; run claude-as to list them"
+    fi
     want=$(lower "$1")
     who=${want%%/*}
     qual=""
@@ -150,6 +164,23 @@ resolve() {
         found=("${exact[@]}")
     elif ((${#partial[@]} > 0)); then
         found=("${partial[@]}")
+    fi
+    # One account signed in to several homes is still one account: the
+    # shared home, or else the first, runs it.
+    if ((${#found[@]} > 1)); then
+        while IFS=$'\037' read -r home email org plan uuid; do
+            for want in "${found[@]}"; do
+                [[ ${home} == "${want}" ]] && keys+="$(lower "${email}")/${uuid}"$'\n'
+            done
+        done < <(accounts)
+        if (($(printf '%s' "${keys}" | sort -u | grep -c .) == 1)); then
+            home=${found[0]}
+            for want in "${found[@]}"; do
+                [[ ${want} == "${shared}" ]] && home=${want}
+            done
+            printf 'claude-as: one account in %d homes; using %s\n' "${#found[@]}" "$(short "${home}")" >&2
+            found=("${home}")
+        fi
     fi
     case ${#found[@]} in
         0) die "no account matches '$1'; run claude-as to list them, or claude-as --add <email>" ;;

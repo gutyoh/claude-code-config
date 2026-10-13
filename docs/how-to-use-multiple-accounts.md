@@ -46,7 +46,9 @@ CLAUDE_AS=example.com claude-as -p "hi"   # a default, per shell or per folder
 ```
 
 When one email belongs to two organizations, such as a personal plan and a team,
-add `/<organization or plan>`: `claude-as you@example.com/team`.
+add `/<organization or plan>`: `claude-as you@example.com/team`. A home's path
+names it directly: `claude-as ~/.claude-work`. One account signed in to two
+homes runs from `~/.claude`, or else the first.
 
 Plain `claude` keeps using `~/.claude`.
 

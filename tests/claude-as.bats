@@ -329,3 +329,26 @@ two_accounts() {
     STUB_VERSION=2.1.296 run "$SCRIPT" --check
     [ "$status" -eq 0 ]
 }
+
+@test "one account signed in to two homes runs from the shared one" {
+    account "${HOME}/.claude" me@x.example claude_team Acme
+    linked_home "${HOME}/.claude-copy" me@x.example claude_team Acme
+    run "$SCRIPT" me@x -p hi
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"one account in 2 homes; using ~/.claude"* ]]
+    [[ ${output} == *"RAN set= home= args=-p hi"* ]]
+}
+
+@test "a home's path names it directly" {
+    account "${HOME}/.claude" me@x.example claude_team Acme
+    linked_home "${HOME}/.claude-copy" me@x.example claude_team Acme
+    run "$SCRIPT" '~/.claude-copy' -p hi
+    [[ ${output} == *"home=${HOME}/.claude-copy args=-p hi"* ]]
+    run "$SCRIPT" "${HOME}/.claude-copy/" -p hi
+    [[ ${output} == *"home=${HOME}/.claude-copy args=-p hi"* ]]
+    run "$SCRIPT" "${HOME}/.claude" -p hi
+    [[ ${output} == *"RAN set= home= args=-p hi"* ]]
+    run "$SCRIPT" '~/.nope' -p hi
+    [ "$status" -eq 1 ]
+    [[ ${output} == *"is not a home"* ]]
+}
