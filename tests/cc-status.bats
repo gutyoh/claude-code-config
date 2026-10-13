@@ -478,3 +478,12 @@ _has_network() {
     collect_service_status
     [ -z "$DATA_CC_STATUS" ]
 }
+
+@test "the cwd component writes ~ for HOME, and only for HOME" {
+    source "$BATS_TEST_DIRNAME/../.claude/scripts/lib/statusline/components.sh"
+    IS_WIDE=true
+    DATA_CWD="${HOME}/proj" run render_component_cwd
+    [ "$output" = "~/proj" ]
+    DATA_CWD="${HOME}x/proj" run render_component_cwd
+    [ "$output" = "${HOME}x/proj" ]
+}

@@ -96,6 +96,15 @@ two_accounts() {
     [ "$status" -eq 0 ]
     [[ ${output} == *"me@work.example"*"team/max_5x"*"Acme"*"~/.claude"* ]]
     [[ ${output} == *"me@home.example"*"max/max_20x"*"Personal"*"~/.claude-home"* ]]
+    [[ ${output} != *'\~'* ]]
+}
+
+@test "only a path under HOME is shortened to ~" {
+    account "${HOME}/.claude" me@work.example
+    linked_home "${HOME}x" me@home.example
+    CLAUDE_AS_HOMES="${HOME}/.claude:${HOME}x" run "$SCRIPT"
+    [[ ${output} == *" ~/.claude"* ]]
+    [[ ${output} == *" ${HOME}x"* ]]
 }
 
 @test "a plan Claude Code adds later shows without a change here" {

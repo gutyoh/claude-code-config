@@ -61,7 +61,13 @@ usage() {
 
 lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
-short() { printf '%s\n' "${1/#${HOME}/\~}"; }
+# ~ for HOME. Not ${1/#$HOME/\~}: bash 3.2 (macOS) keeps the backslash.
+short() {
+    case $1 in
+        "${HOME}" | "${HOME}"/*) printf '~%s\n' "${1#"${HOME}"}" ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
 
 # Claude Code keeps .claude.json beside ~/.claude unless CLAUDE_CONFIG_DIR is
 # set; a home from an old release may still hold .config.json.

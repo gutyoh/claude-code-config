@@ -187,9 +187,11 @@ render_component_cwd() {
     [[ -z "${DATA_CWD}" ]] && return
 
     if [[ "${IS_WIDE}" == "true" ]]; then
-        # Replace $HOME with ~
-        local display="${DATA_CWD/#${HOME}/\~}"
-        printf "%s" "${display}"
+        # ~ for $HOME. Not ${DATA_CWD/#$HOME/\~}: bash 3.2 (macOS) keeps the backslash.
+        case "${DATA_CWD}" in
+            "${HOME}" | "${HOME}"/*) printf "~%s" "${DATA_CWD#"${HOME}"}" ;;
+            *) printf "%s" "${DATA_CWD}" ;;
+        esac
     else
         # Narrow: basename only
         printf "%s" "$(basename "${DATA_CWD}")"
