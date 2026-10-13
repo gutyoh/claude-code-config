@@ -683,9 +683,9 @@ health_file() {
 }
 
 @test "router health: a plan whose cache is missing is named, others are not" {
-    health_file '{"cache":{"Muse":{"cache":"missing"},"ChatGPT":{"cache":"ok"}}}'
+    health_file '{"cache":{"Muse":{"cache":"missing","checked":'"$NOW"'},"ChatGPT":{"cache":"ok","checked":'"$NOW"'}}}'
     [[ "$(router_health_warning)" == "⚠ Muse cache missing" ]]
-    health_file '{"cache":{"Muse":{"cache":"missing"},"ChatGPT":{"cache":"missing"}}}'
+    health_file '{"cache":{"Muse":{"cache":"missing","checked":'"$NOW"'},"ChatGPT":{"cache":"missing","checked":'"$NOW"'}}}'
     [[ "$(router_health_warning)" == "⚠ Muse, ChatGPT cache missing" || "$(router_health_warning)" == "⚠ ChatGPT, Muse cache missing" ]]
 }
 
@@ -698,7 +698,7 @@ health_file() {
     [[ -z "$(router_health_warning)" ]]
     unset STATUSLINE_ROUTER_HEALTH
     [[ -z "$(router_health_warning)" ]]
-    health_file '{"cache":{"Muse":{"cache":"missing"}}}'
+    health_file '{"cache":{"Muse":{"cache":"missing","checked":'"$NOW"'}}}'
     CONF_ROUTER_HEALTH=off
     [[ -z "$(router_health_warning)" ]]
 }
@@ -706,7 +706,7 @@ health_file() {
 @test "statusline: a missing cache ends the line in red whatever the components" {
     mkdir -p "$HOME/.claude"
     printf 'components=model\ntheme=none\n' >"$HOME/.claude/statusline.conf"
-    health_file '{"cache":{"Muse":{"cache":"missing"}}}'
+    health_file '{"cache":{"Muse":{"cache":"missing","checked":'"$NOW"'}}}'
     run env TMPDIR="$BATS_TEST_TMPDIR" COLUMNS=200 bash "$STATUSLINE" \
         <<<'{"model":{"id":"claude-opus-5-5","display_name":"opus"},"session_id":"s9"}'
     [ "$status" -eq 0 ]
@@ -715,4 +715,11 @@ health_file() {
     run env TMPDIR="$BATS_TEST_TMPDIR" COLUMNS=200 bash "$STATUSLINE" \
         <<<'{"model":{"id":"claude-opus-5-5","display_name":"opus"},"session_id":"s9"}'
     [[ "$output" == "opus" ]]
+}
+
+@test "router health: a missing verdict no turn refreshed for 6 hours is stale" {
+    health_file '{"cache":{"Muse":{"cache":"missing","checked":'"$((NOW - 21601))"'}}}'
+    [[ -z "$(router_health_warning)" ]]
+    health_file '{"cache":{"Muse":{"cache":"missing","checked":'"$((NOW - 21000))"'}}}'
+    [[ "$(router_health_warning)" == "⚠ Muse cache missing" ]]
 }

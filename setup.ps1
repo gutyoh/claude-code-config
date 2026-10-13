@@ -449,6 +449,7 @@ elseif ($script:SettingsMode -eq "merge") {
     }
     Update-SessionNameHook
     Update-TranscriptRetention
+    Update-SessionPrivacy
 
     Write-Status ""
 

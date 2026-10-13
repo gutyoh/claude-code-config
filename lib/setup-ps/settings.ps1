@@ -136,6 +136,50 @@ function Update-TranscriptRetention {
     }
 }
 
+function Update-SessionPrivacy {
+    <#
+    .SYNOPSIS
+    Commits and pull requests name no claude.ai session link unless the user
+    set sessionUrl, and a hand-registered stop-nudge hook, which the
+    config-hooks plugin now runs, is removed so it never runs twice.
+    #>
+    try {
+        $settings = Read-Utf8Text $script:SettingsJson | ConvertFrom-Json
+        if ($null -eq $settings.PSObject.Properties['attribution']) {
+            $settings | Add-Member -NotePropertyName "attribution" -NotePropertyValue ([pscustomobject]@{}) -Force
+        }
+        if ($null -ne $settings.attribution.PSObject.Properties['sessionUrl']) {
+            Write-Status "  + Session links already set (sessionUrl $($settings.attribution.sessionUrl))" -Color Green
+        }
+        else {
+            $settings.attribution | Add-Member -NotePropertyName "sessionUrl" -NotePropertyValue $false -Force
+            Write-Status "  + Commits and pull requests name no session link" -Color Green
+        }
+        $hooks = $settings.PSObject.Properties['hooks']
+        if ($null -ne $hooks -and $null -ne $settings.hooks.PSObject.Properties['Stop']) {
+            $kept = @()
+            $removed = $false
+            foreach ($group in @($settings.hooks.Stop)) {
+                $rest = @(@($group.hooks) | Where-Object { -not ([string]$_.command).EndsWith('hooks/stop-nudge.sh') })
+                if ($rest.Count -ne @($group.hooks).Count) { $removed = $true }
+                if ($rest.Count -gt 0) {
+                    $group.hooks = $rest
+                    $kept += $group
+                }
+            }
+            if ($removed) {
+                if ($kept.Count -gt 0) { $settings.hooks.Stop = $kept }
+                else { $settings.hooks.PSObject.Properties.Remove('Stop') }
+                Write-Status "  + Removed a hand-registered stop-nudge hook; the config-hooks plugin runs it" -Color Green
+            }
+        }
+        Write-JsonFile -Path $script:SettingsJson -InputObject $settings
+    }
+    catch {
+        Write-Status "  ! Failed to set session privacy: $_" -Color Yellow
+    }
+}
+
 function Update-FileSuggestion {
     <#
     .SYNOPSIS
