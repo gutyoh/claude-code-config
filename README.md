@@ -323,6 +323,7 @@ claude-code-config/
 ├── setup.ps1                      # Setup script for Windows
 ├── .mcp.json                      # MCP server configurations
 ├── bin/                                # Utility scripts (installed to ~/.local/bin)
+│   ├── claude-as                       # Run Claude Code as one of several accounts
 │   ├── claude-permissions-audit        # Audit/fix risky permission allow rules
 │   ├── claude-proxy                    # Single entry point for all proxy profiles
 │   ├── proxy-start-codex.sh            # Profile: CLIProxyAPI + OpenAI Codex
@@ -684,6 +685,18 @@ This repository deliberately does **not** install SessionStart/SessionEnd hooks 
 Git remains the source of truth for declarative configuration in this repository: hooks, skills, agents, scripts, and documented settings. Runtime histories stay local. Re-running `./setup.sh` removes legacy `cc-sync-pull.sh` and `cc-sync-push.sh` entries from `~/.claude/settings.json` while preserving unrelated hooks.
 
 The historical `--no-claude-sync` option is accepted as a compatibility no-op. `--with-claude-sync` now exits with migration guidance rather than reinstalling unsafe automatic hooks. This migration does not delete existing conflicts, backups, cloud data, or credentials.
+
+### 7. Multiple Accounts
+
+`claude-as` keeps several Claude accounts signed in at once and picks one by the email it signed in with. Every account shares this configuration and the session history, so a session started as one account continues as another:
+
+```bash
+claude-as --add you@example.com     # once per account and machine
+claude-as                           # list: email, plan, organization
+claude-as example.com --continue    # any part of an email that names one account
+```
+
+See [docs/how-to-use-multiple-accounts.md](./docs/how-to-use-multiple-accounts.md).
 
 ## Permission Rule Audit
 

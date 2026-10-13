@@ -66,3 +66,39 @@ creds() { printf '{"claudeAiOauth":{"accessToken":"%s"}}' "$1"; }
     [ "$status" -ne 0 ]
     [ -z "$output" ]
 }
+
+# --- The login entry follows CLAUDE_CONFIG_DIR ---
+
+@test "the login entry is the base name without CLAUDE_CONFIG_DIR" {
+    run keychain_service
+    [ "$output" = "Claude Code-credentials" ]
+    CLAUDE_CONFIG_DIR="" run keychain_service
+    [ "$output" = "Claude Code-credentials" ]
+}
+
+@test "with CLAUDE_CONFIG_DIR it carries the first 8 hex digits of its SHA-256" {
+    local dir="${HOME}/.claude-work" want
+    want=$("$_PY" -c 'import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest()[:8])' "$dir")
+    CLAUDE_CONFIG_DIR="$dir" run keychain_service
+    [ "$output" = "Claude Code-credentials-${want}" ]
+    # Hashed as given: a trailing slash names another entry, as in Claude Code.
+    CLAUDE_CONFIG_DIR="$dir/" run keychain_service
+    [ "$output" != "Claude Code-credentials-${want}" ]
+}
+
+@test "a keyring is asked for the entry of the config dir in use" {
+    export CLAUDE_CONFIG_DIR="$HOME/.claude-work"
+    mkdir -p "$CLAUDE_CONFIG_DIR"
+    local service
+    service=$(keychain_service)
+    stub_bin secret-tool "[ \"\$3\" = '${service}' ] && printf '%s' '$(creds work-token)' || exit 1"
+    run get_oauth_token
+    [ "$status" -eq 0 ]
+    [ "$output" = "work-token" ]
+}
+
+@test "the usage hook names the login entry the same way" {
+    local hook="$BATS_TEST_DIRNAME/../.claude/hooks/refresh-usage-cache.sh"
+    diff <(sed -n '/^keychain_service() {/,/^}/p' "$MODULES_DIR/api.sh" | sed 1d) \
+        <(sed -n '/^_keychain_service() {/,/^}/p' "$hook" | sed 1d)
+}

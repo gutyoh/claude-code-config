@@ -55,16 +55,29 @@ fi
 
 # --- Background fetch ---
 
+# Claude Code names its login entry after CLAUDE_CONFIG_DIR, exactly as set:
+# the base name plus "-" and the first 8 hex digits of its SHA-256.
+_keychain_service() {
+    local dir="${CLAUDE_CONFIG_DIR:-}" sum
+    if [[ -z "${dir}" ]]; then
+        printf '%s' "${KEYCHAIN_SERVICE}"
+        return
+    fi
+    sum=$(printf '%s' "${dir}" | { shasum -a 256 2>/dev/null || sha256sum; } | cut -c1-8)
+    printf '%s-%s' "${KEYCHAIN_SERVICE}" "${sum}"
+}
+
 _get_token() {
-    local creds=""
+    local creds="" service
+    service=$(_keychain_service)
     case "$(uname -s)" in
         Darwin)
-            creds=$(security find-generic-password -s "${KEYCHAIN_SERVICE}" -w 2>/dev/null) || return 1
+            creds=$(security find-generic-password -s "${service}" -w 2>/dev/null) || return 1
             ;;
         Linux)
             # Keyring first, then the file headless hosts use (same as api.sh).
             if command -v secret-tool &>/dev/null; then
-                creds=$(secret-tool lookup service "${KEYCHAIN_SERVICE}" 2>/dev/null) || creds=""
+                creds=$(secret-tool lookup service "${service}" 2>/dev/null) || creds=""
             fi
             if [[ -z "${creds}" ]]; then
                 local creds_file="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/.credentials.json"
