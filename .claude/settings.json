@@ -72,6 +72,11 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/refresh-usage-cache.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/stop-nudge.sh",
+            "timeout": 10
           }
         ]
       }
