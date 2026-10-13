@@ -42,8 +42,13 @@ machines: Claude Code rotates the token, so both copies stop working.
 claude-as                              # list accounts: email, plan, organization, home
 claude-as you@example.com              # start Claude Code as that account
 claude-as you@example.com --continue   # claude's own arguments follow the email
+claude-as you@example.com -a           # bypass permissions on from the start
 CLAUDE_AS=you@example.com claude-as -p "hi"   # a default, per shell or per folder
 ```
+
+An account starts as plain `claude` does with the shell function `setup.sh`
+installs: bypass permissions is one of the modes `Shift+Tab` cycles through,
+and `-a`, `--unsafe`, `--bypass` or `-adskp` right after the email starts in it.
 
 An account is named by its whole email, in any case. Part of an email runs
 nothing and lists the emails it is part of: a part that names one account today
