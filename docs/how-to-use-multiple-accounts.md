@@ -39,16 +39,23 @@ machines: Claude Code rotates the token, so both copies stop working.
 ## Use an account
 
 ```bash
-claude-as                        # list accounts: email, plan, organization, home
-claude-as you@example.com        # start Claude Code as that account
-claude-as example.com --continue # any part of the email that names one account
-CLAUDE_AS=example.com claude-as -p "hi"   # a default, per shell or per folder
+claude-as                              # list accounts: email, plan, organization, home
+claude-as you@example.com              # start Claude Code as that account
+claude-as you@example.com --continue   # claude's own arguments follow the email
+CLAUDE_AS=you@example.com claude-as -p "hi"   # a default, per shell or per folder
 ```
 
+An account is named by its whole email, in any case. Part of an email runs
+nothing and lists the emails it is part of: a part that names one account today
+would name another once a similar one is added, and a script would then run
+the wrong account or none, so only whole names are accepted.
+
 When one email belongs to two organizations, such as a personal plan and a team,
-add `/<organization or plan>`: `claude-as you@example.com/team`. A home's path
-names it directly: `claude-as ~/.claude-work`. One account signed in to two
-homes runs from `~/.claude`, or else the first.
+add one of them whole: the plan (`claude-as you@example.com/team`, or
+`/team/max_5x`), the organization's name, or its id, which never changes.
+Ambiguous names list every match and run nothing. `--add` prints the shortest
+name that is whole. A home's path names it directly: `claude-as ~/.claude-work`.
+One account signed in to two homes runs from `~/.claude`, or else the first.
 
 Plain `claude` keeps using `~/.claude`.
 
