@@ -26,15 +26,32 @@ transcript=$(jq -r '.transcript_path // empty' <<<"${input}" 2>/dev/null)
 transcript=${transcript/#\~/${HOME}}
 [[ -n ${transcript} && -r ${transcript} ]] || exit 0
 
+# The session's model as the statusline records it; the transcript may not
+# hold the first turn's answer yet when Stop fires.
+session=$(jq -r '.session_id // empty' <<<"${input}" 2>/dev/null)
+recorded=""
+record="${XDG_STATE_HOME:-${HOME}/.local/state}/claude-code/session-names/${session}.model"
+[[ -n ${session} && -r ${record} ]] && recorded=$(head -n 1 "${record}")
+
+# Without a record (a -p run has no statusline), the first turn's answer may
+# reach the transcript just after Stop fires: wait for it, 2 seconds at most.
+if [[ -z ${recorded} ]]; then
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        tail -n 400 "${transcript}" | grep -q '"type":"assistant"' && break
+        sleep 0.2
+    done
+fi
+
 # Globs become one anchored regex: "muse-* gpt-5*" -> ^(muse-.*|gpt-5.*)$
 read -ra globs <<<"${STOP_NUDGE_MODELS:-muse-*}"
 pattern=$(printf '%s|' "${globs[@]}" | sed -e 's/[.+^$()]/\\&/g' -e 's/\*/.*/g' -e 's/?/./g')
 pattern="^(${pattern%|})$"
 
-tail -n 400 "${transcript}" | jq -rRn --argjson in "${input}" --arg pattern "${pattern}" '
+tail -n 400 "${transcript}" | jq -rRn --argjson in "${input}" --arg pattern "${pattern}" --arg recorded "${recorded}" '
     "[stop-nudge]" as $mark
     | [inputs | fromjson? | select(type == "object")] as $tail
-    | ($tail | map(select(.type == "assistant") | .message.model // empty) | last // "") as $model
+    | (if $recorded != "" then $recorded
+       else ($tail | map(select(.type == "assistant") | .message.model // empty) | last // "") end) as $model
     # One nudge per stretch of work: after a nudge, only a tool call re-arms it.
     | ($tail | map(tostring | contains($mark)) | rindex(true)) as $at
     | (if ($in.stop_hook_active // false) | not then true
@@ -51,7 +68,7 @@ tail -n 400 "${transcript}" | jq -rRn --argjson in "${input}" --arg pattern "${p
        elif ($s | test(":\\s*$")) then true
        else ($s | length) < 200
          and ($s | test("(?i)\\b(now|next|let me|i.ll|i will|going to|about to|voy a|vamos a|ahora|a continuaci[oó]n|procedo|sigo con|enseguida|paso a|empiezo|comienzo)\\b"))
-         and ($s | test("(?i)\\b(done|listo|termin[eé]|completed|finished|hecho)\\b") | not)
+         and ($s | test("(?i)\\b(done|listo|termin[eé]|completed|finished|hecho)\\b(?!\\.\\w)") | not)
        end) as $announces
     | select(($model | test($pattern)) and $armed and $announces)
     | {hookSpecificOutput: {hookEventName: "Stop",

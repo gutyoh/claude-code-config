@@ -34,7 +34,7 @@ assistant() {
 stop() {
     local body
     body=$(jq -nc --arg m "$1" --arg t "${TX}" --argjson a "${2:-false}" \
-        '{hook_event_name: "Stop", last_assistant_message: $m, transcript_path: $t, stop_hook_active: $a}')
+        '{hook_event_name: "Stop", session_id: "s1", last_assistant_message: $m, transcript_path: $t, stop_hook_active: $a}')
     run bash -c 'printf "%s" "$2" | bash "$1"' _ "$HOOK" "${body}"
     nudged=0
     [[ ${output} == *"[stop-nudge]"* ]] && nudged=1
@@ -72,6 +72,23 @@ stop() {
     stop $'I will write it now.\n\nDone: the file is written.'
     [ "${nudged}" -eq 0 ]
     stop $'All checks passed.\n```sh\nnow run: make\n```\nNothing left to do.'
+    [ "${nudged}" -eq 0 ]
+}
+
+@test "the first turn uses the session's recorded model" {
+    printf '%s\n' '{"type":"user","message":{"content":"go"}}' >"${TX}"
+    stop "Writing result.txt now."
+    [ "${nudged}" -eq 0 ]
+    mkdir -p "${XDG_STATE_HOME:-${HOME}/.local/state}/claude-code/session-names"
+    echo muse-wonder-1.0 >"${XDG_STATE_HOME:-${HOME}/.local/state}/claude-code/session-names/s1.model"
+    stop "Writing result.txt now."
+    [ "${nudged}" -eq 1 ]
+}
+
+@test "a file name is not a word of completion" {
+    stop "Writing done.txt now."
+    [ "${nudged}" -eq 1 ]
+    stop "Done."
     [ "${nudged}" -eq 0 ]
 }
 
