@@ -15,6 +15,7 @@ all_os='["ubuntu-24.04-arm","macos-latest"]'
 
 if [[ ${event} != pull_request ]]; then
     echo "powershell=true"
+    echo "windows-bash=true"
     echo "test-os=${all_os}"
     exit 0
 fi
@@ -36,5 +37,13 @@ if grep -qE '\.(sh|bash|bats|fish)$|^(bin|lib/setup|tests|\.claude/hooks|\.claud
     test_os=${all_os}
 fi
 
+# Windows runs the status line under Git Bash: its scripts, their tests and
+# this workflow.
+windows_bash=false
+if grep -qE '^\.claude/scripts/|^tests/(statusline|cc-status|helpers)|^\.github/' <<<"${changed}"; then
+    windows_bash=true
+fi
+
 echo "powershell=${powershell}"
+echo "windows-bash=${windows_bash}"
 echo "test-os=${test_os}"

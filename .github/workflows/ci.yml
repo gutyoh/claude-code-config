@@ -31,6 +31,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       powershell: ${{ steps.lanes.outputs.powershell }}
+      windows-bash: ${{ steps.lanes.outputs.windows-bash }}
       test-os: ${{ steps.lanes.outputs.test-os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -136,6 +137,50 @@ jobs:
       - name: PSScriptAnalyzer and Pester
         run: ./tests/powershell-checks.ps1
 
+  # Claude Code runs the status line through Git Bash on Windows, where each
+  # process is an MSYS2 fork: its tests there, on x64 and arm64, when it moves.
+  windows-bash:
+    name: git bash (${{ matrix.os }})
+    needs: plan
+    if: ${{ !cancelled() && (needs.plan.result != 'success' || needs.plan.outputs.windows-bash == 'true') }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-11-arm]
+    defaults:
+      run:
+        # Git for Windows' bash, the one Claude Code uses.
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # mise has no Windows build of bats, so the release mise pins, by commit.
+      # autocrlf off: Git for Windows would check its scripts out with CRLF.
+      - name: Install bats
+        env:
+          BATS_COMMIT: eb7f42f8d608ac693d7a4b67474f6714ea68cfc5 # v1.14.0
+        run: |
+          dir="$(cygpath -u "${RUNNER_TEMP}")/bats-core"
+          git -c core.autocrlf=false clone --quiet https://github.com/bats-core/bats-core "${dir}"
+          git -C "${dir}" -c advice.detachedHead=false checkout --quiet "${BATS_COMMIT}"
+          cygpath -w "${dir}/bin" >>"${GITHUB_PATH}"
+
+      - name: Report toolchain
+        run: |
+          bash --version | head -1
+          bats --version
+          jq --version
+          echo "OSTYPE=${OSTYPE} uname=$(uname -s)"
+
+      - name: Status line tests
+        run: bats tests/statusline-*.bats tests/cc-status.bats
+
   # Linux on every change; macOS (ten times the minutes) when shell code moves.
   test:
     name: tests (${{ matrix.os }})
@@ -199,7 +244,7 @@ jobs:
   # job from being skipped, which branch protection would count as passing.
   ci-status:
     if: always()
-    needs: [plan, static, secrets, powershell, test]
+    needs: [plan, static, secrets, powershell, windows-bash, test]
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     permissions: {}
