@@ -244,8 +244,8 @@ claude_oauth_login() {
     stub_curl_status 429 "Retry-After: 999999"
     body '{}'
     run get_cached_api_data
-    local wait=$(($(cut -f1 "$BACKOFF_FILE") - NOW))
-    ((wait >= 3599 && wait <= 3601))
+    # The delay itself, not the deadline: a slow runner moves the clock.
+    [[ "$(cut -f2 "$BACKOFF_FILE")" == "3600" ]]
     rm -f "$BACKOFF_FILE"
     stub_curl_status 429
     run get_cached_api_data
