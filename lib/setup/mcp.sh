@@ -3,6 +3,10 @@
 # Sourced by setup.sh — do not execute directly.
 # Compatible with Bash 3.2+ (no associative arrays).
 
+# Python before 3.15 reads, writes and prints in the system code page (cp1252
+# under Git Bash on Windows): UTF-8 mode, as 3.15 defaults, unless turned off.
+export PYTHONUTF8="${PYTHONUTF8:-1}"
+
 # --- MCP Server Registry ---
 
 readonly MCP_SERVER_KEYS=("brave-search" "tavily")

@@ -2,6 +2,10 @@
 # Path: lib/setup/settings.sh
 # Sourced by setup.sh — do not execute directly.
 
+# Python before 3.15 reads, writes and prints in the system code page (cp1252
+# under Git Bash on Windows): UTF-8 mode, as 3.15 defaults, unless turned off.
+export PYTHONUTF8="${PYTHONUTF8:-1}"
+
 # Copy over the file's contents instead of renaming onto it: a rename replaces a
 # symlinked rc file (stow, chezmoi, home-manager) with a plain one.
 _replace_contents() {

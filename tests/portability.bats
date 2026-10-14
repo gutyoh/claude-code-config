@@ -60,6 +60,26 @@ all_shipped() {
     }
 }
 
+# --- Python text encoding -------------------------------------------------
+
+# bats test_tags=unit,portability
+@test "every shipped script that runs embedded Python sets UTF-8 mode" {
+    # Before 3.15, Python under Git Bash on Windows prints and opens files in
+    # the system code page (cp1252), so a check mark or a UTF-8 settings file
+    # fails there. PYTHONUTF8=1 is what 3.15 defaults to.
+    local missing
+    missing="$(cd "$REPO_ROOT" && shipped_scripts | while read -r f; do
+        [[ -n "$f" && "$f" != tests/* ]] || continue
+        grep -qE '(python3?|py_cmd\}"?)[[:space:]]+-c?[[:space:]]' "$f" 2>/dev/null || continue
+        grep -q 'PYTHONUTF8=' "$f" || echo "$f"
+    done)"
+    [ -z "$missing" ] || {
+        echo 'Add: export PYTHONUTF8="${PYTHONUTF8:-1}"'
+        echo "$missing"
+        false
+    }
+}
+
 # --- Hardcoded home directories -------------------------------------------
 
 # bats test_tags=unit,portability
