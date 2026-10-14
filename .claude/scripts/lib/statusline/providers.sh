@@ -134,8 +134,10 @@ fetch_muse_usage() {
         | map(if . == null then "" else tostring end) | join("\t")' 2>/dev/null
 }
 
+# Prints the readings' directory and leaves it in REPLY.
 usage_state_dir() {
-    printf '%s' "${_STATE_DIR:-${XDG_STATE_HOME:-${HOME}/.local/state}/claude-code/statusline}"
+    REPLY="${_STATE_DIR:-${XDG_STATE_HOME:-${HOME}/.local/state}/claude-code/statusline}"
+    printf '%s' "${REPLY}"
 }
 
 # Serves a provider's line through its own cache, keyed by login file so two

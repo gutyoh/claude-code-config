@@ -28,7 +28,9 @@ get_file_age() {
     esac
 
     [[ -z "${mtime}" ]] && return 1
-    now=$(date +%s)
+    # The render's clock (epoch_now) when set; this module also stands alone.
+    now="${_NOW:-}"
+    [[ -n "${now}" ]] || now=$(date +%s)
     echo $((now - mtime))
 }
 

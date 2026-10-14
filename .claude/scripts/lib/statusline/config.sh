@@ -5,8 +5,9 @@
 load_config() {
     [[ ! -f "${CONF_FILE}" ]] && return
 
-    local first_line
-    first_line=$(head -n1 "${CONF_FILE}" 2>/dev/null | tr -d '[:space:]')
+    local first_line=""
+    IFS= read -r first_line <"${CONF_FILE}" 2>/dev/null || true
+    first_line="${first_line//[[:space:]]/}"
     [[ -z "${first_line}" ]] && return
 
     # Legacy format detection: first non-empty line has no '='
@@ -19,8 +20,8 @@ load_config() {
     while IFS='=' read -r key value; do
         # Skip empty lines and comments
         [[ -z "${key}" || "${key}" == \#* ]] && continue
-        key=$(echo "${key}" | tr -d '[:space:]')
-        value=$(echo "${value}" | tr -d '[:space:]')
+        key="${key//[[:space:]]/}"
+        value="${value//[[:space:]]/}"
         case "${key}" in
             theme) CONF_THEME="${value}" ;;
             components) CONF_COMPONENTS="${value}" ;;
