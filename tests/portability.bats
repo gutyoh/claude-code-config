@@ -60,6 +60,39 @@ all_shipped() {
     }
 }
 
+# --- Python text encoding -------------------------------------------------
+
+# bats test_tags=unit,portability
+@test "every shipped script that runs embedded Python sets UTF-8 mode" {
+    # Before 3.15, Python under Git Bash on Windows prints and opens files in
+    # the system code page (cp1252), so a check mark or a UTF-8 settings file
+    # fails there. PYTHONUTF8=1 is what 3.15 defaults to.
+    local missing
+    missing="$(cd "$REPO_ROOT" && shipped_scripts | while read -r f; do
+        [[ -n "$f" && "$f" != tests/* ]] || continue
+        grep -qE '(python3?|py_cmd\}"?)[[:space:]]+-c?[[:space:]]' "$f" 2>/dev/null || continue
+        grep -q 'PYTHONUTF8=' "$f" || echo "$f"
+    done)"
+    [ -z "$missing" ] || {
+        echo 'Add: export PYTHONUTF8="${PYTHONUTF8:-1}"'
+        echo "$missing"
+        false
+    }
+}
+
+# bats test_tags=unit,portability
+@test "every bats test name is ASCII" {
+    # bats under Git Bash on Windows cannot find a test whose name holds a
+    # non-ASCII character, so it silently runs fewer tests than it counted.
+    local hits
+    hits="$(cd "$REPO_ROOT" && LC_ALL=C grep -n '^@test ".*[^ -~]' tests/*.bats || true)"
+    [ -z "$hits" ] || {
+        echo "Use ASCII in test names (-> for an arrow, - for a dash):"
+        echo "$hits"
+        false
+    }
+}
+
 # --- Hardcoded home directories -------------------------------------------
 
 # bats test_tags=unit,portability

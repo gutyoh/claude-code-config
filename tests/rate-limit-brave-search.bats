@@ -176,7 +176,7 @@ teardown() {
 
 # --- Concurrency / serialization ---
 
-@test "concurrent invocations serialize (~2× rate limit for 3 parallel calls)" {
+@test "concurrent invocations serialize (~2x rate limit for 3 parallel calls)" {
     # Launch 3 parallel invocations with a 200ms limit. If the lock serializes
     # correctly, total wall time for the LAST call to start is ≥ 2×200ms after
     # the first. We measure the elapsed time from first-launch to all-done and

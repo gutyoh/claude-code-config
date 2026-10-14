@@ -2,6 +2,10 @@
 # Path: lib/setup/opencode.sh
 # Sourced by setup.sh — do not execute directly.
 
+# Python before 3.15 reads, writes and prints in the system code page (cp1252
+# under Git Bash on Windows): UTF-8 mode, as 3.15 defaults, unless turned off.
+export PYTHONUTF8="${PYTHONUTF8:-1}"
+
 # XDG Base Directory spec: honour XDG_CONFIG_HOME, falling back to ~/.config
 # only when it is unset or empty. https://specifications.freedesktop.org/basedir/latest/
 OPENCODE_CONFIG_DIR_DEFAULT="${XDG_CONFIG_HOME:-${HOME}/.config}/opencode"
