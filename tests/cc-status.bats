@@ -70,27 +70,27 @@ set_file_mtime() {
 
 # bats file_tags=integration
 
-@test "label: operational → on" {
+@test "label: operational -> on" {
     [[ "$(_map_status_label "operational")" == "on" ]]
 }
 
-@test "label: degraded_performance → degraded" {
+@test "label: degraded_performance -> degraded" {
     [[ "$(_map_status_label "degraded_performance")" == "degraded" ]]
 }
 
-@test "label: partial_outage → partial" {
+@test "label: partial_outage -> partial" {
     [[ "$(_map_status_label "partial_outage")" == "partial" ]]
 }
 
-@test "label: major_outage → outage" {
+@test "label: major_outage -> outage" {
     [[ "$(_map_status_label "major_outage")" == "outage" ]]
 }
 
-@test "label: under_maintenance → maintenance" {
+@test "label: under_maintenance -> maintenance" {
     [[ "$(_map_status_label "under_maintenance")" == "maintenance" ]]
 }
 
-@test "label: unknown value → empty string" {
+@test "label: unknown value -> empty string" {
     local result
     result=$(_map_status_label "something_unexpected")
     [[ -z "$result" ]]
@@ -149,7 +149,7 @@ set_file_mtime() {
     [[ "$DATA_CC_STATUS" == "on" ]]
 }
 
-@test "collect: stale cache → serves stale immediately (non-blocking)" {
+@test "collect: stale cache -> serves stale immediately (non-blocking)" {
     echo "partial" > "${STATUS_CACHE_FILE}"
     # Age past TTL (300s) but within MAX_STALE (900s)
     local target_ts=$(( $(date +%s) - 400 ))
@@ -166,7 +166,7 @@ set_file_mtime() {
     [[ "$DATA_CC_STATUS" == "partial" ]]
 }
 
-@test "collect: stale cache → background fetch updates cache for next render" {
+@test "collect: stale cache -> background fetch updates cache for next render" {
     echo "on" > "${STATUS_CACHE_FILE}"
     local target_ts=$(( $(date +%s) - 400 ))
     set_file_mtime "${STATUS_CACHE_FILE}" "$target_ts"
@@ -184,7 +184,7 @@ set_file_mtime() {
     [[ "$DATA_CC_STATUS" == "outage" ]]
 }
 
-@test "collect: expired cache (>900s) → empty, no blocking" {
+@test "collect: expired cache (>900s) -> empty, no blocking" {
     echo "outage" > "${STATUS_CACHE_FILE}"
     local target_ts=$(( $(date +%s) - 1000 ))
     set_file_mtime "${STATUS_CACHE_FILE}" "$target_ts"
@@ -198,7 +198,7 @@ set_file_mtime() {
     [[ -z "$DATA_CC_STATUS" ]]
 }
 
-@test "collect: no cache file → empty, no blocking" {
+@test "collect: no cache file -> empty, no blocking" {
     rm -f "${STATUS_CACHE_FILE}"
     _fetch_and_cache_status() { sleep 2; }
     local start end elapsed
@@ -210,28 +210,28 @@ set_file_mtime() {
     [[ -z "$DATA_CC_STATUS" ]]
 }
 
-@test "collect: exact match — 'my_cc_status_v2' does NOT trigger fetch" {
+@test "collect: exact match - 'my_cc_status_v2' does NOT trigger fetch" {
     CONF_COMPONENTS="model,my_cc_status_v2,email"
     DATA_CC_STATUS="untouched"
     collect_service_status
     [[ "$DATA_CC_STATUS" == "untouched" ]]
 }
 
-@test "collect: exact match — 'cc_status' at start of list works" {
+@test "collect: exact match - 'cc_status' at start of list works" {
     CONF_COMPONENTS="cc_status,model,email"
     echo "degraded" > "${STATUS_CACHE_FILE}"
     collect_service_status
     [[ "$DATA_CC_STATUS" == "degraded" ]]
 }
 
-@test "collect: exact match — 'cc_status' at end of list works" {
+@test "collect: exact match - 'cc_status' at end of list works" {
     CONF_COMPONENTS="model,email,cc_status"
     echo "on" > "${STATUS_CACHE_FILE}"
     collect_service_status
     [[ "$DATA_CC_STATUS" == "on" ]]
 }
 
-@test "collect: exact match — 'cc_status' as only component works" {
+@test "collect: exact match - 'cc_status' as only component works" {
     CONF_COMPONENTS="cc_status"
     echo "partial" > "${STATUS_CACHE_FILE}"
     collect_service_status
@@ -257,25 +257,25 @@ set_file_mtime() {
     [[ -z "$result" ]]
 }
 
-@test "color: 'degraded' → COLOR_CAUTION (yellow)" {
+@test "color: 'degraded' -> COLOR_CAUTION (yellow)" {
     local result
     result=$(get_cc_status_color "degraded")
     [[ "$result" == "$COLOR_CAUTION" ]]
 }
 
-@test "color: 'partial' → COLOR_WARN (orange)" {
+@test "color: 'partial' -> COLOR_WARN (orange)" {
     local result
     result=$(get_cc_status_color "partial")
     [[ "$result" == "$COLOR_WARN" ]]
 }
 
-@test "color: 'outage' → COLOR_CRIT (red)" {
+@test "color: 'outage' -> COLOR_CRIT (red)" {
     local result
     result=$(get_cc_status_color "outage")
     [[ "$result" == "$COLOR_CRIT" ]]
 }
 
-@test "color: 'maintenance' → COLOR_CAUTION (yellow, planned)" {
+@test "color: 'maintenance' -> COLOR_CAUTION (yellow, planned)" {
     local result
     result=$(get_cc_status_color "maintenance")
     [[ "$result" == "$COLOR_CAUTION" ]]

@@ -80,6 +80,19 @@ all_shipped() {
     }
 }
 
+# bats test_tags=unit,portability
+@test "every bats test name is ASCII" {
+    # bats under Git Bash on Windows cannot find a test whose name holds a
+    # non-ASCII character, so it silently runs fewer tests than it counted.
+    local hits
+    hits="$(cd "$REPO_ROOT" && LC_ALL=C grep -n '^@test ".*[^ -~]' tests/*.bats || true)"
+    [ -z "$hits" ] || {
+        echo "Use ASCII in test names (-> for an arrow, - for a dash):"
+        echo "$hits"
+        false
+    }
+}
+
 # --- Hardcoded home directories -------------------------------------------
 
 # bats test_tags=unit,portability

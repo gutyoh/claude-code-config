@@ -134,7 +134,7 @@ calls() {
 }
 
 # bats test_tags=integration,statusline
-@test "the cache write is atomic — no partial file is ever served" {
+@test "the cache write is atomic - no partial file is ever served" {
     stub_ccusage
     _refresh_ccusage_cache
     # A complete JSON document, not a truncated one.
