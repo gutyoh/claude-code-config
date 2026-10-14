@@ -691,6 +691,28 @@ render_claude() {
     [[ "$DATA_WEEKLY_PCT" == "4" ]]
 }
 
+@test "account: a later reset seen long ago loses to a newer reading of the live window" {
+    eval 'get_api_session_data() { return 1; }'
+    mkdir -p "$(usage_state_dir)"
+    printf '2|%s|%s\t100|%s|%s\n' "$((NOW + 3600))" "$((NOW - 1800))" "$((NOW + 141120))" "$((NOW - 1800))" >"$(claude_account_file)"
+    render_claude "$(claude_json 2 $((NOW + 3600)) 99 $((NOW + 138000)) "$(transcript active 5)")"
+    [[ "$DATA_WEEKLY_PCT" == "99" ]]
+    [[ "$DATA_WEEKLY_PCT_STALE" == "0" ]]
+}
+
+@test "account: once a window has reset, the next one wins even if seen earlier" {
+    eval 'get_api_session_data() { return 1; }'
+    mkdir -p "$(usage_state_dir)"
+    printf '90|%s|%s\t61|%s|%s\n' "$((NOW - 60))" "$((NOW - 5))" "$((NOW + 86400))" "$((NOW - 5))" >"$(claude_account_file)"
+    render_claude "$(claude_json 2 $((NOW + 18000)) 61 $((NOW + 86400)) "$(transcript older 100)")"
+    [[ "$DATA_SESSION_PCT" == "2" ]]
+}
+
+@test "account: of two ended windows the later one is kept" {
+    run _newer_window "50|$((NOW - 7200))|$((NOW - 10))" "9|$((NOW - 60))|$((NOW - 3000))"
+    [[ "${output%%|*}" == "9" ]]
+}
+
 @test "account: a fresh response in every window spares the OAuth call" {
     eval 'get_api_session_data() { touch "$BATS_TEST_TMPDIR/oauth.called"; return 1; }'
     render_claude "$(claude_json 14 $((NOW + 3600)) 3 $((NOW + 300000)) "$(transcript active 5)")"

@@ -28,14 +28,20 @@ _map_status_label() {
 # Get age of status cache file in seconds
 _status_cache_age() {
     [[ ! -f "${STATUS_CACHE_FILE}" ]] && echo "999999" && return
-    local now file_mod
-    now=$(date "+%s")
+    local now="${_NOW:-}" file_mod
+    [[ -n "${now}" ]] || now=$(date "+%s")
     case "${PLATFORM}" in
         macos) file_mod=$(stat -f "%m" "${STATUS_CACHE_FILE}" 2>/dev/null) ;;
         *) file_mod=$(stat -c "%Y" "${STATUS_CACHE_FILE}" 2>/dev/null) ;;
     esac
     [[ -z "${file_mod}" ]] && echo "999999" && return
     echo $((now - file_mod))
+}
+
+# The cached label, read without a process.
+_status_cache_read() {
+    DATA_CC_STATUS=""
+    IFS= read -r DATA_CC_STATUS <"${STATUS_CACHE_FILE}" 2>/dev/null || true
 }
 
 # Fetch status from API and write label to cache
@@ -67,13 +73,13 @@ collect_service_status() {
 
     # Fresh cache — serve immediately
     if [[ ${cache_age} -lt ${STATUS_CACHE_TTL} && -f "${STATUS_CACHE_FILE}" ]]; then
-        DATA_CC_STATUS=$(cat "${STATUS_CACHE_FILE}")
+        _status_cache_read
         return
     fi
 
     # Stale but within max stale window — serve stale, refresh in background
     if [[ ${cache_age} -lt ${STATUS_CACHE_MAX_STALE} && -f "${STATUS_CACHE_FILE}" ]]; then
-        DATA_CC_STATUS=$(cat "${STATUS_CACHE_FILE}")
+        _status_cache_read
         _fetch_and_cache_status &>/dev/null 3>&- &
         # `disown` fails when the job has already exited, which a fast refresh
         # routinely does. A bare `return` then propagates that status, so a

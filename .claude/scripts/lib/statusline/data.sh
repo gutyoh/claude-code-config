@@ -85,6 +85,13 @@ _refresh_ccusage_cache() {
     return 0
 }
 
+# Prints a file with bash's own read, not a cat process.
+_print_file() {
+    local text=""
+    IFS= read -r -d '' text <"$1" || true
+    printf '%s' "${text}"
+}
+
 # Emit the active block, never blocking the render on ccusage.
 get_ccusage_block() {
     _ccusage_needed || return 1
@@ -94,13 +101,13 @@ get_ccusage_block() {
 
     # Fresh — serve it.
     if [[ "${age}" -lt "${CCUSAGE_CACHE_TTL}" && -f "${CCUSAGE_CACHE_FILE}" ]]; then
-        cat "${CCUSAGE_CACHE_FILE}"
+        _print_file "${CCUSAGE_CACHE_FILE}"
         return 0
     fi
 
     # Stale but usable — serve it now, refresh for the next render.
     if [[ "${age}" -lt "${CCUSAGE_CACHE_MAX_STALE}" && -f "${CCUSAGE_CACHE_FILE}" ]]; then
-        cat "${CCUSAGE_CACHE_FILE}"
+        _print_file "${CCUSAGE_CACHE_FILE}"
         _refresh_ccusage_cache &>/dev/null &
         disown 2>/dev/null || true
         return 0
@@ -122,7 +129,8 @@ calculate_time_remaining() {
         echo "--"
         return
     }
-    now_epoch=$(date "+%s")
+    epoch_now
+    now_epoch="${_NOW}"
     remaining_seconds=$((reset_epoch - now_epoch))
 
     if [[ "${remaining_seconds}" -le 0 ]]; then
@@ -141,7 +149,8 @@ calculate_time_remaining_epoch() {
     [[ -z "${reset_epoch}" || "${reset_epoch}" == "0" ]] && echo "--" && return
 
     local now_epoch remaining_seconds hours mins
-    now_epoch=$(date "+%s")
+    epoch_now
+    now_epoch="${_NOW}"
     remaining_seconds=$((reset_epoch - now_epoch))
 
     if [[ "${remaining_seconds}" -le 0 ]]; then
@@ -154,16 +163,37 @@ calculate_time_remaining_epoch() {
     echo "${hours}h${mins}m"
 }
 
-# Field <n> of a tab-separated line, empty when the line has fewer fields
-# (cut would print the whole line).
-_tab_field() {
-    printf '%s' "$2" | awk -F '\t' -v n="$1" 'NR == 1 { print $n }'
+# Splits a tab-separated line into TABS, keeping empty fields, which `read`
+# would merge since a tab is IFS whitespace.
+_split_tabs() {
+    local rest="$1" tab=$'\t'
+    TABS=()
+    while [[ "${rest}" == *"${tab}"* ]]; do
+        TABS+=("${rest%%"${tab}"*}")
+        rest="${rest#*"${tab}"}"
+    done
+    TABS+=("${rest}")
 }
 
-# Integer percentage, or -- for anything that is not a number.
+# Field <n> of a tab-separated line, empty when the line has fewer fields.
+_tab_field() {
+    _split_tabs "${2%%$'\n'*}"
+    printf '%s' "${TABS[$(($1 - 1))]:-}"
+}
+
+# Rounded percentage, or -- for anything that is not a number, printed and in
+# REPLY: Claude Code and the usage APIs send decimals, and truncating showed one
+# point low.
 _usage_pct() {
-    local pct="${1%%.*}"
-    [[ "${pct}" =~ ^[0-9]+$ ]] && printf '%s' "${pct}" || printf '%s' "--"
+    [[ "$1" =~ ^([0-9]+)(\.([0-9]))?[0-9]*$ ]] || {
+        REPLY="--"
+        printf '%s' "${REPLY}"
+        return
+    }
+    local whole=$((10#${BASH_REMATCH[1]}))
+    ((${BASH_REMATCH[3]:-0} >= 5)) && whole=$((whole + 1))
+    REPLY="${whole}"
+    printf '%s' "${REPLY}"
 }
 
 # --- Claude: one reading per account ------------------------------------------
@@ -179,60 +209,88 @@ _usage_pct() {
 _CL_FIVE="||"
 _CL_WEEK="||"
 
+# Prints the account's reading file and leaves it in REPLY.
 claude_account_file() {
-    printf '%s' "$(usage_state_dir)/claude${_ACCOUNT_SUFFIX:-}"
+    usage_state_dir >/dev/null
+    REPLY="${REPLY}/claude${_ACCOUNT_SUFFIX:-}"
+    printf '%s' "${REPLY}"
 }
 
-# Prints the newer of two readings of one window.
-_newer_window() {
-    local p1 r1 s1 p2 r2 s2 num='^[0-9]+$'
+# The newer of two readings of one window, in REPLY (_newer_window prints it). Only a window that has not
+# reset is current, so while both are the one seen last wins, whatever reset it
+# names: a reset a plan change moved, or a wrong one, cannot hold the figure.
+_merge_window() {
+    local p1 r1 s1 p2 r2 s2 now num='^[0-9]+$'
     IFS='|' read -r p1 r1 s1 <<<"$1"
     IFS='|' read -r p2 r2 s2 <<<"$2"
     if ! [[ "${p2}" =~ ${num} && "${r2}" =~ ${num} && "${s2}" =~ ${num} ]]; then
-        printf '%s' "$1"
+        REPLY="$1"
+        return
     elif ! [[ "${p1}" =~ ${num} && "${r1}" =~ ${num} && "${s1}" =~ ${num} ]]; then
-        printf '%s' "$2"
-    elif ((r2 > r1 + 120)); then
-        printf '%s' "$2"
-    elif ((r1 > r2 + 120)); then
-        printf '%s' "$1"
-    elif ((s2 > s1)); then
-        printf '%s' "$2"
-    elif ((s1 > s2)); then
-        printf '%s' "$1"
-    elif ((p2 > p1)); then
-        printf '%s' "$2"
-    elif ((p1 > p2)); then
-        printf '%s' "$1"
-    else
-        printf '%s' "$1"
+        REPLY="$2"
+        return
     fi
+    epoch_now
+    now="${_NOW}"
+    local live1=$((r1 > now)) live2=$((r2 > now))
+    if ((live1 != live2)); then
+        ((live2)) && REPLY="$2" || REPLY="$1"
+    elif ((!live1 && r1 != r2)); then
+        ((r2 > r1)) && REPLY="$2" || REPLY="$1"
+    elif ((s2 > s1 || (s2 == s1 && p2 > p1))); then
+        REPLY="$2"
+    else
+        REPLY="$1"
+    fi
+}
+
+_newer_window() {
+    _merge_window "$@"
+    printf '%s' "${REPLY}"
 }
 
 # claude_observe <five_pct> <five_reset> <week_pct> <week_reset> <seen>
 # An unknown reset counts as 0, so any reading with a reset replaces it.
 claude_observe() {
     local five week
-    five=$(_usage_pct "$1")
-    week=$(_usage_pct "$3")
-    [[ "${five}" == "--" ]] || _CL_FIVE=$(_newer_window "${_CL_FIVE}" "${five}|${2:-0}|$5")
-    [[ "${week}" == "--" ]] || _CL_WEEK=$(_newer_window "${_CL_WEEK}" "${week}|${4:-0}|$5")
+    _usage_pct "$1" >/dev/null
+    five="${REPLY}"
+    _usage_pct "$3" >/dev/null
+    week="${REPLY}"
+    if [[ "${five}" != "--" ]]; then
+        _merge_window "${_CL_FIVE}" "${five}|${2:-0}|$5"
+        _CL_FIVE="${REPLY}"
+    fi
+    if [[ "${week}" != "--" ]]; then
+        _merge_window "${_CL_WEEK}" "${week}|${4:-0}|$5"
+        _CL_WEEK="${REPLY}"
+    fi
     return 0
 }
 
 _claude_read_shared() {
-    local five week
+    local line=""
     [[ -f "$1" ]] || return 0
-    IFS=$'\t' read -r five week <"$1" || true
-    _CL_FIVE=$(_newer_window "${_CL_FIVE}" "${five}")
-    _CL_WEEK=$(_newer_window "${_CL_WEEK}" "${week}")
+    IFS= read -r line <"$1" || true
+    _claude_merge_line "${line}"
+}
+
+# Merges one account-file line, "five<TAB>week", into this render's readings.
+_claude_merge_line() {
+    local five="${1%%$'\t'*}" week=""
+    [[ "$1" == *$'\t'* ]] && week="${1#*$'\t'}"
+    _merge_window "${_CL_FIVE}" "${five}"
+    _CL_FIVE="${REPLY}"
+    _merge_window "${_CL_WEEK}" "${week}"
+    _CL_WEEK="${REPLY}"
 }
 
 # Whether every window was seen within CACHE_TTL: responses then keep the
 # account current, and the throttled OAuth endpoint has nothing newer.
 claude_fresh() {
     local window pct reset seen now
-    now=$(date +%s)
+    epoch_now
+    now="${_NOW}"
     for window in "${_CL_FIVE}" "${_CL_WEEK}"; do
         IFS='|' read -r pct reset seen <<<"${window}"
         [[ "${seen}" =~ ^[0-9]+$ ]] && ((now - seen < CACHE_TTL)) || return 1
@@ -243,9 +301,14 @@ claude_fresh() {
 # back. A lock held by another render skips the write, never the read; a lock
 # left by a killed render is reclaimed after a few seconds.
 claude_share() {
-    local file lock age
-    file=$(claude_account_file)
-    mkdir -p "${file%/*}" 2>/dev/null || return 0
+    local file lock age before=""
+    claude_account_file >/dev/null
+    file="${REPLY}"
+    [[ -f "${file}" ]] && { IFS= read -r before <"${file}" || true; }
+    _claude_merge_line "${before}"
+    # Nothing newer than the file: most renders, so no lock and no write.
+    [[ "${_CL_FIVE}"$'\t'"${_CL_WEEK}" == "${before}" ]] && return 0
+    [[ -d "${file%/*}" ]] || mkdir -p "${file%/*}" 2>/dev/null || return 0
     lock="${_TMP_DIR:-${TMPDIR:-/tmp}}/claude-account${_ACCOUNT_SUFFIX:-}.lock"
     if [[ -d "${lock}" ]]; then
         age=$(get_file_age "${lock}" 2>/dev/null) || age=0
@@ -265,7 +328,8 @@ claude_share() {
 # Shows the account reading; fails when no window is known.
 apply_claude_account() {
     local pct reset seen now shown=1
-    now=$(date +%s)
+    epoch_now
+    now="${_NOW}"
     IFS='|' read -r pct reset seen <<<"${_CL_FIVE}"
     if [[ "${pct}" =~ ^[0-9]+$ ]]; then
         DATA_SESSION_PCT="${pct}"
@@ -283,36 +347,41 @@ apply_claude_account() {
     return "${shown}"
 }
 
-# Integer percentage, or -- for anything that is not a number.
-_usage_pct() {
-    local pct="${1%%.*}"
-    [[ "${pct}" =~ ^[0-9]+$ ]] && printf '%s' "${pct}" || printf '%s' "--"
+# Every stdin field a render reads, from one jq into IN_*: a process per field
+# was most of the render's cost, and processes are slow under Git Bash.
+parse_input() {
+    local line sep=$'\x1f'
+    line=$(jq -r '[(.model.display_name // "claude" | sub("Claude "; "")
+            | ascii_downcase | gsub(" "; "-")),
+        .model.id, .version, .cost.total_lines_added, .cost.total_lines_removed,
+        .cost.total_duration_ms, .cwd, .session_id, .transcript_path,
+        .rate_limits.five_hour.used_percentage, .rate_limits.five_hour.resets_at,
+        .rate_limits.seven_day.used_percentage, .rate_limits.seven_day.resets_at]
+        | map(if . == null then "" else tostring | gsub("[\u001f\n]"; " ") end)
+        | join("\u001f")' <<<"$1" 2>/dev/null) || line=""
+    IFS="${sep}" read -r IN_MODEL IN_MODEL_ID IN_VERSION IN_LINES_ADDED IN_LINES_REMOVED \
+        IN_DURATION_MS IN_CWD IN_SESSION IN_TRANSCRIPT \
+        IN_FIVE IN_FIVE_RESET IN_WEEK IN_WEEK_RESET <<<"${line}" || true
+    IN_MODEL="${IN_MODEL:-claude}"
 }
 
 # The rate_limits Claude Code passes on stdin, once a session has had a
 # response (documented for Pro and Max plans); each window may be absent.
 get_native_usage_data() {
-    local input="$1" line
-    line=$(echo "${input}" | jq -r '.rate_limits // empty
-        | select(.five_hour.used_percentage != null or .seven_day.used_percentage != null)
-        | [.five_hour.used_percentage, .five_hour.resets_at,
-           .seven_day.used_percentage, .seven_day.resets_at]
-        | map(if . == null then "" else tostring end) | join("\t")' 2>/dev/null)
-    [[ -z "${line}" ]] && return 1
-    claude_observe "$(_tab_field 1 "${line}")" "$(_tab_field 2 "${line}")" \
-        "$(_tab_field 3 "${line}")" "$(_tab_field 4 "${line}")" "$(_native_seen "${input}")"
+    [[ -n "${IN_FIVE}${IN_WEEK}" ]] || return 1
+    _native_seen
+    claude_observe "${IN_FIVE}" "${IN_FIVE_RESET}" "${IN_WEEK}" "${IN_WEEK_RESET}" "${REPLY}"
 }
 
-# When the session last heard from the API: Claude Code repeats its last
-# rate_limits on every render, so they are as old as the transcript's last write.
+# When the session last heard from the API, in REPLY: Claude Code repeats its
+# last rate_limits on every render, so they are as old as the transcript.
 _native_seen() {
-    local transcript age now
-    now=$(date +%s)
-    transcript=$(echo "$1" | jq -r '.transcript_path // empty' 2>/dev/null)
-    if [[ -n "${transcript}" ]] && age=$(get_file_age "${transcript}") && ((age > 0)); then
-        now=$((now - age))
+    local age
+    epoch_now
+    REPLY="${_NOW}"
+    if [[ -n "${IN_TRANSCRIPT}" ]] && age=$(get_file_age "${IN_TRANSCRIPT}") && ((age > 0)); then
+        REPLY=$((_NOW - age))
     fi
-    printf '%s' "${now}"
 }
 
 # A GPT or Muse plan's windows (providers.sh). A window the plan does not have
@@ -323,12 +392,9 @@ get_provider_usage_data() {
     [[ -z "${line}" ]] && return 1
 
     local five five_reset week week_reset fetched_at week_seen
-    five=$(printf '%s' "${line}" | cut -f1)
-    five_reset=$(printf '%s' "${line}" | cut -f2)
-    week=$(printf '%s' "${line}" | cut -f3)
-    week_reset=$(printf '%s' "${line}" | cut -f4)
-    fetched_at=$(printf '%s' "${line}" | cut -f5)
-    week_seen=$(printf '%s' "${line}" | cut -f6)
+    _split_tabs "${line%%$'\n'*}"
+    five="${TABS[0]:-}" five_reset="${TABS[1]:-}" week="${TABS[2]:-}"
+    week_reset="${TABS[3]:-}" fetched_at="${TABS[4]:-}" week_seen="${TABS[5]:-}"
 
     DATA_SESSION_PCT=""
     DATA_TIME_LEFT=""
@@ -346,7 +412,8 @@ get_provider_usage_data() {
     # Each window is approximate once its own reading is old: a weekly window
     # carried through an idle stretch can be older than the fetch serving it.
     local now
-    now=$(date +%s)
+    epoch_now
+    now="${_NOW}"
     [[ "${week_seen}" =~ ^[0-9]+$ ]] || week_seen="${fetched_at}"
     if [[ "${fetched_at}" =~ ^[0-9]+$ ]] && ((now - fetched_at > ${USAGE_STALE_S:-900})); then
         DATA_SESSION_PCT_STALE=1
@@ -381,7 +448,8 @@ get_hook_usage_data() {
         MSYS* | MINGW* | CYGWIN*) mtime=$(stat -c "%Y" "${cache_file}" 2>/dev/null) ;;
     esac
     if [[ -n "${mtime}" ]]; then
-        cache_age=$(($(date +%s) - mtime))
+        epoch_now
+        cache_age=$((_NOW - mtime))
     fi
 
     DATA_SESSION_PCT="${pct}"
@@ -406,25 +474,30 @@ get_oauth_usage_data() {
     [[ -z "${api_data}" ]] && return 1
     # shellcheck disable=SC2153 # CACHE_FILE is set by statusline.sh
     cache_age=$(get_file_age "${CACHE_FILE}" 2>/dev/null) || cache_age=0
-    five_reset=$(_reset_epoch "$(_tab_field 2 "${api_data}")")
-    week_reset=$(_reset_epoch "$(_tab_field 4 "${api_data}")")
-    claude_observe "$(_tab_field 1 "${api_data}")" "${five_reset}" \
-        "$(_tab_field 3 "${api_data}")" "${week_reset}" "$(($(date +%s) - cache_age))"
+    _split_tabs "${api_data}"
+    local five="${TABS[0]:-}" five_iso="${TABS[1]:-}" week="${TABS[2]:-}" week_iso="${TABS[3]:-}"
+    five_reset=$(_reset_epoch "${five_iso}")
+    week_reset=$(_reset_epoch "${week_iso}")
+    epoch_now
+    claude_observe "${five}" "${five_reset}" "${week}" "${week_reset}" "$((_NOW - cache_age))"
 }
 
 # Records each session's current model for hooks/session-name.sh, which cannot
 # see a /model switch itself. The statusline runs often, so it writes only on
-# a change.
+# a change. A render passes nothing (parse_input ran); a caller may pass stdin.
+# shellcheck disable=SC2120
 record_session_model() {
-    local input="$1" session model dir file
+    local session model dir file recorded=""
     [[ "${CLAUDE_SESSION_NAME:-}" == "off" ]] && return 0
-    session=$(echo "${input}" | jq -r '.session_id // empty' 2>/dev/null)
-    model=$(echo "${input}" | jq -r '.model.id // empty' 2>/dev/null)
+    [[ $# -eq 0 ]] || parse_input "$1"
+    session="${IN_SESSION}"
+    model="${IN_MODEL_ID}"
     [[ "${session}" =~ ^[A-Za-z0-9-]+$ && -n "${model}" ]] || return 0
 
     dir="${XDG_STATE_HOME:-${HOME}/.local/state}/claude-code/session-names"
     file="${dir}/${session}.model"
-    [[ -f "${file}" && "$(head -n 1 "${file}")" == "${model}" ]] && return 0
+    [[ -f "${file}" ]] && IFS= read -r recorded <"${file}"
+    [[ "${recorded}" == "${model}" ]] && return 0
     mkdir -p "${dir}" 2>/dev/null || return 0
     printf '%s\n' "${model}" >"${file}.$$" && mv -f "${file}.$$" "${file}"
     return 0
@@ -437,27 +510,18 @@ collect_data() {
     debug "Platform: ${PLATFORM}"
     debug "Tmp dir: ${_TMP_DIR}"
 
-    record_session_model "${input}"
+    epoch_now
+    parse_input "${input}"
+    record_session_model
 
-    # Model name from stdin JSON
-    DATA_MODEL=$(echo "${input}" | jq -r '.model.display_name // "claude"' \
-        | sed 's/Claude //' \
-        | tr '[:upper:]' '[:lower:]' \
-        | tr ' ' '-')
+    # "Claude Opus 5.5" shows as "opus-5.5"
+    DATA_MODEL="${IN_MODEL}"
     debug_var "DATA_MODEL" "${DATA_MODEL}"
-
-    # Version from stdin JSON
-    DATA_VERSION=$(echo "${input}" | jq -r '.version // empty')
-
-    # Lines added/removed from stdin JSON
-    DATA_LINES_ADDED=$(echo "${input}" | jq -r '.cost.total_lines_added // empty')
-    DATA_LINES_REMOVED=$(echo "${input}" | jq -r '.cost.total_lines_removed // empty')
-
-    # Session duration from stdin JSON
-    DATA_SESSION_TIME_MS=$(echo "${input}" | jq -r '.cost.total_duration_ms // empty')
-
-    # Current working directory from stdin JSON
-    DATA_CWD=$(echo "${input}" | jq -r '.cwd // empty')
+    DATA_VERSION="${IN_VERSION}"
+    DATA_LINES_ADDED="${IN_LINES_ADDED}"
+    DATA_LINES_REMOVED="${IN_LINES_REMOVED}"
+    DATA_SESSION_TIME_MS="${IN_DURATION_MS}"
+    DATA_CWD="${IN_CWD}"
 
     # Account email. `|| true` because jq exits non-zero when .claude.json is
     # missing — which is the normal state on a fresh install — and a bare
@@ -475,16 +539,16 @@ collect_data() {
     collect_service_status
 
     # Usage data: the plan behind the session's model
-    local model_id
-    model_id=$(echo "${input}" | jq -r '.model.id // empty' 2>/dev/null)
+    local model_id="${IN_MODEL_ID}"
     DATA_USAGE_PROVIDER=$(usage_provider "${model_id}")
     debug "--- Usage Data (${DATA_USAGE_PROVIDER}) ---"
     case "${DATA_USAGE_PROVIDER}" in
         claude)
             _CL_FIVE="||"
             _CL_WEEK="||"
-            get_native_usage_data "${input}" && debug "Observed: native stdin JSON (rate_limits)"
-            _claude_read_shared "$(claude_account_file)"
+            get_native_usage_data && debug "Observed: native stdin JSON (rate_limits)"
+            claude_account_file >/dev/null
+            _claude_read_shared "${REPLY}"
             if claude_fresh; then
                 debug "Skipped: OAuth API, every window was seen within ${CACHE_TTL}s"
             elif get_oauth_usage_data; then
@@ -516,11 +580,10 @@ collect_data() {
     local active_block=""
     if active_block=$(get_ccusage_block 2>&1); then
         debug "ccusage: found active block"
-        DATA_INPUT_TOKENS=$(echo "${active_block}" | jq -r '.tokenCounts.inputTokens // 0')
-        DATA_OUTPUT_TOKENS=$(echo "${active_block}" | jq -r '.tokenCounts.outputTokens // 0')
-        DATA_CACHE_READ=$(echo "${active_block}" | jq -r '.tokenCounts.cacheReadInputTokens // 0')
-        DATA_COST_USD=$(echo "${active_block}" | jq -r '.costUSD // 0')
-        DATA_BURN_RATE=$(echo "${active_block}" | jq -r '.burnRate.costPerHour // 0')
+        IFS=$'\t' read -r DATA_INPUT_TOKENS DATA_OUTPUT_TOKENS DATA_CACHE_READ \
+            DATA_COST_USD DATA_BURN_RATE < <(jq -r '[.tokenCounts.inputTokens // 0,
+                .tokenCounts.outputTokens // 0, .tokenCounts.cacheReadInputTokens // 0,
+                .costUSD // 0, .burnRate.costPerHour // 0] | @tsv' <<<"${active_block}")
     else
         debug "ccusage: no active block (is ccusage installed? run: npm install -g ccusage)"
     fi

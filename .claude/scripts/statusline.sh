@@ -68,7 +68,8 @@ readonly _TMP_DIR="${TMPDIR:-${TEMP:-/tmp}}/claude-statusline-${UID:-$(id -u 2>/
 # show each other's usage. Not readonly: each provider scopes its own copy.
 _ACCOUNT_SUFFIX=""
 if [[ -n "${CLAUDE_CONFIG_DIR:-}" ]]; then
-    _ACCOUNT_SUFFIX="-$(printf '%s' "${CLAUDE_CONFIG_DIR}" | cksum | cut -d' ' -f1)"
+    _ACCOUNT_SUFFIX="$(printf '%s' "${CLAUDE_CONFIG_DIR}" | cksum)"
+    _ACCOUNT_SUFFIX="-${_ACCOUNT_SUFFIX%% *}"
 fi
 # Readings live in the state directory, so a weekly window survives a reboot
 # followed by a failed fetch. Locks and backoff stay in the temp directory.
@@ -140,23 +141,48 @@ IS_WIDE="false"
 
 # --- Platform Detection ---
 
+# From bash's own OSTYPE, so no process; uname only where it is unset. Prints
+# the platform and leaves it in REPLY.
 detect_platform() {
-    local uname_out
-    uname_out="$(uname -s)"
-    case "${uname_out}" in
-        Darwin) echo "macos" ;;
-        Linux) echo "linux" ;;
-        MSYS* | MINGW* | CYGWIN* | *_NT*) echo "windows" ;;
-        *) echo "unknown" ;;
+    local os="${OSTYPE:-}"
+    [[ -n "${os}" ]] || os="$(uname -s)"
+    case "${os}" in
+        darwin* | Darwin) REPLY="macos" ;;
+        linux* | Linux) REPLY="linux" ;;
+        msys* | cygwin* | win* | MSYS* | MINGW* | CYGWIN* | *_NT*) REPLY="windows" ;;
+        *) REPLY="unknown" ;;
     esac
+    echo "${REPLY}"
 }
 
-PLATFORM="$(detect_platform)"
+detect_platform >/dev/null
+PLATFORM="${REPLY}"
+
+# jq past mise's shim, which starts mise on every call at many times the cost of
+# jq itself. Without a jq of its own on PATH, mise's installed one serves.
+_resolve_jq() {
+    local dir found="" IFS=:
+    for dir in ${PATH}; do
+        [[ "${dir}" == */mise/shims ]] && continue
+        [[ -x "${dir}/jq" ]] && found="${dir}/jq" && break
+    done
+    if [[ -z "${found}" ]]; then
+        for dir in "${MISE_DATA_DIR:-${HOME}/.local/share/mise}"/installs/jq/*/jq \
+            "${MISE_DATA_DIR:-${HOME}/.local/share/mise}"/installs/jq/*/bin/jq; do
+            [[ -x "${dir}" ]] && found="${dir}"
+        done
+    fi
+    [[ -n "${found}" ]] || return 0
+    _JQ="${found}"
+    jq() { "${_JQ}" "$@"; }
+}
+_resolve_jq
 readonly PLATFORM
 
 # --- Source Modules ---
 
-_STATUSLINE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_STATUSLINE_DIR="${BASH_SOURCE[0]%/*}"
+[[ "${BASH_SOURCE[0]}" == */* ]] || _STATUSLINE_DIR="."
 source "${_STATUSLINE_DIR}/lib/statusline/config.sh"
 source "${_STATUSLINE_DIR}/lib/statusline/utils.sh"
 source "${_STATUSLINE_DIR}/lib/statusline/api.sh"
@@ -174,14 +200,15 @@ source "${_STATUSLINE_DIR}/lib/statusline/assembly.sh"
 main() {
     # Ensure user-specific tmp dir exists (prevents /tmp symlink attacks)
     [[ ! -d "${_TMP_DIR}" ]] && mkdir -p "${_TMP_DIR}" 2>/dev/null
-    mkdir -p "${_STATE_DIR}" 2>/dev/null || CACHE_FILE="${_TMP_DIR}/api-cache${_ACCOUNT_SUFFIX}"
+    [[ -d "${_STATE_DIR}" ]] || mkdir -p "${_STATE_DIR}" 2>/dev/null || CACHE_FILE="${_TMP_DIR}/api-cache${_ACCOUNT_SUFFIX}"
+    epoch_now
 
     load_config
     load_theme
 
     # Read Claude's JSON input from stdin
-    local input term_width
-    input=$(cat)
+    local input="" term_width
+    IFS= read -r -d '' input || true
     # Skip tput cols — in piped subprocesses (how Claude Code runs this script),
     # tput succeeds but returns a bogus 80. Use $COLUMNS if set (interactive shell),
     # otherwise assume a modern wide terminal (120). Claude Code truncates on its side.

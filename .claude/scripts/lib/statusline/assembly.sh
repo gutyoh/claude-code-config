@@ -12,7 +12,7 @@ render_all_components() {
     for i in "${!components_arr[@]}"; do
         local key="${components_arr[$i]}"
         # Trim whitespace
-        key=$(echo "${key}" | tr -d '[:space:]')
+        key="${key//[[:space:]]/}"
 
         # Check if render function exists
         if ! declare -f "render_component_${key}" &>/dev/null; then
