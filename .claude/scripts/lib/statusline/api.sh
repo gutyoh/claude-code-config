@@ -77,15 +77,35 @@ get_oauth_token() {
 }
 
 fetch_api_usage() {
-    local token="$1"
+    local token="$1" headers body
+    headers="${BACKOFF_FILE}.headers.$$"
 
     # The token goes in on stdin, so it never shows in the process list.
-    {
+    body=$({
         curl_proxy_config
         printf 'header = "Authorization: Bearer %s"\n' "${token}"
-    } | curl -s -K - --max-time "${CURL_TIMEOUT}" "${API_URL}" \
+    } | curl -s -K - -D "${headers}" --max-time "${CURL_TIMEOUT}" "${API_URL}" \
         -H "Accept: application/json" \
-        -H "anthropic-beta: ${API_BETA_HEADER}" 2>/dev/null || return 1
+        -H "anthropic-beta: ${API_BETA_HEADER}" 2>/dev/null) || {
+        rm -f "${headers}"
+        return 1
+    }
+    record_retry_after "${headers}" || return 1
+    printf '%s' "${body}"
+}
+
+# A 429's Retry-After, in seconds, for increase_backoff to wait at least that
+# long; fails on a 429, so its body is never read as usage.
+record_retry_after() {
+    local headers="$1" status wait
+    [[ -f "${headers}" ]] || return 0
+    # Header lines end in CRLF; the last status line is the final response.
+    status=$(awk '{ sub(/\r$/, "") } toupper($1) ~ /^HTTP\// { code = $2 } END { print code }' "${headers}")
+    wait=$(awk -F': *' '{ sub(/\r$/, "") } tolower($1) == "retry-after" { v = $2 } END { print v }' "${headers}")
+    rm -f "${headers}"
+    [[ "${status}" == "429" ]] || return 0
+    [[ "${wait}" =~ ^[0-9]+$ ]] && printf '%s' "${wait}" >"${BACKOFF_FILE}.retry-after"
+    return 1
 }
 
 get_api_session_data() {

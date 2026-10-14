@@ -198,6 +198,60 @@ field() { printf '%s' "$1" | cut -f"$2"; }
     ! grep -q "tok-claude" "$BATS_TEST_TMPDIR/curl.argv"
 }
 
+# curl stub that answers <status> with <headers...>, through -D as curl does.
+stub_curl_status() { # status [header...]
+    local dir="$BATS_TEST_TMPDIR" status="$1" hdr
+    shift
+    hdr="HTTP/2 ${status}\r\n"
+    for h in "$@"; do hdr+="${h}\r\n"; done
+    stub_bin curl \
+        "cat >/dev/null" \
+        "while [[ \$# -gt 0 ]]; do [[ \$1 == -D ]] && printf '${hdr}\r\n' >\"\$2\"; shift; done" \
+        "cat '$dir/body.json'"
+}
+
+claude_oauth_login() {
+    mkdir -p "$HOME/.claude"
+    printf '{"claudeAiOauth":{"accessToken":"tok-claude"}}' >"$HOME/.claude/.credentials.json"
+    API_URL="https://api.anthropic.com/api/oauth/usage"; CURL_TIMEOUT=5; API_BETA_HEADER="oauth-2025-04-20"
+}
+
+@test "Claude OAuth 200: usage is read, and no header dump is left behind" {
+    claude_oauth_login
+    stub_curl_status 200
+    body '{"five_hour":{"utilization":13.0,"resets_at":"2026-10-14T23:30:00Z"},"seven_day":{"utilization":2.0,"resets_at":"2026-10-18T21:00:00Z"}}'
+    run get_cached_api_data
+    [ "$status" -eq 0 ]
+    [[ "$(field "$output" 1)" == "13.0" && "$(field "$output" 3)" == "2.0" ]]
+    [ -z "$(ls "$_TMP_DIR" | grep headers)" ]
+}
+
+@test "Claude OAuth 429: Retry-After sets the backoff, and its body is not usage" {
+    claude_oauth_login
+    stub_curl_status 429 "retry-after: 1200"
+    body '{"type":"error","error":{"type":"rate_limit_error"}}'
+    run get_cached_api_data
+    [ "$status" -ne 0 ]
+    local until
+    until=$(cut -f1 "$BACKOFF_FILE")
+    ((until - NOW >= 1199))
+    [ ! -f "$BACKOFF_FILE.retry-after" ]
+    [ -z "$(ls "$_TMP_DIR" | grep headers)" ]
+}
+
+@test "Claude OAuth 429: Retry-After is capped at an hour, and a 429 without it backs off as before" {
+    claude_oauth_login
+    stub_curl_status 429 "Retry-After: 999999"
+    body '{}'
+    run get_cached_api_data
+    local wait=$(($(cut -f1 "$BACKOFF_FILE") - NOW))
+    ((wait >= 3599 && wait <= 3601))
+    rm -f "$BACKOFF_FILE"
+    stub_curl_status 429
+    run get_cached_api_data
+    [[ "$(cut -f2 "$BACKOFF_FILE")" == "$BACKOFF_INITIAL_S" ]]
+}
+
 @test "openai: CODEX_HOME names the login" {
     mkdir -p "$BATS_TEST_TMPDIR/codex-home"
     printf '{"tokens":{"access_token":"tok-codex-home"}}' >"$BATS_TEST_TMPDIR/codex-home/auth.json"
@@ -530,8 +584,26 @@ field() { printf '%s' "$1" | cut -f"$2"; }
 # Claude: one reading per account, shared by every session
 # =========================================================================
 
-claude_json() { # five_pct five_reset week_pct week_reset
-    printf '{"model":{"id":"claude-opus-5-5","display_name":"Opus 5.5"},"rate_limits":{"five_hour":{"used_percentage":%s,"resets_at":%s},"seven_day":{"used_percentage":%s,"resets_at":%s}}}' "$@"
+claude_json() { # five_pct five_reset week_pct week_reset [transcript]
+    printf '{"model":{"id":"claude-opus-5-5","display_name":"Opus 5.5"},"transcript_path":"%s","rate_limits":{"five_hour":{"used_percentage":%s,"resets_at":%s},"seven_day":{"used_percentage":%s,"resets_at":%s}}}' "${5:-}" "$1" "$2" "$3" "$4"
+}
+
+# A session transcript last written <age> seconds ago, as Claude Code writes
+# one after each response.
+transcript() { # name age
+    local f="$BATS_TEST_TMPDIR/$1.jsonl"
+    : >"$f"
+    set_file_mtime "$f" "$((NOW - $2))"
+    printf '%s' "$f"
+}
+
+# The OAuth reading, as cached <age> seconds ago.
+oauth_cache() { # five_pct week_pct week_reset age
+    local iso5 iso7
+    iso5=$(date -u -d "@$((NOW + 3600))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -r "$((NOW + 3600))" +%Y-%m-%dT%H:%M:%SZ)
+    iso7=$(date -u -d "@$3" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -r "$3" +%Y-%m-%dT%H:%M:%SZ)
+    printf '%s\t%s\t%s\t%s' "$1" "$iso5" "$2" "$iso7" >"$CACHE_FILE"
+    set_file_mtime "$CACHE_FILE" "$((NOW - $4))"
 }
 
 render_claude() {
@@ -545,8 +617,8 @@ render_claude() {
 @test "account: a quiet session shows what another session saw since" {
     eval 'get_api_session_data() { return 1; }'
     local r5=$((NOW + 3600)) r7=$((NOW + 86400))
-    render_claude "$(claude_json 5 $r5 61 $r7)"   # the busy session
-    render_claude "$(claude_json 4 $r5 60 $r7)"   # the quiet one, behind
+    render_claude "$(claude_json 5 $r5 61 $r7 "$(transcript busy 10)")"
+    render_claude "$(claude_json 4 $r5 60 $r7 "$(transcript quiet 600)")"
     [[ "$DATA_SESSION_PCT" == "5" ]]
     [[ "$DATA_WEEKLY_PCT" == "61" ]]
 }
@@ -554,9 +626,9 @@ render_claude() {
 @test "account: an older reading never replaces a newer one" {
     eval 'get_api_session_data() { return 1; }'
     local r5=$((NOW + 3600)) r7=$((NOW + 86400))
-    render_claude "$(claude_json 9 $r5 70 $r7)"
-    render_claude "$(claude_json 3 $r5 65 $r7)"
-    render_claude "$(claude_json 3 $r5 65 $r7)"
+    render_claude "$(claude_json 9 $r5 70 $r7 "$(transcript new 10)")"
+    render_claude "$(claude_json 3 $r5 65 $r7 "$(transcript old 900)")"
+    render_claude "$(claude_json 3 $r5 65 $r7 "$(transcript old 900)")"
     IFS=$'\t' read -r five week <"$(claude_account_file)"
     [[ "${five%%|*}" == "9" ]]
     [[ "${week%%|*}" == "70" ]]
@@ -569,24 +641,81 @@ render_claude() {
     [[ "$DATA_SESSION_PCT" == "2" ]]
 }
 
-@test "account: the shared OAuth reading counts when it is ahead of stdin" {
+@test "account: the shared OAuth reading counts when it is newer than stdin" {
     local iso5 iso7
     iso5=$(date -u -d "@$((NOW + 3600))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -r "$((NOW + 3600))" +%Y-%m-%dT%H:%M:%SZ)
     iso7=$(date -u -d "@$((NOW + 86400))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -r "$((NOW + 86400))" +%Y-%m-%dT%H:%M:%SZ)
     printf '7.0\t%s\t62.0\t%s' "$iso5" "$iso7" >"$CACHE_FILE"
     eval 'get_api_session_data() { return 1; }'
-    render_claude "$(claude_json 4 $((NOW + 3600)) 60 $((NOW + 86400)))"
+    render_claude "$(claude_json 4 $((NOW + 3600)) 60 $((NOW + 86400)) "$(transcript quiet 300)")"
     [[ "$DATA_SESSION_PCT" == "7" ]]
     [[ "$DATA_WEEKLY_PCT" == "62" ]]
     [[ "$DATA_SESSION_PCT_STALE" == "0" ]]
 }
 
+@test "account: a plan upgrade lowers the weekly within the same window" {
+    eval 'get_api_session_data() { return 1; }'
+    local r7=$((NOW + 300000))
+    mkdir -p "$(usage_state_dir)"
+    printf '13|%s|%s\t52|%s|%s\n' "$((NOW + 3600))" "$((NOW - 1200))" "$r7" "$((NOW - 1200))" >"$(claude_account_file)"
+    oauth_cache 13.0 2.0 "$r7" 30
+    render_claude '{"model":{"id":"claude-opus-5-5"}}'
+    [[ "$DATA_WEEKLY_PCT" == "2" ]]
+    [[ "$DATA_WEEKLY_PCT_STALE" == "0" ]]
+}
+
+@test "account: an idle session from before a plan change cannot bring its reading back" {
+    eval 'get_api_session_data() { return 1; }'
+    local r7=$((NOW + 300000))
+    oauth_cache 13.0 2.0 "$r7" 60
+    render_claude "$(claude_json 13 $((NOW + 3600)) 52 $r7 "$(transcript idle 7200)")"
+    [[ "$DATA_WEEKLY_PCT" == "2" ]]
+    IFS=$'\t' read -r _ week <"$(claude_account_file)"
+    [[ "${week%%|*}" == "2" ]]
+}
+
+@test "account: a response newer than the OAuth reading wins, lower or not" {
+    eval 'get_api_session_data() { return 1; }'
+    local r7=$((NOW + 300000))
+    oauth_cache 13.0 52.0 "$r7" 170
+    render_claude "$(claude_json 14 $((NOW + 3600)) 3 $r7 "$(transcript active 5)")"
+    [[ "$DATA_SESSION_PCT" == "14" ]]
+    [[ "$DATA_WEEKLY_PCT" == "3" ]]
+}
+
+@test "account: a reading without a transcript counts as seen now" {
+    eval 'get_api_session_data() { return 1; }'
+    local r7=$((NOW + 300000))
+    oauth_cache 13.0 2.0 "$r7" 60
+    render_claude "$(claude_json 13 $((NOW + 3600)) 4 $r7 "$BATS_TEST_TMPDIR/missing.jsonl")"
+    [[ "$DATA_WEEKLY_PCT" == "4" ]]
+}
+
+@test "account: a fresh response in every window spares the OAuth call" {
+    eval 'get_api_session_data() { touch "$BATS_TEST_TMPDIR/oauth.called"; return 1; }'
+    render_claude "$(claude_json 14 $((NOW + 3600)) 3 $((NOW + 300000)) "$(transcript active 5)")"
+    [ ! -f "$BATS_TEST_TMPDIR/oauth.called" ]
+    [[ "$DATA_WEEKLY_PCT" == "3" ]]
+}
+
+@test "account: an idle session still asks the OAuth API" {
+    eval 'get_api_session_data() { touch "$BATS_TEST_TMPDIR/oauth.called"; return 1; }'
+    render_claude "$(claude_json 14 $((NOW + 3600)) 3 $((NOW + 300000)) "$(transcript idle 600)")"
+    [ -f "$BATS_TEST_TMPDIR/oauth.called" ]
+}
+
+@test "account: a window stdin lacks still asks the OAuth API" {
+    eval 'get_api_session_data() { touch "$BATS_TEST_TMPDIR/oauth.called"; return 1; }'
+    render_claude '{"model":{"id":"claude-opus-5-5"},"transcript_path":"'"$(transcript active 5)"'","rate_limits":{"five_hour":{"used_percentage":14,"resets_at":'"$((NOW + 3600))"'}}}'
+    [ -f "$BATS_TEST_TMPDIR/oauth.called" ]
+}
+
 @test "account: a held lock skips the write but still shows the shared reading" {
     eval 'get_api_session_data() { return 1; }'
     local r5=$((NOW + 3600)) r7=$((NOW + 86400))
-    render_claude "$(claude_json 8 $r5 66 $r7)"
+    render_claude "$(claude_json 8 $r5 66 $r7 "$(transcript new 10)")"
     mkdir "$_TMP_DIR/claude-account.lock"
-    render_claude "$(claude_json 2 $r5 50 $r7)"
+    render_claude "$(claude_json 2 $r5 50 $r7 "$(transcript old 900)")"
     [[ "$DATA_SESSION_PCT" == "8" ]]
     rmdir "$_TMP_DIR/claude-account.lock"
 }
@@ -626,8 +755,8 @@ render_claude() {
     mkdir -p "$HOME/.claude"
     printf 'components=model,usage,weekly\ntheme=none\n' >"$HOME/.claude/statusline.conf"
     local r5=$((NOW + 3600)) r7=$((NOW + 86400))
-    env TMPDIR="$BATS_TEST_TMPDIR" COLUMNS=200 bash "$STATUSLINE" <<<"$(claude_json 5 $r5 61 $r7)" >/dev/null
-    run env TMPDIR="$BATS_TEST_TMPDIR" COLUMNS=200 bash "$STATUSLINE" <<<"$(claude_json 4 $r5 60 $r7)"
+    env TMPDIR="$BATS_TEST_TMPDIR" COLUMNS=200 bash "$STATUSLINE" <<<"$(claude_json 5 $r5 61 $r7 "$(transcript busy 10)")" >/dev/null
+    run env TMPDIR="$BATS_TEST_TMPDIR" COLUMNS=200 bash "$STATUSLINE" <<<"$(claude_json 4 $r5 60 $r7 "$(transcript quiet 600)")"
     [ "$status" -eq 0 ]
     [[ "$output" == "opus-5.5 | 5%/61%" ]]
 }

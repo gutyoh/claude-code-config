@@ -103,6 +103,13 @@ increase_backoff() {
         fi
     fi
     [[ ${next_delay} -gt ${BACKOFF_MAX_S} ]] && next_delay=${BACKOFF_MAX_S}
+    # A server's Retry-After is a floor, capped at an hour.
+    local floor=""
+    floor=$(cat "${BACKOFF_FILE}.retry-after" 2>/dev/null) && rm -f "${BACKOFF_FILE}.retry-after"
+    if [[ "${floor}" =~ ^[0-9]+$ ]]; then
+        ((floor > 3600)) && floor=3600
+        ((floor > next_delay)) && next_delay=${floor}
+    fi
 
     next_retry=$((now + next_delay))
     local tmp_backoff="${BACKOFF_FILE}.tmp.$$"

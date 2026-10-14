@@ -128,7 +128,7 @@ The statusline shows plan usage (the 5-hour and weekly windows). Claude Code pas
 
 ### Decision
 
-Pick the plan from the session's `model.id`. For Claude models, keep one reading per account: every render merges its stdin `rate_limits` and the shared OAuth reading into it, never going back, and shows it; the hook cache, which has no weekly window, is used only when the account has no reading. The statusline redraws every 60 seconds, so a quiet session shows what others spent. For GPT and Muse models, read the ChatGPT or Muse Code plan from that provider's own login. Every reader is read-only and served through the same locked, backed-off, stale-while-error cache.
+Pick the plan from the session's `model.id`. For Claude models, keep one reading per account: every render merges its stdin `rate_limits` and the shared OAuth reading into it, the latest reading of a window winning, and shows it. A session's stdin reading is as old as its transcript's last write, since Claude Code repeats it on every render, and the OAuth API is asked only when no window was seen in the last three minutes; the hook cache, which has no weekly window, is used only when the account has no reading. The statusline redraws every 60 seconds, so a quiet session shows what others spent. For GPT and Muse models, read the ChatGPT or Muse Code plan from that provider's own login. Every reader is read-only and served through the same locked, backed-off, stale-while-error cache.
 
 ### Alternatives considered
 
@@ -136,6 +136,7 @@ Pick the plan from the session's `model.id`. For Claude models, keep one reading
 - **Hook cache before the OAuth API**: the order this replaced. Rejected: the hook cache has no weekly window, so a stale one hid the weekly figure.
 - **Spawning `codex app-server` for ChatGPT usage**: an official interface, but a full Codex client that may refresh the login it reads. Rejected for a direct read-only request.
 - **Sending Claude Code's User-Agent to dodge throttling**: impersonates Anthropic's client. Rejected; a longer shared TTL and backoff are used instead.
+- **The highest reading of a window wins**: the rule this replaced, since usage only grows within a window. Rejected: a plan upgrade lowers the percentage inside the same window, and the old figure stayed until the week reset.
 
 ### Consequences
 

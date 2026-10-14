@@ -171,8 +171,8 @@ _usage_pct() {
 # Claude Code sends each session the rate limits of its own last response, so a
 # quiet session falls behind while others spend the same account. Every render
 # merges what it sees (its stdin and the shared OAuth reading) into one file per
-# account and shows that file. A merge never goes back: a later reset is a newer
-# window, and within one window usage only grows.
+# account and shows that file. A later reset is a newer window; within one
+# window the latest reading wins, since a plan change moves it either way.
 #
 # A window is "pct|reset|seen", epoch seconds; "||" when unknown.
 
@@ -196,12 +196,16 @@ _newer_window() {
         printf '%s' "$2"
     elif ((r1 > r2 + 120)); then
         printf '%s' "$1"
+    elif ((s2 > s1)); then
+        printf '%s' "$2"
+    elif ((s1 > s2)); then
+        printf '%s' "$1"
     elif ((p2 > p1)); then
         printf '%s' "$2"
     elif ((p1 > p2)); then
         printf '%s' "$1"
     else
-        printf '%s|%s|%s' "${p1}" "${r1}" "$((s1 > s2 ? s1 : s2))"
+        printf '%s' "$1"
     fi
 }
 
@@ -222,6 +226,17 @@ _claude_read_shared() {
     IFS=$'\t' read -r five week <"$1" || true
     _CL_FIVE=$(_newer_window "${_CL_FIVE}" "${five}")
     _CL_WEEK=$(_newer_window "${_CL_WEEK}" "${week}")
+}
+
+# Whether every window was seen within CACHE_TTL: responses then keep the
+# account current, and the throttled OAuth endpoint has nothing newer.
+claude_fresh() {
+    local window pct reset seen now
+    now=$(date +%s)
+    for window in "${_CL_FIVE}" "${_CL_WEEK}"; do
+        IFS='|' read -r pct reset seen <<<"${window}"
+        [[ "${seen}" =~ ^[0-9]+$ ]] && ((now - seen < CACHE_TTL)) || return 1
+    done
 }
 
 # Merges this render's readings with the account file and writes the result
@@ -285,7 +300,19 @@ get_native_usage_data() {
         | map(if . == null then "" else tostring end) | join("\t")' 2>/dev/null)
     [[ -z "${line}" ]] && return 1
     claude_observe "$(_tab_field 1 "${line}")" "$(_tab_field 2 "${line}")" \
-        "$(_tab_field 3 "${line}")" "$(_tab_field 4 "${line}")" "$(date +%s)"
+        "$(_tab_field 3 "${line}")" "$(_tab_field 4 "${line}")" "$(_native_seen "${input}")"
+}
+
+# When the session last heard from the API: Claude Code repeats its last
+# rate_limits on every render, so they are as old as the transcript's last write.
+_native_seen() {
+    local transcript age now
+    now=$(date +%s)
+    transcript=$(echo "$1" | jq -r '.transcript_path // empty' 2>/dev/null)
+    if [[ -n "${transcript}" ]] && age=$(get_file_age "${transcript}") && ((age > 0)); then
+        now=$((now - age))
+    fi
+    printf '%s' "${now}"
 }
 
 # A GPT or Muse plan's windows (providers.sh). A window the plan does not have
@@ -457,7 +484,12 @@ collect_data() {
             _CL_FIVE="||"
             _CL_WEEK="||"
             get_native_usage_data "${input}" && debug "Observed: native stdin JSON (rate_limits)"
-            get_oauth_usage_data && debug "Observed: OAuth API (/api/oauth/usage)"
+            _claude_read_shared "$(claude_account_file)"
+            if claude_fresh; then
+                debug "Skipped: OAuth API, every window was seen within ${CACHE_TTL}s"
+            elif get_oauth_usage_data; then
+                debug "Observed: OAuth API (/api/oauth/usage)"
+            fi
             claude_share
             if apply_claude_account; then
                 debug "Source: account reading (${_CL_FIVE} / ${_CL_WEEK})"
