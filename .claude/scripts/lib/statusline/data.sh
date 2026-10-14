@@ -228,6 +228,17 @@ _claude_read_shared() {
     _CL_WEEK=$(_newer_window "${_CL_WEEK}" "${week}")
 }
 
+# Whether every window was seen within CACHE_TTL: responses then keep the
+# account current, and the throttled OAuth endpoint has nothing newer.
+claude_fresh() {
+    local window pct reset seen now
+    now=$(date +%s)
+    for window in "${_CL_FIVE}" "${_CL_WEEK}"; do
+        IFS='|' read -r pct reset seen <<<"${window}"
+        [[ "${seen}" =~ ^[0-9]+$ ]] && ((now - seen < CACHE_TTL)) || return 1
+    done
+}
+
 # Merges this render's readings with the account file and writes the result
 # back. A lock held by another render skips the write, never the read; a lock
 # left by a killed render is reclaimed after a few seconds.
@@ -473,7 +484,12 @@ collect_data() {
             _CL_FIVE="||"
             _CL_WEEK="||"
             get_native_usage_data "${input}" && debug "Observed: native stdin JSON (rate_limits)"
-            get_oauth_usage_data && debug "Observed: OAuth API (/api/oauth/usage)"
+            _claude_read_shared "$(claude_account_file)"
+            if claude_fresh; then
+                debug "Skipped: OAuth API, every window was seen within ${CACHE_TTL}s"
+            elif get_oauth_usage_data; then
+                debug "Observed: OAuth API (/api/oauth/usage)"
+            fi
             claude_share
             if apply_claude_account; then
                 debug "Source: account reading (${_CL_FIVE} / ${_CL_WEEK})"

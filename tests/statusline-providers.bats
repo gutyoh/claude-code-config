@@ -198,6 +198,60 @@ field() { printf '%s' "$1" | cut -f"$2"; }
     ! grep -q "tok-claude" "$BATS_TEST_TMPDIR/curl.argv"
 }
 
+# curl stub that answers <status> with <headers...>, through -D as curl does.
+stub_curl_status() { # status [header...]
+    local dir="$BATS_TEST_TMPDIR" status="$1" hdr
+    shift
+    hdr="HTTP/2 ${status}\r\n"
+    for h in "$@"; do hdr+="${h}\r\n"; done
+    stub_bin curl \
+        "cat >/dev/null" \
+        "while [[ \$# -gt 0 ]]; do [[ \$1 == -D ]] && printf '${hdr}\r\n' >\"\$2\"; shift; done" \
+        "cat '$dir/body.json'"
+}
+
+claude_oauth_login() {
+    mkdir -p "$HOME/.claude"
+    printf '{"claudeAiOauth":{"accessToken":"tok-claude"}}' >"$HOME/.claude/.credentials.json"
+    API_URL="https://api.anthropic.com/api/oauth/usage"; CURL_TIMEOUT=5; API_BETA_HEADER="oauth-2025-04-20"
+}
+
+@test "Claude OAuth 200: usage is read, and no header dump is left behind" {
+    claude_oauth_login
+    stub_curl_status 200
+    body '{"five_hour":{"utilization":13.0,"resets_at":"2026-10-14T23:30:00Z"},"seven_day":{"utilization":2.0,"resets_at":"2026-10-18T21:00:00Z"}}'
+    run get_cached_api_data
+    [ "$status" -eq 0 ]
+    [[ "$(field "$output" 1)" == "13.0" && "$(field "$output" 3)" == "2.0" ]]
+    [ -z "$(ls "$_TMP_DIR" | grep headers)" ]
+}
+
+@test "Claude OAuth 429: Retry-After sets the backoff, and its body is not usage" {
+    claude_oauth_login
+    stub_curl_status 429 "retry-after: 1200"
+    body '{"type":"error","error":{"type":"rate_limit_error"}}'
+    run get_cached_api_data
+    [ "$status" -ne 0 ]
+    local until
+    until=$(cut -f1 "$BACKOFF_FILE")
+    ((until - NOW >= 1199))
+    [ ! -f "$BACKOFF_FILE.retry-after" ]
+    [ -z "$(ls "$_TMP_DIR" | grep headers)" ]
+}
+
+@test "Claude OAuth 429: Retry-After is capped at an hour, and a 429 without it backs off as before" {
+    claude_oauth_login
+    stub_curl_status 429 "Retry-After: 999999"
+    body '{}'
+    run get_cached_api_data
+    local wait=$(($(cut -f1 "$BACKOFF_FILE") - NOW))
+    ((wait >= 3599 && wait <= 3601))
+    rm -f "$BACKOFF_FILE"
+    stub_curl_status 429
+    run get_cached_api_data
+    [[ "$(cut -f2 "$BACKOFF_FILE")" == "$BACKOFF_INITIAL_S" ]]
+}
+
 @test "openai: CODEX_HOME names the login" {
     mkdir -p "$BATS_TEST_TMPDIR/codex-home"
     printf '{"tokens":{"access_token":"tok-codex-home"}}' >"$BATS_TEST_TMPDIR/codex-home/auth.json"
@@ -635,6 +689,25 @@ render_claude() {
     oauth_cache 13.0 2.0 "$r7" 60
     render_claude "$(claude_json 13 $((NOW + 3600)) 4 $r7 "$BATS_TEST_TMPDIR/missing.jsonl")"
     [[ "$DATA_WEEKLY_PCT" == "4" ]]
+}
+
+@test "account: a fresh response in every window spares the OAuth call" {
+    eval 'get_api_session_data() { touch "$BATS_TEST_TMPDIR/oauth.called"; return 1; }'
+    render_claude "$(claude_json 14 $((NOW + 3600)) 3 $((NOW + 300000)) "$(transcript active 5)")"
+    [ ! -f "$BATS_TEST_TMPDIR/oauth.called" ]
+    [[ "$DATA_WEEKLY_PCT" == "3" ]]
+}
+
+@test "account: an idle session still asks the OAuth API" {
+    eval 'get_api_session_data() { touch "$BATS_TEST_TMPDIR/oauth.called"; return 1; }'
+    render_claude "$(claude_json 14 $((NOW + 3600)) 3 $((NOW + 300000)) "$(transcript idle 600)")"
+    [ -f "$BATS_TEST_TMPDIR/oauth.called" ]
+}
+
+@test "account: a window stdin lacks still asks the OAuth API" {
+    eval 'get_api_session_data() { touch "$BATS_TEST_TMPDIR/oauth.called"; return 1; }'
+    render_claude '{"model":{"id":"claude-opus-5-5"},"transcript_path":"'"$(transcript active 5)"'","rate_limits":{"five_hour":{"used_percentage":14,"resets_at":'"$((NOW + 3600))"'}}}'
+    [ -f "$BATS_TEST_TMPDIR/oauth.called" ]
 }
 
 @test "account: a held lock skips the write but still shows the shared reading" {
