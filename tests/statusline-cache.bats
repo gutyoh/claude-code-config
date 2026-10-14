@@ -72,7 +72,8 @@ set_file_mtime() {
 write_cache_aged() {
     local content="$1"
     local age_seconds="$2"
-    printf "%s" "$content" > "$CACHE_FILE"
+    # The callers write \t for each tab.
+    printf "%b" "$content" > "$CACHE_FILE"
     local target_ts=$(( $(date +%s) - age_seconds ))
     set_file_mtime "$CACHE_FILE" "$target_ts"
 }

@@ -160,10 +160,16 @@ _tab_field() {
     printf '%s' "$2" | awk -F '\t' -v n="$1" 'NR == 1 { print $n }'
 }
 
-# Integer percentage, or -- for anything that is not a number.
+# Rounded percentage, or -- for anything that is not a number: Claude Code and
+# the usage APIs send decimals (23.5), and truncating showed one point low.
 _usage_pct() {
-    local pct="${1%%.*}"
-    [[ "${pct}" =~ ^[0-9]+$ ]] && printf '%s' "${pct}" || printf '%s' "--"
+    [[ "$1" =~ ^([0-9]+)(\.([0-9]))?[0-9]*$ ]] || {
+        printf '%s' "--"
+        return
+    }
+    local whole=$((10#${BASH_REMATCH[1]}))
+    ((${BASH_REMATCH[3]:-0} >= 5)) && whole=$((whole + 1))
+    printf '%s' "${whole}"
 }
 
 # --- Claude: one reading per account ------------------------------------------
@@ -183,27 +189,28 @@ claude_account_file() {
     printf '%s' "$(usage_state_dir)/claude${_ACCOUNT_SUFFIX:-}"
 }
 
-# Prints the newer of two readings of one window.
+# Prints the newer of two readings of one window. Only a window that has not
+# reset is current, so while both are the one seen last wins, whatever reset it
+# names: a reset a plan change moved, or a wrong one, cannot hold the figure.
 _newer_window() {
-    local p1 r1 s1 p2 r2 s2 num='^[0-9]+$'
+    local p1 r1 s1 p2 r2 s2 now num='^[0-9]+$'
     IFS='|' read -r p1 r1 s1 <<<"$1"
     IFS='|' read -r p2 r2 s2 <<<"$2"
     if ! [[ "${p2}" =~ ${num} && "${r2}" =~ ${num} && "${s2}" =~ ${num} ]]; then
         printf '%s' "$1"
+        return
     elif ! [[ "${p1}" =~ ${num} && "${r1}" =~ ${num} && "${s1}" =~ ${num} ]]; then
         printf '%s' "$2"
-    elif ((r2 > r1 + 120)); then
+        return
+    fi
+    now=$(date +%s)
+    local live1=$((r1 > now)) live2=$((r2 > now))
+    if ((live1 != live2)); then
+        ((live2)) && printf '%s' "$2" || printf '%s' "$1"
+    elif ((!live1 && r1 != r2)); then
+        ((r2 > r1)) && printf '%s' "$2" || printf '%s' "$1"
+    elif ((s2 > s1 || (s2 == s1 && p2 > p1))); then
         printf '%s' "$2"
-    elif ((r1 > r2 + 120)); then
-        printf '%s' "$1"
-    elif ((s2 > s1)); then
-        printf '%s' "$2"
-    elif ((s1 > s2)); then
-        printf '%s' "$1"
-    elif ((p2 > p1)); then
-        printf '%s' "$2"
-    elif ((p1 > p2)); then
-        printf '%s' "$1"
     else
         printf '%s' "$1"
     fi
@@ -281,12 +288,6 @@ apply_claude_account() {
         shown=0
     fi
     return "${shown}"
-}
-
-# Integer percentage, or -- for anything that is not a number.
-_usage_pct() {
-    local pct="${1%%.*}"
-    [[ "${pct}" =~ ^[0-9]+$ ]] && printf '%s' "${pct}" || printf '%s' "--"
 }
 
 # The rate_limits Claude Code passes on stdin, once a session has had a
