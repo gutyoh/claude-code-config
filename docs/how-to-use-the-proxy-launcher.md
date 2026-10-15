@@ -37,14 +37,14 @@ Route Claude Code through alternative model providers (OpenAI Codex, Google Gemi
 ```bash
 claude        # normal Claude Code, with bypassPermissions available in Shift+Tab cycle
 claude -a     # start Claude Code directly in bypassPermissions mode
-clp           # claude-proxy with gpt-5.5(high), bypassPermissions available in Shift+Tab cycle
-clp -a        # claude-proxy with gpt-5.5(high), directly in bypassPermissions mode
+clp           # claude-proxy with gpt-6.1-sol(high), bypassPermissions available in Shift+Tab cycle
+clp -a        # claude-proxy with gpt-6.1-sol(high), directly in bypassPermissions mode
 ```
 
 The proxy shortcut default model can be overridden per shell:
 
 ```bash
-export CLAUDE_PROXY_MODEL="gpt-5.5(high)"
+export CLAUDE_PROXY_MODEL="gpt-6.1-sol(high)"
 ```
 
 If you skipped this during setup, add PATH manually:
@@ -84,10 +84,10 @@ npx antigravity-claude-proxy@latest start
 
 ```bash
 # Claude models via Antigravity
-./bin/claude-proxy -p antigravity -m 'claude-sonnet-4-5-thinking'
+./bin/claude-proxy -p antigravity -m 'claude-sonnet-5-5-high'
 
 # Gemini models via Antigravity
-./bin/claude-proxy -p antigravity -m 'gemini-3-pro-high[1m]'
+./bin/claude-proxy -p antigravity -m 'gemini-4-argon-high'
 ```
 
 ### Codex (CLIProxyAPI + OpenAI/ChatGPT)
@@ -107,7 +107,7 @@ Uses your existing OpenAI Codex/ChatGPT subscription tokens via [CLIProxyAPI](ht
 
 ```bash
 # GPT models via CLIProxyAPI (codex is the default profile)
-./bin/claude-proxy -m 'gpt-5.3-codex(high)'
+./bin/claude-proxy -m 'gpt-6.1-sol(high)'
 ```
 
 ## Available Profiles
@@ -141,17 +141,17 @@ Options:
 **Examples:**
 
 ```bash
-# Use profile defaults (codex + gpt-5.3-codex(high))
+# Use profile defaults (codex + gpt-6.1-sol(high))
 ./bin/claude-proxy
 
-# Antigravity with its default (claude-opus-4-6-thinking)
+# Antigravity with its default (claude-opus-5-5-high)
 ./bin/claude-proxy -p antigravity
 
 # Codex with medium effort
-./bin/claude-proxy -m 'gpt-5.3-codex(medium)'
+./bin/claude-proxy -m 'gpt-6.1-sol(medium)'
 
-# Antigravity with Gemini + 1M context
-./bin/claude-proxy -p antigravity -m 'gemini-3-pro-high[1m]'
+# Antigravity with Gemini
+./bin/claude-proxy -p antigravity -m 'gemini-4-argon-high'
 
 # List available models per profile
 ./bin/claude-proxy --models                   # codex models
@@ -236,7 +236,7 @@ You also need Go installed: `brew install go`
 Override the source location:
 
 ```bash
-CLI_PROXY_DIR=~/path/to/CLIProxyAPI ./bin/claude-proxy -m 'gpt-5.3-codex(high)'
+CLI_PROXY_DIR=~/path/to/CLIProxyAPI ./bin/claude-proxy -m 'gpt-6.1-sol(high)'
 ```
 
 </details>
@@ -248,10 +248,10 @@ Since each profile uses a different port, you can run them side-by-side:
 
 ```bash
 # Terminal 1: Antigravity on :8081
-./bin/claude-proxy -p antigravity -m 'claude-sonnet-4-5-thinking'
+./bin/claude-proxy -p antigravity -m 'claude-sonnet-5-5-high'
 
 # Terminal 2: Codex on :8317
-./bin/claude-proxy -m 'gpt-5.3-codex(high)'
+./bin/claude-proxy -m 'gpt-6.1-sol(high)'
 ```
 
 </details>
@@ -263,14 +263,14 @@ The proxy launcher is an alternative to manually setting environment variables. 
 
 ```bash
 # Option A: Proxy launcher (recommended)
-./bin/claude-proxy -p antigravity -m 'claude-sonnet-4-5-thinking'
+./bin/claude-proxy -p antigravity -m 'claude-sonnet-5-5-high'
 
 # Option B: Manual environment variables
 export ANTHROPIC_BASE_URL="http://localhost:8081"
 export ANTHROPIC_AUTH_TOKEN="test"
-export ANTHROPIC_DEFAULT_OPUS_MODEL="claude-opus-4-5-thinking"
-export ANTHROPIC_DEFAULT_SONNET_MODEL="claude-sonnet-4-5-thinking"
-export ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-sonnet-4-5-thinking"
+export ANTHROPIC_DEFAULT_OPUS_MODEL="claude-opus-5-5-high"
+export ANTHROPIC_DEFAULT_SONNET_MODEL="claude-sonnet-5-5-high"
+export ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-sonnet-5-5-high"
 claude
 ```
 

@@ -109,7 +109,7 @@ stub_proxy() {
     while read -r p; do
         [[ -n "$p" ]] || continue
         out="$("$p" -c ". '$PROFILE'; clp --continue" 2>&1 | tail -1)"
-        [[ "$out" == *"-m gpt-5.5(high)"* ]] || {
+        [[ "$out" == *"-m gpt-6.1-sol(high)"* ]] || {
             echo "$p produced: $out"
             false
         }

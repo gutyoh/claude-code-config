@@ -215,8 +215,8 @@ setup() {
     # The model is expanded inline rather than held in a `local` variable:
     # this block lands in ~/.profile for non-bash/zsh shells, and `local` is
     # not POSIX. tests/shell-snippet-posix.bats covers that end of it.
-    grep -Fq 'claude-proxy --no-validate -m "${CLAUDE_PROXY_MODEL:-gpt-5.5(high)}" -- --allow-dangerously-skip-permissions "$@"' "$profile"
-    grep -Fq 'claude-proxy --no-validate -m "${CLAUDE_PROXY_MODEL:-gpt-5.5(high)}" -- --dangerously-skip-permissions "$@"' "$profile"
+    grep -Fq 'claude-proxy --no-validate -m "${CLAUDE_PROXY_MODEL:-gpt-6.1-sol(high)}" -- --allow-dangerously-skip-permissions "$@"' "$profile"
+    grep -Fq 'claude-proxy --no-validate -m "${CLAUDE_PROXY_MODEL:-gpt-6.1-sol(high)}" -- --dangerously-skip-permissions "$@"' "$profile"
 }
 
 @test "configure_claude_shortcuts: replaces existing managed block" {
@@ -261,8 +261,8 @@ EOF
     [ "$status" -eq 0 ]
     grep -Fq 'claude:--allow-dangerously-skip-permissions --resume' "$log"
     grep -Fq 'claude:--dangerously-skip-permissions --resume' "$log"
-    grep -Fq 'claude-proxy:--no-validate -m gpt-5.5(high) -- --allow-dangerously-skip-permissions --continue' "$log"
-    grep -Fq 'claude-proxy:--no-validate -m gpt-5.5(high) -- --dangerously-skip-permissions --resume' "$log"
+    grep -Fq 'claude-proxy:--no-validate -m gpt-6.1-sol(high) -- --allow-dangerously-skip-permissions --continue' "$log"
+    grep -Fq 'claude-proxy:--no-validate -m gpt-6.1-sol(high) -- --dangerously-skip-permissions --resume' "$log"
 }
 
 # --- Unknown option ---
