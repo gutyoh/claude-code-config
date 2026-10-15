@@ -1,6 +1,5 @@
 # claude-code-config
 
-[![CI](../../actions/workflows/ci.yml/badge.svg?branch=main&event=push)](../../actions/workflows/ci.yml?query=branch%3Amain)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-D97757?logo=claude&logoColor=fff)](https://code.claude.com/docs)
 [![macOS](https://img.shields.io/badge/macOS-000?logo=apple&logoColor=fff)](#platform-support)
 [![Linux](https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=000)](#platform-support)

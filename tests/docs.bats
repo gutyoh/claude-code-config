@@ -31,9 +31,6 @@ anchors() {
             target="${link#*](}"
             target="${target%)}"
             case "${target}" in http://* | https://* | mailto:*) continue ;; esac
-            # ../../actions/... from the README is a page of the repository on
-            # GitHub, not a file in the tree.
-            [[ "${doc}" == "$REPO_ROOT/README.md" && "${target}" == ../* ]] && continue
             file="${target%%#*}"
             anchor=""
             [[ "${target}" == *'#'* ]] && anchor="${target#*#}"
