@@ -1,6 +1,6 @@
 # Getting Started with Claude Code Config
 
-This tutorial walks you through installing the Claude Code portable configuration on your machine. By the end, you will have 17 specialized agents, 19 skills, and 5 hooks available in every Claude Code session across all your projects.
+This tutorial walks you through installing the Claude Code portable configuration on your machine. By the end, every Claude Code session in every project on this machine will have the repository's subagents, skills and hooks.
 
 **Time required:** 10 minutes
 
@@ -71,12 +71,10 @@ git version 2.53.0 (or later)
 
 ## Step 1: Clone the Repository
 
-Create a directory for the configuration and clone the repository:
+Fork the repository on GitHub, so your own changes have somewhere to go, then clone your fork:
 
 ```bash
-mkdir -p ~/repos
-cd ~/repos
-git clone https://github.com/gutyoh/claude-code-config.git
+git clone https://github.com/<you>/claude-code-config.git
 cd claude-code-config
 ```
 
@@ -133,11 +131,11 @@ Use the arrow keys to highlight **Proceed with installation** and press Enter.
 The script creates symlinks and configures your environment in numbered steps:
 
 ```
-Step 1: Creating symlinks...
-  ✓ hooks -> /Users/you/repos/claude-code-config/.claude/hooks
-  ✓ scripts -> /Users/you/repos/claude-code-config/.claude/scripts
-  ✓ skills -> /Users/you/repos/claude-code-config/.claude/skills
-  ✓ agents -> /Users/you/repos/claude-code-config/.claude/agents
+Step 1: Installing managed entries...
+  ✓ ~/.claude/hooks: 9 linked
+  ✓ ~/.claude/scripts: 4 linked
+  ✓ ~/.claude/skills: 22 linked
+  ✓ ~/.claude/agents: 19 linked
 
 Step 2: Configuring hooks (user scope)...
   ✓ IDE diagnostics hook configured
@@ -231,7 +229,7 @@ You should see both servers listed:
 Open Claude Code in any project directory:
 
 ```bash
-cd ~/repos/claude-code-config
+cd claude-code-config
 claude
 ```
 
@@ -241,7 +239,7 @@ Inside the Claude Code session, type:
 /agents
 ```
 
-You should see all 17 agents listed:
+You should see every agent in `.claude/agents/`:
 
 ```
   code-reviewer-expert
@@ -256,10 +254,12 @@ You should see all 17 agents listed:
   kedro-expert
   langfuse-expert
   linus-torvalds
+  mongodb-expert
   pr-manager
   python-expert
   rust-expert
   sonarqube-fixer
+  sql-expert
   ui-designer
 ```
 
@@ -300,19 +300,19 @@ You have successfully installed a portable Claude Code configuration. Here is wh
 
 | Component | Count | What It Does |
 |-----------|-------|--------------|
-| **Agents** | 17 | Specialized subagents for Python, Rust, .NET, dbt, Kedro, Databricks, documentation, PR management, and more |
-| **Skills** | 19 | Reusable capabilities including engineering standards, search integrations, PR workflows, and API key management |
-| **Hooks** | 5 | Workflow automation: git rebase enforcement, IDE diagnostics, SQL safety, Brave Search rate limiting, usage cache refresh |
+| **Agents** | 19 | Specialized subagents for Python, Rust, .NET, SQL, dbt, Kedro, Databricks, MongoDB, documentation, PR management, and more |
+| **Skills** | 21 | Engineering standards, search integrations, PR workflows, and API key management |
+| **Hooks** | 9 | Session names, IDE diagnostics, git rebase enforcement, a database guardrail, search key guards and more ([Hooks](hooks.md)) |
 | **MCP Servers** | 2 | Brave Search and Tavily for internet search within Claude Code |
 
-Because the configuration uses symlinks, pulling updates from Git automatically updates your global configuration:
+Because `~/.claude` links into the repository, pulling from Git updates your global configuration:
 
 ```bash
-cd ~/repos/claude-code-config
+cd claude-code-config
 git pull origin main
 ```
 
-No reinstallation required.
+Run `./setup.sh --yes` again after a pull that adds or removes an agent, skill or hook, so it is linked or pruned; see [How to sync across machines](how-to-sync-across-machines.md).
 
 ## Next steps
 

@@ -5,7 +5,7 @@ Customize the Claude Code statusline to show model info, usage percentage, token
 ## Prerequisites
 
 - This repo's global config installed via `setup.sh`
-- Required: `jq`, `bc`
+- Required: `jq`
 - Optional: `ccusage` (`npm install -g ccusage`) — needed for token/cost/burn-rate components
 
 ## Option A: Interactive TUI (recommended)
@@ -13,7 +13,7 @@ Customize the Claude Code statusline to show model info, usage percentage, token
 Re-run the setup script and select **Customize installation**:
 
 ```bash
-cd ~/repos/claude-code-config
+cd claude-code-config   # your clone
 ./setup.sh
 ```
 
@@ -65,7 +65,7 @@ cc_status_color=full
 
 | Key | Description | Wide mode | Narrow/compact mode |
 |-----|-------------|-----------|---------------------|
-| `model` | Model name | `opus-4.5` | `opus-4.5` |
+| `model` | Model name | `opus-5.5` | `opus-5.5` |
 | `usage` | 5-hour window of the model's plan | Progress bar | `21%` |
 | `weekly` | Weekly window of the model's plan | `weekly: 63%` | `63%` |
 | `reset` | Reset countdown | `resets: 2h15m` | `2h15m` |
@@ -133,7 +133,7 @@ A router that judges each plan's prompt cache from the turns it routes can name 
 Start a new Claude Code session. The statusline appears at the bottom of the terminal:
 
 ```
-opus-4.5 | 21%/15% | 2h15m | 15.4k/2.1k/6.2M | $5.21 | user@email.com
+opus-5.5 | 21%/15% | 2h15m | 15.4k/2.1k/6.2M | $5.21 | user@email.com
 ```
 
 If the statusline does not appear, verify:
@@ -163,6 +163,6 @@ ccusage --version
 
 ## See also
 
-- [Configuration](configuration.md): full reference for all 12 statusline.conf keys
+- [Configuration](configuration.md#statuslineconf): every statusline.conf key
 - [Architecture](architecture.md): how the usage data pipeline works
 - [Project Structure](project-structure.md): statusline module file listing

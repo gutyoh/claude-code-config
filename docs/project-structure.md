@@ -34,8 +34,10 @@ claude-code-config/
 
 | File | Purpose |
 |------|---------|
-| `claude-proxy` | Single entry point for all proxy profiles (494 lines) |
-| `mcp-key-rotate` | API key rotation for MCP servers (554 lines) |
+| `claude-as` | Run Claude Code as one of several signed-in accounts ([guide](how-to-use-multiple-accounts.md)) |
+| `claude-permissions-audit` | Find and remove risky permission allow rules ([guide](how-to-audit-permissions.md)) |
+| `claude-proxy` | Single entry point for all proxy profiles ([guide](how-to-use-the-proxy-launcher.md)) |
+| `mcp-key-rotate` | API key rotation for MCP servers |
 | `mcp-env-inject` | Wrapper injecting MCP keys from `~/.claude/mcp-keys.env` |
 | `proxy-start-codex.sh` | Profile: CLIProxyAPI + OpenAI Codex |
 | `proxy-start-antigravity.sh` | Profile: Antigravity (Google Cloud Code) |
@@ -118,7 +120,7 @@ Dot-sourced by `setup.ps1`. PowerShell port of `lib/setup/` with arrow-key TUI, 
 | `components.sh` | 15 `render_component_*` functions | Individual component renderers |
 | `assembly.sh` | `render_all_components` | Component joining with merge groups |
 
-### .claude/skills/ (19 skills)
+### .claude/skills/
 
 | Skill | Files | Purpose |
 |-------|-------|---------|
@@ -139,10 +141,15 @@ Dot-sourced by `setup.ps1`. PowerShell port of `lib/setup/` with arrow-key TUI, 
 | `pr-writing` | 1 | PR and commit message writing |
 | `python-standards` | 7 + refs + versions | Python engineering standards |
 | `rust-standards` | 10 | Rust engineering standards |
+| `mongodb-standards` | — | MongoDB engineering standards (+ evals) |
+| `sql-standards` | — | Cross-dialect SQL standards (+ evals) |
 | `tavily-search` | 1 | Tavily AI-native search command |
 | `web-search` | 1 | Built-in web search command |
 
-### .claude/agents/ (19 agents)
+`config-hooks/` sits beside the skills but is a plugin: Claude Code loads it in
+place and runs its [stop-nudge hook](hooks.md#stop-nudge).
+
+### .claude/agents/
 
 | Agent | Color | Skills | Hooks |
 |-------|-------|--------|-------|

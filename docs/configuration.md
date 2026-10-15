@@ -22,12 +22,18 @@ what Claude Code itself does. See [A second profile](#a-second-profile).
 
 ### hooks
 
+The hooks this repository's `.claude/settings.json` registers. Setup adds only
+some of them to your user settings; [Hooks](hooks.md) says which, and what
+each one does.
+
 | Event | Matcher | Hook Script | Purpose |
 |-------|---------|-------------|---------|
 | `PreToolUse` | `Bash` | `enforce-git-pull-rebase.sh` | Add `--rebase` to git pull |
 | `PreToolUse` | `mcp__ide__getDiagnostics` | `open-file-in-ide.sh` | Open file in IDE before diagnostics |
 | `PreToolUse` | `.*` | `refresh-usage-cache.sh` | Refresh usage cache on every tool call |
+| `PreToolUse` | `mcp__(tavily\|brave-search)__.*` | `guard-mcp-key.sh` | Block a search call whose API key is missing |
 | `PreToolUse` | `mcp__brave-search__.*` | `rate-limit-brave-search.sh` | Rate limit Brave Search calls |
+| `PostToolUse` | `mcp__(tavily\|brave-search)__.*` | `auto-rotate-mcp-key.sh` | Rotate to the next key when one runs out of quota |
 | `Stop` | `""` | `refresh-usage-cache.sh` | Refresh usage cache when agent stops |
 | `SessionStart` | `startup` | `session-name.sh` | Record when a session started (see [Session names](#session-names)) |
 | `UserPromptSubmit` | `""` | `session-name.sh` | Name the session once, at its first prompt |
@@ -103,6 +109,13 @@ and messages between sessions all find it by that name, so it must not move.
 | `type` | `"command"` | Runs a shell command |
 | `command` | `"~/.claude/scripts/file-suggestion.sh"` | Path to file suggestion script |
 
+Replaces Claude Code's `@` file search with `fd` piped to `fzf`: it respects
+`.gitignore`, includes hidden files, follows symlinks and returns the 15 best
+fuzzy matches, which keeps `@` fast in large repositories. Setup adds it only
+when both `fd` and `fzf` are installed (`brew install fd fzf`,
+`sudo apt-get install fd-find fzf`, or `winget install sharkdp.fd junegunn.fzf`);
+on Windows the command is `~/.claude/scripts/file-suggestion.ps1`.
+
 ### env
 
 | Variable | Value | Description |
@@ -111,7 +124,7 @@ and messages between sessions all find it by that name, so it must not move.
 
 ## statusline.conf
 
-12 configuration keys for `~/.claude/statusline.conf`:
+Keys for `~/.claude/statusline.conf`:
 
 | Key | Values | Default | Description |
 |-----|--------|---------|-------------|
@@ -122,12 +135,13 @@ and messages between sessions all find it by that name, so it must not move.
 | `compact` | `true`, `false` | `true` | No labels, merged tokens |
 | `color_scope` | `percentage`, `full` | `percentage` | Color usage only or entire line |
 | `icon` | Unicode string or empty | `""` | Prefix icon |
-| `icon_claude`, `icon_openai`, `icon_muse` | Unicode string or empty | `""` (use `icon`) | Prefix icon while the session's model is on that plan, for example `A\`, `֍` and `∞`. Claude Code does not draw Nerd Font or other private-use glyphs, so use standard Unicode |
+| `icon_claude`, `icon_openai`, `icon_muse` | Unicode string or empty | `""` (use `icon`) | Prefix icon while the session's model is on that plan, for example `A\`. A Nerd Font glyph needs a Nerd Font in the terminal |
 | `icon_style` | `plain`, `bold`, `bracketed`, `rounded`, `reverse`, `bold-color`, `angle`, `double-bracket` | `plain` | Icon styling |
 | `weekly_show_reset` | `true`, `false` | `false` | Show weekly reset countdown |
 | `cc_status_position` | `inline`, `newline` | `inline` | Status placement |
 | `cc_status_visibility` | `always`, `problem_only` | `always` | When to show status |
 | `cc_status_color` | `none`, `full`, `status_only` | `full` | Status coloring |
+| `router_health` | `on`, `off` | `on` | Show a router's prompt-cache warning ([details](how-to-configure-statusline.md#usage-for-gpt-and-muse-models)) |
 
 ## .mcp.json
 
@@ -194,7 +208,7 @@ Without the variable they keep the literal `~/.claude/...`, exactly as before.
 | `--no-agents` | — | Skip agents and skills symlinks |
 | `--agent-teams` | — | Enable experimental agent teams |
 | `--no-agent-teams` | — | Disable agent teams |
-| `--minimal` | — | Disable agents, MCP, agent teams, and proxy PATH |
+| `--minimal` | — | Core only: no agents, skills, MCP, agent teams, proxy PATH or OpenCode |
 | `--overwrite-settings` | — | Overwrite existing settings.json |
 | `--skip-settings` | — | Do not modify settings.json |
 | `--theme` | `dark`, `light`, `colorblind`, `none` | Statusline color theme |
@@ -208,8 +222,11 @@ Without the variable they keep the literal `~/.claude/...`, exactly as before.
 | `--icon-style` | `plain`, `bold`, `bracketed`, `rounded`, `reverse`, `bold-color`, `angle`, `double-bracket` | Icon styling |
 | `--weekly-show-reset` | — | Show weekly reset countdown |
 | `--no-weekly-show-reset` | — | Hide weekly reset countdown |
-| `--proxy-path` | — | Add `bin/` to shell PATH |
+| `--proxy-path` | — | Add `bin/` to shell PATH and install the `claude` / `clp` shortcuts |
 | `--no-proxy-path` | — | Skip proxy PATH setup |
+| `--with-opencode` | — | Install for OpenCode even when `opencode` is not on PATH |
+| `--no-opencode` | — | Skip OpenCode |
+| `--shell` | Path to a shell | Install the shortcuts for this login shell instead of the detected one |
 | `-h`, `--help` | — | Show usage and exit |
 
 ## Branch protection rule schemas
