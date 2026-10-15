@@ -1,1374 +1,201 @@
-# Claude Code Portable Configuration
+# claude-code-config
 
-[![Claude Code](https://img.shields.io/badge/Claude_Code-D97757?logo=claude&logoColor=fff)](https://docs.anthropic.com/en/docs/claude-code)
-[![macOS](https://img.shields.io/badge/macOS-000?logo=apple&logoColor=fff)](#)
-[![Linux](https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=000)](#)
-[![Windows](https://img.shields.io/badge/Windows-0078D4?logo=windows&logoColor=fff)](#)
-[![GitHub last commit](https://img.shields.io/github/last-commit/gutyoh/claude-code-config)](https://github.com/gutyoh/claude-code-config/commits)
+[![CI](../../actions/workflows/ci.yml/badge.svg?branch=main&event=push)](../../actions/workflows/ci.yml?query=branch%3Amain)
+[![Claude Code](https://img.shields.io/badge/Claude_Code-D97757?logo=claude&logoColor=fff)](https://code.claude.com/docs)
+[![macOS](https://img.shields.io/badge/macOS-000?logo=apple&logoColor=fff)](#platform-support)
+[![Linux](https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=000)](#platform-support)
+[![Windows](https://img.shields.io/badge/Windows-0078D4?logo=windows&logoColor=fff)](#platform-support)
 
-A portable, Git-versioned configuration repository for Claude Code that works seamlessly across macOS, Linux, and Windows.
+A portable Claude Code setup in one Git repository: subagents, skills, hooks, a
+status line and a few command-line tools. One script links it into `~/.claude`
+on macOS, Linux and Windows, so every project on every machine gets the same
+configuration, and a `git pull` updates them all.
 
-<details>
-<summary><strong>Table of Contents</strong></summary>
+```text
+opus-5.5 | 32%/72% (39h12m) | 2h13m | 1.6k/68.1k/72.3M | $19.51 | user@example.com
+```
 
-- [What This Repository Contains](#what-this-repository-contains)
-- [Installation Options](#installation-options)
-- [Global Installation (Recommended)](#global-installation-recommended)
-- [API Keys Setup](#api-keys-setup)
-- [Project Installation](#project-installation)
-- [Repository Structure](#repository-structure)
-- [Git Conventions](#git-conventions)
-- [Hooks](#hooks)
-  - [Git Pull Rebase Hook](#1-git-pull-rebase-hook)
-  - [IDE Diagnostics Hook](#2-ide-diagnostics-hook-jetbrainsvscode-workaround)
-  - [Unified Database Guardrail](#3-unified-database-guardrail)
-  - [Fast File Suggestion](#4-fast-file-suggestion-optional-performance-enhancement)
-  - [Statusline with Billing Tracking](#5-statusline-with-billing-tracking)
-- [Permission Rule Audit](#permission-rule-audit)
-- [Proxy Launcher](#proxy-launcher)
-  - [How It Works](#how-the-proxy-launcher-works)
-  - [Quick Start](#proxy-quick-start)
-  - [Available Profiles](#available-profiles)
-  - [CLI Reference](#cli-reference)
-  - [Creating Custom Profiles](#creating-custom-profiles)
-  - [Troubleshooting](#proxy-troubleshooting)
-- [Syncing Across Machines](#syncing-across-machines)
-- [How It Works](#how-it-works)
-- [Adding New MCP Servers](#adding-new-mcp-servers)
-- [Branching Strategy](#branching-strategy-trunk-based--github-flow)
-- [Testing and Portability](#testing-and-portability)
-- [Official Documentation](#official-documentation)
+## What you get
 
-</details>
+| | What it is |
+|---|---|
+| **[Subagents](#subagents-and-skills)** | Experts for Python, Rust, .NET, SQL, dbt, Databricks, MongoDB, design docs and more, most with a standards skill they load |
+| **[Skills](#subagents-and-skills)** | Engineering standards, web search (built-in, Brave, Tavily) and pull request workflows for GitHub, GitLab and Azure DevOps |
+| **[Hooks](docs/hooks.md)** | Session names, `git pull --rebase`, IDE diagnostics, a database guardrail, and API key guards for the search servers |
+| **[Status line](docs/how-to-configure-statusline.md)** | Model, 5-hour and weekly usage, reset times, tokens, cost and service status, sized to the terminal |
+| **[MCP search](docs/how-to-add-mcp-server.md)** | Brave Search and Tavily, with key pools that rotate when one runs out of quota |
+| **Command-line tools** | [`claude-as`](docs/how-to-use-multiple-accounts.md) for several accounts, [`claude-permissions-audit`](docs/how-to-audit-permissions.md), [`claude-proxy`](docs/how-to-use-the-proxy-launcher.md), `mcp-key-rotate` and `mcp-env-inject` |
+| **Shell and terminal presets** | Optional [fish](docs/how-to-configure-fish.md) and [Ghostty](docs/how-to-configure-ghostty.md) configurations |
 
-## What This Repository Contains
+When [OpenCode](https://opencode.ai) is on your PATH, setup installs the same
+agents for it too.
 
-This repo provides a complete, portable Claude Code setup including:
+## Quick start
 
-| Component | Location | Purpose |
-|-----------|----------|---------|
-| **MCP Servers** | `.mcp.json` | External tool integrations (Brave Search, etc.) |
-| **Skills** | `.claude/skills/` | Reusable capabilities with defined behaviors |
-| **Agents** | `.claude/agents/` | Specialized subagents for complex tasks |
-| **Hooks** | `.claude/hooks/` | Git and workflow automation |
-| **Scripts** | `.claude/scripts/` | Utility scripts (file suggestion, etc.) |
-| **Settings** | `.claude/settings.json` | Claude Code configuration with hooks |
-| **Proxy Launcher** | `bin/` | Route Claude Code through alternative model providers |
-| **Project Context** | `CLAUDE.md` | Shared project knowledge and conventions |
+You need [Claude Code](https://code.claude.com/docs/en/setup), Git and `jq`,
+plus `python3` on macOS and Linux. `fd` and `fzf` (faster `@` file search) and
+`ccusage` (token and cost figures in the status line) are optional.
 
-## Installation Options
+**1. Clone and install**
 
-You have **two options** for using this configuration:
-
-| Option | Use Case | Scope |
-|--------|----------|-------|
-| **[Global Install](#global-installation-recommended)** | Use across ALL your projects | User scope (`~/.claude/`) |
-| **[Project Install](#project-installation)** | Use only in this directory | Project scope (`.claude/`) |
-
----
-
-## Global Installation (Recommended)
-
-Follow these steps to make this configuration available across **all projects** on your machine. This is ideal if you want your Claude Code setup to follow you everywhere.
-
-### Prerequisites
-
-1. **Claude Code installed** (via any method):
-   ```bash
-   # macOS/Linux (recommended)
-   curl -fsSL https://claude.ai/install.sh | bash
-
-   # Or via Homebrew
-   brew install --cask claude-code
-
-   # Or via npm (requires Node.js 18+)
-   npm install -g @anthropic-ai/claude-code
-   ```
-
-2. **jq installed** (required for hooks):
-   ```bash
-   # macOS
-   brew install jq
-
-   # Ubuntu/Debian
-   sudo apt-get install jq
-
-   # Windows (via Chocolatey)
-   choco install jq
-   ```
-
-3. **Git installed** (to clone this repo)
-
-### Step 1: Clone This Repository
-
-Choose a location to store your centralized config. We recommend `~/repos/` or `~/projects/`:
+Fork this repository, so your own changes have somewhere to go, and clone the fork:
 
 ```bash
-# Create a repos directory if you don't have one
-mkdir -p ~/repos
-
-# Clone this repository
-cd ~/repos
-git clone https://github.com/YOUR_USERNAME/claude-code-config.git
-
-# Enter the directory
+git clone https://github.com/<you>/claude-code-config.git
 cd claude-code-config
+./setup.sh          # macOS, Linux, WSL
 ```
-
-### Step 2: Run the Setup Script
-
-The setup script creates symlinks and **automatically configures MCP servers** in user scope. Safe to re-run if you move the repo.
-
-**macOS / Linux / WSL / Git Bash:**
-
-```bash
-./setup.sh
-```
-
-**Windows (Windows PowerShell 5.1 or PowerShell 7, no Administrator needed):**
 
 ```powershell
-.\setup.ps1
+.\setup.ps1         # Windows PowerShell 5.1 or PowerShell 7, no Administrator needed
 ```
 
-On Windows the hooks and the status line are bash scripts, so they need
-[Git for Windows](https://gitforwindows.org/); `setup.ps1` warns when it is missing.
-Without Developer Mode, Windows does not let a normal user create symlinks, so
-folders are linked as junctions and files are copied, with the copies tracked in
-`.claude-code-config.managed` so reruns refresh and prune them.
+Setup links each agent, skill, hook and script into `~/.claude` (or
+`$CLAUDE_CONFIG_DIR`), merges its entries into your `settings.json`, registers
+the search servers and adds `bin/` to your PATH. Entries other tools installed
+there are left alone. Run it again at any time; `./setup.sh --help` lists every
+option.
 
-The script will:
-- Create `~/.claude/` (or `$CLAUDE_CONFIG_DIR`) if it doesn't exist
-- Link each skill, agent, hook and script individually, leaving entries other tools installed untouched
-- Add `bin/` to PATH and install `claude` / `clp` shell shortcuts (on Windows, in `$PROFILE.CurrentUserAllHosts`)
-- **Add Brave Search MCP server to user scope** (available in all projects)
-- **Install in parallel for OpenCode** if `opencode` is detected on PATH (translates agents, generates `~/.config/opencode/opencode.json`, symlinks `AGENTS.md`)
-- Check for required environment variables
-
-> **Note:** Symlinks keep everything in sync. When you `git pull` updates, your global config updates automatically.
-
-### Step 3: Set Environment Variables
-
-Add your API keys to your shell profile (`~/.bashrc`, `~/.zshrc`, or `~/.profile`):
+**2. Add your search API keys** (free tiers: [Brave Search](https://api-dashboard.search.brave.com/), [Tavily](https://tavily.com))
 
 ```bash
-# Required for Brave Search
-export BRAVE_API_KEY="your-brave-api-key-here"
-
-# Optional for SonarQube integration
-export SONARQUBE_TOKEN="your-sonarqube-token-here"
-export SONARQUBE_URL="https://your-sonarqube-server.com"
+echo 'BRAVE_API_KEY=your-key' >> ~/.claude/mcp-keys.env
+echo 'TAVILY_API_KEY=your-key' >> ~/.claude/mcp-keys.env
 ```
 
-Then reload: `source ~/.zshrc`
+```powershell
+Add-Content "$HOME\.claude\mcp-keys.env" 'BRAVE_API_KEY=your-key', 'TAVILY_API_KEY=your-key'
+```
 
----
+Without keys everything else works, and `/web-search` uses Claude's built-in search.
 
-## API Keys Setup
+**3. Check it**
 
-### Brave Search API (Required for `/brave-search`)
+```bash
+claude mcp list     # brave-search and tavily, user scope
+claude              # then /agents lists the subagents
+```
+
+[Getting started](docs/getting-started.md) walks through the same steps with
+the output to expect at each one.
+
+## Platform support
+
+| | macOS | Linux | Windows |
+|---|---|---|---|
+| Installer | `setup.sh` | `setup.sh` | `setup.ps1` |
+| Hooks and status line | bash 3.2 or later | bash | Git Bash, from [Git for Windows](https://gitforwindows.org/) |
+| fish and Ghostty presets | Yes | Yes | No |
+| Tested in CI | Installer, hooks, status line | Installer, hooks, status line | Installer on x64 and arm64; status line under Git Bash |
+
+On Windows without Developer Mode, folders are linked as junctions and files
+are copied, so run `setup.ps1` again after each pull. WSL uses `setup.sh`.
+
+## Highlights
+
+**Status line.** Usage comes from the plan behind the session's model: Claude's,
+or the ChatGPT or Muse Code plan when a router runs a GPT or Muse model.
+Components, progress bars, icons and colors are configurable, and the line
+shortens to fit narrow terminals. Sessions on the same account show the newest
+reading any of them has seen.
+[Configure it](docs/how-to-configure-statusline.md).
+
+**Several accounts.** `claude-as` keeps more than one Claude account signed in
+and picks one per session; a session started on one continues on another.
+
+```bash
+claude-as --add you@example.com          # once per account and machine
+claude-as you@example.com --continue
+```
+
+**Session names.** Each session is named once, at its first prompt, as
+`claude-20261012T1412Z-btree-page-splits-0ed0b890`: the name `--resume` and
+Remote Control find it by. [Details](docs/configuration.md#session-names).
+
+**Database guardrail.** The `sql-expert`, `databricks-expert` and
+`mongodb-expert` agents cannot drop a database or delete without a filter;
+`databricks-expert` is read-only. [Levels](docs/hooks.md#database-guardrail).
+
+**Permission audit.** `claude-permissions-audit` finds allow rules that permit
+more than they look like they do, or that saved a password in plain text;
+`--fix` backs the file up and removes them. [How to](docs/how-to-audit-permissions.md).
+
+**Other models.** `claude-proxy` (shortcut `clp`) starts a local proxy and runs
+Claude Code against OpenAI Codex or Antigravity models.
+[How to](docs/how-to-use-the-proxy-launcher.md).
+
+## Subagents and skills
+
+<details>
+<summary><strong>Subagents</strong> (<code>.claude/agents/</code>)</summary>
+
+| Agent | For |
+|---|---|
+| `code-reviewer-expert` | Reviews a pull request with one expert per language and posts inline comments |
+| `d2-tala-expert` | Architecture diagrams in D2 with the TALA layout engine |
+| `data-scientist` | Machine learning, statistics and feature engineering |
+| `databricks-expert` | Read-only Databricks: queries, Unity Catalog, permission audits, jobs |
+| `dbt-expert` | dbt models, sources, tests and macros |
+| `design-doc-expert` | Design docs, DRI working docs and ADRs |
+| `diataxis-expert` | Documentation organized by the Diátaxis framework |
+| `dotnet-expert` | .NET and C# services and APIs |
+| `internet-researcher` | Multi-source web research with sources compared |
+| `kedro-expert` | Kedro pipelines, catalogs and deployment |
+| `langfuse-expert` | Langfuse traces, prompts and sessions |
+| `linus-torvalds` | Blunt engineering advice, on request |
+| `mongodb-expert` | MongoDB queries, aggregations, schemas and indexes |
+| `pr-manager` | Pull requests on GitHub, GitLab and Azure DevOps |
+| `python-expert` | Typed, production Python |
+| `rust-expert` | Idiomatic Rust |
+| `sonarqube-fixer` | SonarQube and SonarLint issues, read from the server or the IDE |
+| `sql-expert` | SQL across PostgreSQL, MySQL, SQL Server, SQLite, DuckDB and Oracle |
+| `ui-designer` | Components, styling, design systems and accessibility |
+
+</details>
+
+<details>
+<summary><strong>Skills</strong> (<code>.claude/skills/</code>)</summary>
+
+| Skill | For |
+|---|---|
+| `web-search`, `brave-search`, `tavily-search` | One search with Claude's built-in tool, Brave Search or Tavily |
+| `internet-research` | Research across Brave Search and Tavily |
+| `pr`, `pr-writing` | Pull requests and commit messages in Conventional Commits |
+| `pr-operations`, `pr-review` | Pull request operations and multi-agent review on GitHub, GitLab and Azure DevOps |
+| `mcp-key-rotate` | Quota checks and key rotation for the search servers |
+| `python-standards`, `rust-standards`, `dotnet-standards` | Language standards the matching agents load |
+| `sql-standards`, `mongodb-standards`, `dbt-standards`, `databricks-standards`, `kedro-standards` | Data engineering standards |
+| `design-doc-standards`, `diataxis-standards`, `d2-tala-standards` | Writing and diagram standards |
+| `langfuse` | Langfuse observability |
+
+`config-hooks` in the same folder is a plugin, not a skill: it carries the
+[stop-nudge hook](docs/hooks.md#stop-nudge).
+
+</details>
+
+[Add an agent](docs/how-to-add-agent.md) · [Add a skill](docs/how-to-add-skill.md) · [Run skill evals](docs/how-to-run-evals.md)
+
+## Documentation
 
 | | |
 |---|---|
-| **Free tier** | 1,000 searches/month ($5 free credits) |
-| **Sign up** | https://api-dashboard.search.brave.com/ |
+| **Tutorial** | [Getting started](docs/getting-started.md) |
+| **How-to guides** | [Configure the status line](docs/how-to-configure-statusline.md) · [Use multiple accounts](docs/how-to-use-multiple-accounts.md) · [Sync across machines](docs/how-to-sync-across-machines.md) · [Audit permission rules](docs/how-to-audit-permissions.md) · [Use the proxy launcher](docs/how-to-use-the-proxy-launcher.md) · [Add an MCP server](docs/how-to-add-mcp-server.md) · [Add an agent](docs/how-to-add-agent.md) · [Add a skill](docs/how-to-add-skill.md) · [Run skill evals](docs/how-to-run-evals.md) · [Configure fish](docs/how-to-configure-fish.md) · [Configure Ghostty](docs/how-to-configure-ghostty.md) |
+| **Reference** | [Configuration](docs/configuration.md) · [Hooks](docs/hooks.md) · [Project structure](docs/project-structure.md) |
+| **Explanation** | [Architecture](docs/architecture.md) · [Design decisions](docs/design-decisions.md) · [Testing and portability](docs/testing.md) · [Branching strategies](docs/branching-strategies.md) |
 
-**Steps:**
-1. Go to https://api-dashboard.search.brave.com/
-2. Sign up or log in with your account
-3. Click **"Create API Key"**
-4. Copy the key and add to your shell profile
-
-### Tavily API (Required for `/tavily-search`)
-
-| | |
-|---|---|
-| **Free tier** | 1,000 credits/month |
-| **Sign up** | https://tavily.com |
-
-**Steps:**
-1. Go to https://tavily.com
-2. Sign up or log in with your account
-3. Copy your API key from the dashboard
-4. Add to your shell profile
-
-### SonarQube API (Optional for `sonarqube-fixer`)
-
-| | |
-|---|---|
-| **Required for** | Fetching issues directly from SonarQube server |
-| **Works without** | Yes - just paste issue details to the agent |
-
-**Steps:**
-1. Log in to your SonarQube instance (e.g., `https://sonarqube.yourcompany.com`)
-2. Click your profile → **My Account** → **Security**
-3. Under **Generate Tokens**, enter a name and click **Generate**
-4. Copy the token immediately (it won't be shown again!)
-5. Add both variables to your shell profile:
-   ```bash
-   export SONARQUBE_TOKEN="squ_xxxxxxxxxxxxxxxxxxxx"
-   export SONARQUBE_URL="https://sonarqube.yourcompany.com"
-   ```
-
-> **Tip:** The `sonarqube-fixer` agent can also work without API access. It automatically reads SonarLint issues from your IDE (PyCharm/VSCode/Cursor) via diagnostics.
-
----
-
-**Windows (System Environment Variables):**
-
-1. Open **System Properties** → **Advanced** → **Environment Variables**
-2. Under **User variables**, click **New**
-3. Add each variable (`BRAVE_API_KEY`, `SONARQUBE_TOKEN`, `SONARQUBE_URL`)
-
-### Step 4: Verify Installation
-
-Start Claude Code in **any project** and verify everything works:
+## Development
 
 ```bash
-cd ~/some-other-project
-claude
+just install-tools          # the toolchain pinned in mise.toml, through mise
+just check                  # the merge gate: lint, format, secret scan, bats, PowerShell
+just verify-clean-machine   # the tests with an empty HOME and the system bash, as CI runs them
 ```
 
-**Check MCP servers:**
-```bash
-claude mcp list
-```
-
-You should see `brave-search` listed with scope `user`.
-
-**Check available commands:**
-```
-> /help
-```
-
-You should see:
-- `/web-search` (user)
-- `/brave-search` (user)
-- `/pr` (user)
-
-**Check available agents:**
-```
-> /agents
-```
-
-You should see:
-- `data-scientist` - ML, deep learning, statistical analysis
-- `databricks-expert` - Query data, explore Unity Catalog, audit permissions, monitor jobs
-- `design-doc-expert` - Engineering planning: design docs, DRI working docs, ADRs, weekly updates
-- `diataxis-expert` - Documentation framework: tutorials, how-to guides, reference, explanation
-- `internet-researcher` - Deep research using Brave Search
-- `kedro-expert` - Build data pipelines, manage catalogs, configure environments
-- `pr-manager` - Full PR/MR lifecycle (list, view, create, review, edit) with workflow detection
-- `python-expert` - Clean, type-safe, production-ready Python code
-- `sonarqube-fixer` - Fix SonarQube/SonarLint issues (auto-reads from IDE)
-- `ui-designer` - UI components, styling, design systems, accessibility
-
-**Test the Brave Search MCP:**
-```
-> /brave-search latest Claude Code features
-```
-
-### Step 5: Keep Your Config Updated
-
-Since you cloned a Git repo, pull updates regularly:
-
-```bash
-cd ~/repos/claude-code-config
-git pull origin main
-```
-
-If you used symlinks, your global config updates automatically!
-
----
-
-## Project Installation
-
-Use this method if you only want the configuration in a specific project directory.
-
-### 1. Clone the Repository
-
-```bash
-git clone https://github.com/YOUR_USERNAME/claude-code-config.git
-cd claude-code-config
-```
-
-### 2. Set Up Environment Variables
-
-Create a `.env` file (gitignored) or export in your shell:
-
-```bash
-# Required for Brave Search MCP
-export BRAVE_API_KEY="your-brave-api-key"
-
-# Add other API keys as needed
-```
-
-**Get a free Brave API key:** https://api-dashboard.search.brave.com/
-
-### 3. Start Claude Code
-
-```bash
-claude
-```
-
-That's it! All MCP servers, skills, commands, and hooks are automatically loaded for this project.
-
----
-
-## Repository Structure
-
-```
-claude-code-config/
-├── setup.sh                       # Setup script for macOS/Linux
-├── setup.ps1                      # Setup script for Windows
-├── .mcp.json                      # MCP server configurations
-├── bin/                                # Utility scripts (installed to ~/.local/bin)
-│   ├── claude-as                       # Run Claude Code as one of several accounts
-│   ├── claude-permissions-audit        # Audit/fix risky permission allow rules
-│   ├── claude-proxy                    # Single entry point for all proxy profiles
-│   ├── proxy-start-codex.sh            # Profile: CLIProxyAPI + OpenAI Codex
-│   └── proxy-start-antigravity.sh      # Profile: Antigravity (Google Cloud Code)
-├── .claude/
-│   ├── settings.json              # Claude Code settings (hooks config)
-│   ├── hooks/                     # Hook scripts
-│   │   ├── enforce-git-pull-rebase.sh
-│   │   ├── open-file-in-ide.sh
-│   │   ├── session-name.sh        # Names sessions <provider>-<start>-<topic>-<id>
-│   │   └── sql-guardrail.sh       # Unified DB guardrail (STRICT/STANDARD/MONGO)
-│   ├── skills/                    # Skills (reusable capabilities)
-│   │   ├── brave-search/          # Brave Search MCP skill
-│   │   ├── d2-tala-standards/     # D2 + TALA diagramming standards
-│   │   ├── databricks-standards/  # Databricks engineering standards
-│   │   ├── dbt-standards/         # dbt engineering standards
-│   │   ├── design-doc-standards/  # Design doc + DRI working doc + ADR standards
-│   │   ├── diataxis-standards/    # Diataxis documentation framework standards
-│   │   ├── dotnet-standards/      # .NET/C# engineering standards
-│   │   ├── internet-research/     # Multi-source internet research
-│   │   ├── kedro-standards/       # Kedro pipeline standards
-│   │   ├── langfuse/              # Langfuse observability standards
-│   │   ├── mongodb-standards/     # MongoDB engineering standards (+ evals)
-│   │   ├── sql-standards/         # Cross-dialect SQL standards (+ evals)
-│   │   ├── mcp-key-rotate/        # MCP API key rotation
-│   │   ├── pr/                    # PR creation (Conventional Commits)
-│   │   ├── pr-operations/         # Cross-platform PR/MR operations
-│   │   ├── pr-review/             # Multi-agent PR review
-│   │   ├── pr-writing/            # PR and commit message writing
-│   │   ├── python-standards/      # Python engineering standards
-│   │   ├── rust-standards/        # Rust engineering standards
-│   │   ├── tavily-search/         # Tavily AI-native search
-│   │   └── web-search/            # Built-in web search
-│   ├── agents/                    # Subagent definitions
-│   │   ├── code-reviewer-expert.md
-│   │   ├── d2-tala-expert.md
-│   │   ├── data-scientist.md
-│   │   ├── databricks-expert.md
-│   │   ├── dbt-expert.md
-│   │   ├── design-doc-expert.md
-│   │   ├── diataxis-expert.md
-│   │   ├── dotnet-expert.md
-│   │   ├── internet-researcher.md
-│   │   ├── kedro-expert.md
-│   │   ├── langfuse-expert.md
-│   │   ├── linus-torvalds.md
-│   │   ├── mongodb-expert.md
-│   │   ├── pr-manager.md
-│   │   ├── python-expert.md
-│   │   ├── rust-expert.md
-│   │   ├── sonarqube-fixer.md
-│   │   ├── sql-expert.md
-│   │   └── ui-designer.md
-│   ├── scripts/                   # Utility scripts
-│   │   ├── file-suggestion.sh
-│   │   ├── file-suggestion.ps1
-│   │   └── statusline.sh          # Two-tier statusline with billing
-├── CLAUDE.md                      # Project context (committed)
-├── CLAUDE.local.md                # Personal notes (gitignored)
-├── .gitignore                     # Comprehensive gitignore
-└── README.md                      # This file
-```
-
-## Git Conventions
-
-### Automatic `git pull --rebase`
-
-This repository includes a **PreToolUse hook** that automatically adds `--rebase` to all `git pull` commands. This ensures a clean, linear commit history.
-
-```bash
-# What you type:
-git pull origin develop
-
-# What actually runs:
-git pull --rebase origin develop
-```
-
-No configuration needed - the hook is automatically active when you run Claude Code in this repository.
-
-## Hooks
-
-This configuration includes several PreToolUse hooks in `.claude/settings.json`:
-
-### 1. Git Pull Rebase Hook
-
-Automatically adds `--rebase` to `git pull` commands for linear history.
-
-**Location:** `.claude/hooks/enforce-git-pull-rebase.sh`
-
-### 2. IDE Diagnostics Hook (JetBrains/VSCode Workaround)
-
-Automatically opens files in your IDE before calling `mcp__ide__getDiagnostics`. This solves a known bug ([#3085](https://github.com/anthropics/claude-code/issues/3085)) where JetBrains IDEs (PyCharm, IntelliJ, WebStorm) timeout on diagnostics if the file is not the currently active tab.
-
-**How it works (3-tier fallback system):**
-1. **Tier 1 - User Preference**: If `CLAUDE_IDE` env var is set, use that IDE
-2. **Tier 2 - Auto-detect Running IDE**: Check which IDE is currently running (via `pgrep`)
-3. **Tier 3 - Fallback**: Use first available IDE command
-
-This ensures the hook opens files in the IDE you're actually using, not just the first one installed.
-
-**Supported IDEs:**
-- VSCode (`code`)
-- VSCode Insiders (`code-insiders`)
-- Cursor (`cursor`)
-- Windsurf (`windsurf`)
-- Antigravity (`antigravity`)
-- PyCharm (`pycharm`)
-- IntelliJ IDEA (`idea`)
-- WebStorm (`webstorm`)
-- PhpStorm (`phpstorm`)
-- GoLand (`goland`)
-- Rider (`rider`)
-- CLion (`clion`)
-- RubyMine (`rubymine`)
-
-**Manual IDE Selection:**
-
-If you want to force a specific IDE (overriding auto-detection), set the `CLAUDE_IDE` environment variable:
-
-```bash
-# In ~/.zshrc or ~/.bashrc
-export CLAUDE_IDE="code-insiders"   # Force VSCode Insiders
-export CLAUDE_IDE="cursor"          # Force Cursor
-export CLAUDE_IDE="pycharm"         # Force PyCharm
-export CLAUDE_IDE="windsurf"        # Force Windsurf
-```
-
-**How Auto-Detection Works:**
-
-1. **Multiple IDEs installed?** → Opens file in whichever IDE is currently running
-2. **No IDE running?** → Opens in first available (priority: code-insiders → cursor → windsurf → code → pycharm → idea)
-3. **Want to override?** → Set `CLAUDE_IDE` environment variable
-
-**Examples:**
-
-```bash
-# Scenario 1: Both PyCharm and VSCode Insiders installed, VSCode Insiders is running
-# → Opens in VSCode Insiders (auto-detected)
-
-# Scenario 2: Both PyCharm and VSCode installed, nothing is running
-# → Opens in VSCode (higher priority in fallback list)
-
-# Scenario 3: Both installed, but you want to always use PyCharm
-# → export CLAUDE_IDE="pycharm" (manual override)
-```
-
-This hook benefits **all agents** that use `getDiagnostics`, especially the `sonarqube-fixer` agent.
-
-### 3. Unified Database Guardrail
-
-A single hook that protects all database CLI commands with three safety levels. Configured at the **agent level** (in agent frontmatter), not in project-level `settings.json`.
-
-**Location:** `.claude/hooks/sql-guardrail.sh`
-
-**Safety Levels:**
-
-| Level | CLIs | What it blocks | What it allows |
-|-------|------|----------------|----------------|
-| **STRICT** | `databricks` | All mutations: INSERT, UPDATE, DELETE, TRUNCATE, MERGE, DROP, CREATE, ALTER, GRANT, REVOKE | SELECT, DESCRIBE, SHOW, EXPLAIN |
-| **STANDARD** | `psql`, `mysql`, `sqlcmd`, `sqlite3`, `duckdb`, `sqlplus`, `clickhouse-client` | Catastrophic ops: DROP DATABASE, TRUNCATE TABLE, DELETE without WHERE | Controlled writes: INSERT, UPDATE, CREATE, DELETE with WHERE |
-| **MONGO** | `mongosh` | `db.dropDatabase()`, `collection.drop()`, `deleteMany({})`, `remove({})` with empty filter | Normal CRUD with filters, aggregation, index management |
-
-**How it works:**
-1. Reads the tool input JSON from stdin (standard Claude Code hook protocol)
-2. Detects the database CLI in the command and assigns the safety level
-3. Pattern-matches against blocked operations (case-insensitive)
-4. Exits with code `2` to block, or `0` to allow (with optional stderr warnings)
-5. Fails open on empty stdin, missing `jq`, or invalid JSON — never blocks non-database commands
-
-**Agents using this hook:** `databricks-expert`, `sql-expert`, `mongodb-expert`
-
-### 4. Fast File Suggestion (Optional Performance Enhancement)
-
-Provides lightning-fast file discovery when using `@` mentions in Claude Code, leveraging modern CLI tools for 10-100x performance improvement on large codebases.
-
-**Location:** `.claude/scripts/file-suggestion.sh` (macOS/Linux) and `.claude/scripts/file-suggestion.ps1` (Windows)
-
-**What it does:**
-When you type `@` to reference a file in Claude Code, the default file suggestion can be slow on large codebases. This custom script uses industry-standard tools (`fd` + `fzf`) to provide blazing-fast, intelligent file discovery.
-
-**Performance Benefits:**
-
-| Codebase Size | Default | With fd + fzf | Improvement |
-|--------------|---------|---------------|-------------|
-| Small (100 files) | ~50ms | ~10ms | 5x faster |
-| Medium (1,000 files) | ~500ms | ~30ms | 16x faster |
-| Large (10,000+ files) | 2-5s | ~100ms | 20-50x faster |
-
-**Features:**
-- Respects `.gitignore` automatically
-- Follows symlinks correctly
-- Includes hidden files (`.env`, `.gitignore`, etc.)
-- Fuzzy matching with `fzf`
-- Cross-platform (macOS, Linux, Windows)
-
-**Prerequisites:**
-
-The setup script automatically configures this feature if the required tools are installed:
-
-```bash
-# macOS
-brew install fd fzf
-
-# Ubuntu/Debian
-sudo apt-get install fd-find fzf
-
-# Windows (choose one)
-scoop install fd fzf
-winget install sharkdp.fd junegunn.fzf
-choco install fd fzf
-```
-
-**How it works:**
-
-When configured, Claude Code calls the file suggestion script which:
-1. Uses `fd` to rapidly find all files (respecting `.gitignore`)
-2. Pipes results to `fzf` for fuzzy matching against your query
-3. Returns up to 15 matching file paths
-
-**Auto-configuration:**
-
-The `setup.sh` and `setup.ps1` scripts automatically:
-- Check if `fd` and `fzf` are installed
-- Create symlink: `~/.claude/scripts/` → `<repo>/.claude/scripts/`
-- Add `fileSuggestion` configuration to `~/.claude/settings.json`
-- Skip gracefully if prerequisites are missing (uses default file suggestion)
-
-**Manual Configuration (if needed):**
-
-If you skipped the setup script or installed tools later, add this to `~/.claude/settings.json`:
-
-```json
-{
-  "fileSuggestion": {
-    "type": "command",
-    "command": "~/.claude/scripts/file-suggestion.sh"
-  }
-}
-```
-
-On Windows, use:
-```json
-{
-  "fileSuggestion": {
-    "type": "command",
-    "command": "~/.claude/scripts/file-suggestion.ps1"
-  }
-}
-```
-
-**When to use this:**
-- You work on repos with 1,000+ files
-- You frequently use `@` file mentions
-- You want professional-grade tooling
-- You work with monorepos or large projects
-
-**When to skip:**
-- Small projects (<500 files)
-- You rarely use `@` mentions
-- You prefer zero-config setup
-
-### 5. Statusline with Billing Tracking
-
-Displays real-time session metrics in Claude Code's status bar, including model info, usage percentage, time remaining, token counts, and cost tracking.
-
-**Location:** `.claude/scripts/statusline.sh`
-
-**What it shows:**
-
-| Metric | Description |
-|--------|-------------|
-| Model | Current model (e.g., `opus-4.5`) |
-| Session % | Percentage of the 5-hour window used |
-| Weekly % | Percentage of the weekly window used |
-| Resets | Time until session resets |
-| In/Out | Input and output tokens |
-| Cache | Cache read tokens |
-| Cost | Current cost + burn rate |
-
-Usage comes from the plan behind the session's model: Claude's, or the ChatGPT or Muse Code plan when Claude Code runs a GPT or Muse model through a router. See [Usage for GPT and Muse models](docs/how-to-configure-statusline.md#usage-for-gpt-and-muse-models).
-
-**Two-Tier Display (adapts to terminal width):**
-
-Wide terminal (≥110 cols):
-```
-opus-4.5 | session: 43% used | resets: 3h10m | in: 1.6k out: 587 | cache: 6.9M | $5.70 ($3.11/hr)
-```
-
-Narrow terminal (<110 cols):
-```
-opus-4.5 | 43% | 3h10m | 1.6k/587/6.9M | $5.75
-```
-
-**Prerequisites:**
-
-```bash
-# Required
-npm install -g ccusage
-
-# Also needed (usually pre-installed)
-brew install jq  # macOS
-sudo apt-get install jq  # Ubuntu/Debian
-```
-
-**Auto-configuration:**
-
-The `setup.sh` script automatically:
-- Checks if `ccusage` and `jq` are installed
-- Adds `statusLine` configuration to `~/.claude/settings.json`
-- Uses the two-tier script from `~/.claude/scripts/statusline.sh`
-
-**Manual Configuration (if needed):**
-
-Add this to `~/.claude/settings.json`:
-
-```json
-{
-  "statusLine": {
-    "type": "command",
-    "command": "~/.claude/scripts/statusline.sh",
-    "padding": 0
-  }
-}
-```
-
-**When to use this:**
-- You have a Claude Pro/Max subscription
-- You want to track billing window usage
-- You want visibility into token consumption
-- You want to pace your usage throughout the day
-
-### 6. Cross-Device Sessions (Claude Remote Control)
-
-Use Claude Code's native [Remote Control](https://code.claude.com/docs/en/remote-control) instead of synchronizing the live `~/.claude/` data directory. Remote Control keeps the session and tools on the originating machine while Claude's web and mobile clients provide a synchronized interface over TLS.
-
-```bash
-# Start one local session that can also be controlled from web or mobile
-claude --remote-control "My Project"
-
-# Or enable an existing interactive session
-/remote-control My Project
-
-# Scalable server mode: isolate concurrent sessions in Git worktrees
-claude remote-control --spawn worktree --capacity 8
-```
-
-Claude Code 2.1.51 or later is required. Pro, Max, Team, and Enterprise plans are supported; a Team or Enterprise Owner must enable Remote Control in Claude Code admin settings. See the official documentation for authentication and policy requirements.
-
-Use the direct `claude` launcher for Remote Control, not the `clp` model-proxy shortcut. Remote Control requires a claude.ai subscription login and the official Anthropic API endpoint; API-key, Bedrock, Vertex, Foundry, and custom `ANTHROPIC_BASE_URL` sessions are not supported.
-
-#### Why automatic file sync is retired
-
-This repository deliberately does **not** install SessionStart/SessionEnd hooks that pull or push `~/.claude/`:
-
-- `history.jsonl` and `projects/**/*.jsonl` are live, append-oriented journals, not merge-safe configuration files.
-- Simultaneous or interrupted writers can create repeated `.conflict.*` snapshots, overwrite a fuller transcript with a shorter copy, or lose prompt history through last-writer-wins behavior. These are known upstream failure modes: [false prefix conflicts](https://github.com/tawanorg/claude-sync/issues/69), [truncated transcript overwrite](https://github.com/tawanorg/claude-sync/issues/70), and [history loss](https://github.com/tawanorg/claude-sync/issues/72).
-- Hook-triggered background transfers have no safe transaction boundary with Claude Code processes that are actively mutating the same files.
-
-Git remains the source of truth for declarative configuration in this repository: hooks, skills, agents, scripts, and documented settings. Runtime histories stay local. Re-running `./setup.sh` removes legacy `cc-sync-pull.sh` and `cc-sync-push.sh` entries from `~/.claude/settings.json` while preserving unrelated hooks.
-
-The historical `--no-claude-sync` option is accepted as a compatibility no-op. `--with-claude-sync` now exits with migration guidance rather than reinstalling unsafe automatic hooks. This migration does not delete existing conflicts, backups, cloud data, or credentials.
-
-### 7. Multiple Accounts
-
-`claude-as` keeps several Claude accounts signed in at once and picks one by the email it signed in with. Every account shares this configuration and the session history, so a session started as one account continues as another:
-
-```bash
-claude-as --add you@example.com     # once per account and machine
-claude-as                           # list: email, plan, organization
-claude-as you@example.com --continue   # the whole email; /team or /pro when it has two
-```
-
-See [docs/how-to-use-multiple-accounts.md](./docs/how-to-use-multiple-accounts.md).
-
-## Permission Rule Audit
-
-Every "Yes, and don't ask again" answer saves the exact command as an allow rule in that repository's git-ignored `.claude/settings.local.json` ([Configure permissions](https://code.claude.com/docs/en/permissions)). Over time those files collect rules that allow more than they appear to:
-
-- **Mid-command wildcards** such as `Bash(git * main)`. A `*` matches any text, including options inserted at that position, so this rule also allows `git -c core.fsmonitor=<script> diff main`. Since v2.1.246 Claude Code prints a startup warning for each one ("has a wildcard before the rest of the command"); a trailing `*` or `:*` is fine.
-- **Embedded credentials.** A command approved with `PGPASSWORD=…`, `curl -u user:pass` or an `Authorization` header is saved verbatim, in plaintext.
-- **Overly broad allows** such as `Bash`, `Bash(sudo *)` or `Bash(python3:*)`.
-- **Exact duplicates.**
-
-This matters even if you usually run with `--dangerously-skip-permissions`. Allow rules have no effect in `bypassPermissions` mode, but the files are still loaded at startup, which is where the warning comes from, and the credentials stay on disk. In auto mode, an action that matches an allow rule skips the classifier. Auto mode drops broad interpreter rules when it starts ([permission modes](https://code.claude.com/docs/en/permission-modes)), but it keeps mid-command wildcards.
-
-```bash
-claude-permissions-audit                  # ~/.claude/settings.json + every project under $HOME
-claude-permissions-audit ~/code ~/work    # narrower and faster: specific roots (or CLAUDE_PERMS_ROOTS=dir1:dir2)
-claude-permissions-audit --verbose        # list each finding; secrets are always masked
-claude-permissions-audit --json           # machine-readable
-claude-permissions-audit --dry-run        # show what --fix would remove
-claude-permissions-audit --fix            # back up, then remove
-claude-permissions-audit --fix --include-tracked   # also rewrite settings files git tracks
-```
-
-`--fix` removes mid-wildcard, secret-like and duplicate rules and leaves every other key untouched. Broad rules are reported but never removed, because removing one changes how you work. Before rewriting a file, `--fix` copies it to `~/.claude/backups/permissions/<UTC-timestamp>/` (directory mode `700`, file mode `600`). A settings file that git tracks is left unchanged and reported, because rewriting it would leave a diff in that repository; `--include-tracked` rewrites it too. Removing a rule does not revoke the credential it contained.
-
-Secret detection is a heuristic. It flags literal values after password, token and key names, URL userinfo, `curl -u`, auth headers, `mysql -p…`, and common token prefixes. Values written as `$VAR` or `$(…)` are not flagged. The scan skips `node_modules`, `.git`, `.worktrees`, virtualenvs and caches. When `$HOME` is the root, it also skips `~/Library` and the dot-directories directly under `$HOME`. It does not read managed settings. Exit codes: `0` clean, `1` findings (after `--fix`, broad rules remain), `2` usage or I/O error. Requires `jq`; on Windows it runs under Git Bash.
-
-## Shell + Terminal Configuration
-
-Optional opinionated presets for the **fish shell** and the **Ghostty terminal** — paired daily-driver setup for macOS and Linux. Copy-install one preset of each, customize as needed.
-
-### Fish Shell ([docs/fish/](./docs/fish/))
-
-One preset, fully modular (`conf.d/` + `functions/`):
-
-| Preset | Use case |
-|---|---|
-| `config-power-user/` | Daily driver — Claude Code, mise, bun, dbt, Tide prompt, cross-platform brew detection, SSH socket auto-detection, OS-aware Tide badge, zellij auto-attach on SSH |
-
-See [`docs/how-to-configure-fish.md`](./docs/how-to-configure-fish.md) for the full guide.
-
-### Ghostty Terminal ([docs/ghostty/](./docs/ghostty/))
-
-Six presets covering the spectrum:
-
-| Preset | Philosophy |
-|---|---|
-| `config-minimal.ini` | Clean macOS-native feel, fewest overrides |
-| `config-recommended.ini` | Daily driver — productivity-focused, no visual noise |
-| `config-power-user.ini` | tmux + Neovim workflow, max screen real estate |
-| `config-aesthetic.ini` | Transparent + blurred, riced |
-| `config-maximalist.ini` | Every popular option enabled (good starting point to trim from) |
-| `config-tip.ini` | Tip-channel preset with Ghostty 1.3+ features (click-to-move cursor, command-finish notifications, P3 colorspace, OSC 52) |
-
-See [`docs/how-to-configure-ghostty.md`](./docs/how-to-configure-ghostty.md) for the full guide.
-
-All presets target macOS + Linux. Ghostty silently ignores `macos-*` keys on Linux, and `super+` keybinds work as Cmd (macOS) or Super/Win (Linux) automatically.
-
-## Proxy Launcher
-
-Route Claude Code through alternative model providers (OpenAI Codex, Google Gemini, Antigravity Cloud Code) using a single unified CLI. The proxy launcher auto-starts the backend, configures environment variables, and launches Claude Code — all in one command.
-
-### How the Proxy Launcher Works
-
-```
-┌──────────────┐         ┌──────────────────┐         ┌─────────────────────────┐
-│  claude-proxy │────────▶│  Profile Script  │────────▶│  Provider Backend       │
-│  (entry point)│         │  proxy-start-*   │         │                         │
-│              │         │                  │         │  codex: CLIProxyAPI     │
-│  Configures: │         │  Starts the      │         │  antigravity: Cloud Code│
-│  • base URL  │         │  proxy server    │         │  custom: your own       │
-│  • auth token│         │  in background   │         │                         │
-│  • model     │         │                  │         │                         │
-└──────┬───────┘         └──────────────────┘         └─────────────────────────┘
-       │
-       ▼
-┌──────────────┐
-│  Claude Code  │
-│  (exec claude)│
-└──────────────┘
-```
-
-**How it works step-by-step:**
-
-1. Checks if the proxy is already running (HTTP health check)
-2. If not running, launches the profile's start script in the background
-3. Waits up to 5 seconds for the proxy to become reachable
-4. Sets `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and model environment variables
-5. Runs `claude` with all environment variables injected — your session starts immediately
-
-> **Key design principle:** Profiles only control *how to start the proxy*. Model selection is decoupled — you can use any model string the backend supports.
-
-**PATH and shortcuts setup:** The `setup.sh` script automatically adds `bin/` to your shell PATH and installs shell functions in `~/.zshrc`, `~/.bashrc`, or `~/.profile`:
-
-```bash
-claude        # normal Claude Code, with bypassPermissions available in Shift+Tab cycle
-claude -a     # start Claude Code directly in bypassPermissions mode
-clp           # claude-proxy with gpt-5.5(high), bypassPermissions available in Shift+Tab cycle
-clp -a        # claude-proxy with gpt-5.5(high), directly in bypassPermissions mode
-```
-
-The proxy shortcut default model can be overridden per shell:
-
-```bash
-export CLAUDE_PROXY_MODEL="gpt-5.5(high)"
-```
-
-If you skipped this during setup, add PATH manually:
-
-```bash
-# Add to ~/.zshrc or ~/.bashrc (use the actual path to your clone):
-export PATH="/path/to/claude-code-config/bin:$PATH"
-```
-
-Or re-run `./setup.sh` to configure PATH and shortcuts automatically.
-
-### Proxy Quick Start
-
-#### Antigravity (Google Cloud Code)
-
-Uses your Google account to access Claude and Gemini models for free via [Antigravity Cloud Code](https://github.com/badrisnarayanan/antigravity-claude-proxy).
-
-**Prerequisites:**
-
-| Tool | Install |
-|------|---------|
-| Node.js 18+ | `brew install node` |
-| Google account | Any Gmail / Google Workspace account |
-
-**First-time setup** (link your Google account):
-
-```bash
-# Start the proxy manually
-npx antigravity-claude-proxy@latest start
-
-# Open http://localhost:8081 in your browser
-# Go to Accounts → Add Account → complete Google OAuth
-# Once linked, press Ctrl+C to stop
-```
-
-**Run Claude Code:**
-
-```bash
-# Claude models via Antigravity
-./bin/claude-proxy -p antigravity -m 'claude-sonnet-4-5-thinking'
-
-# Gemini models via Antigravity
-./bin/claude-proxy -p antigravity -m 'gemini-3-pro-high[1m]'
-```
-
-#### Codex (CLIProxyAPI + OpenAI/ChatGPT)
-
-Uses your existing OpenAI Codex/ChatGPT subscription tokens via [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI).
-
-**Prerequisites:**
-
-| Tool | Install |
-|------|---------|
-| Go 1.21+ | `brew install go` |
-| jq | `brew install jq` |
-| CLIProxyAPI source | `git clone https://github.com/router-for-me/CLIProxyAPI.git ~/Documents/dev/CLIProxyAPI` |
-| Codex CLI auth | Sign in via `codex` CLI (creates `~/.codex/auth.json`) |
-
-**Run Claude Code:**
-
-```bash
-# GPT models via CLIProxyAPI (codex is the default profile)
-./bin/claude-proxy -m 'gpt-5.3-codex(high)'
-```
-
-### Available Profiles
-
-| Profile | Backend | Port | Auth Token | Models |
-|---------|---------|------|------------|--------|
-| `codex` (default) | [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) | 8317 | `sk-dummy` | GPT / Codex |
-| `antigravity` | [Antigravity Claude Proxy](https://github.com/badrisnarayanan/antigravity-claude-proxy) | 8081 | `test` | Claude / Gemini |
-| `none` | (external) | 8317 | `sk-dummy` | Any (proxy must be pre-started) |
-
-Port and auth token are per-profile defaults — override them with `--port` and `--api-key` if needed.
-
-### CLI Reference
-
-```
-Usage:
-  ./bin/claude-proxy [options] [--] [claude args...]
-
-Options:
-  -m, --model MODEL        Model string (validated per profile; uses profile default if omitted)
-  -p, --profile PROFILE    Proxy profile: codex | antigravity | none (default: codex)
-  --models                 List available models for the selected profile and exit
-  --host HOST              Proxy bind address (default: 127.0.0.1)
-  --port PORT              Proxy port (auto-set per profile if omitted)
-  --api-key KEY            Proxy auth key (auto-set per profile if omitted)
-  --no-start               Require proxy to be already running (skip auto-start)
-  --no-validate            Skip model validation
-  -h, --help               Show help
-```
-
-**Examples:**
-
-```bash
-# Use profile defaults (codex + gpt-5.3-codex(high))
-./bin/claude-proxy
-
-# Antigravity with default (claude-opus-4-5-thinking)
-./bin/claude-proxy -p antigravity
-
-# Codex with medium effort
-./bin/claude-proxy -m 'gpt-5.3-codex(medium)'
-
-# Antigravity with Gemini + 1M context
-./bin/claude-proxy -p antigravity -m 'gemini-3-pro-high[1m]'
-
-# List available models per profile
-./bin/claude-proxy --models                   # codex models
-./bin/claude-proxy -p antigravity --models    # antigravity models
-
-# Use a proxy that's already running on a custom port
-./bin/claude-proxy --no-start --port 3001 --no-validate -m 'custom-model'
-
-# Pass extra arguments to Claude Code (after --)
-./bin/claude-proxy -p antigravity -- --verbose
-
-# Installed shell shortcut: proxy + allow switching to bypassPermissions
-clp
-
-# Installed shell shortcut: proxy + start directly in bypassPermissions
-clp -a
-```
-
-### Creating Custom Profiles
-
-Add support for any proxy backend by creating a start script:
-
-1. Create `bin/proxy-start-<name>.sh` (must be executable)
-2. The script receives environment variables: `HOST`, `PORT`, `API_KEY`, `MODEL`
-3. The script should start the proxy in the foreground (the launcher handles backgrounding)
-
-**Example:** Create a profile for a hypothetical `my-proxy` backend:
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-# bin/proxy-start-myproxy.sh
-# Called by: ./bin/claude-proxy -p myproxy
-
-PORT="${PORT:-9090}" exec my-proxy-server --port "${PORT}"
-```
-
-```bash
-chmod +x bin/proxy-start-myproxy.sh
-./bin/claude-proxy -p myproxy -m 'my-custom-model'
-```
-
-To set per-profile defaults (port, API key), add a case to the defaults block in `bin/claude-proxy`.
-
-### Proxy Troubleshooting
-
-<details>
-<summary><strong>Proxy not reachable after startup</strong></summary>
-
-Check the proxy log for errors:
-
-```bash
-cat ~/.cli-proxy-api/cli-proxy-api.log
-```
-
-Common causes:
-- **Port conflict:** Another service is using the port. Override with `--port 8081`
-- **Missing dependencies:** Codex profile requires `go` and `jq`; Antigravity requires `node` and `npx`
-- **No auth configured:** Antigravity requires linking a Google account first (see Quick Start above)
-
-</details>
-
-<details>
-<summary><strong>Antigravity shows "No accounts in config"</strong></summary>
-
-The proxy is running but no Google account is linked. Open `http://localhost:8081`, go to **Accounts**, and click **Add Account** to complete OAuth.
-
-</details>
-
-<details>
-<summary><strong>Codex profile fails to build</strong></summary>
-
-The CLIProxyAPI source must be cloned locally:
-
-```bash
-git clone https://github.com/router-for-me/CLIProxyAPI.git ~/Documents/dev/CLIProxyAPI
-```
-
-You also need Go installed: `brew install go`
-
-Override the source location:
-
-```bash
-CLI_PROXY_DIR=~/path/to/CLIProxyAPI ./bin/claude-proxy -m 'gpt-5.3-codex(high)'
-```
-
-</details>
-
-<details>
-<summary><strong>Running both profiles simultaneously</strong></summary>
-
-Since each profile uses a different port, you can run them side-by-side:
-
-```bash
-# Terminal 1: Antigravity on :8081
-./bin/claude-proxy -p antigravity -m 'claude-sonnet-4-5-thinking'
-
-# Terminal 2: Codex on :8317
-./bin/claude-proxy -m 'gpt-5.3-codex(high)'
-```
-
-</details>
-
-<details>
-<summary><strong>Environment variables vs. proxy launcher</strong></summary>
-
-The proxy launcher is an alternative to manually setting environment variables. These two approaches are equivalent:
-
-```bash
-# Option A: Proxy launcher (recommended)
-./bin/claude-proxy -p antigravity -m 'claude-sonnet-4-5-thinking'
-
-# Option B: Manual environment variables
-export ANTHROPIC_BASE_URL="http://localhost:8081"
-export ANTHROPIC_AUTH_TOKEN="test"
-export ANTHROPIC_DEFAULT_OPUS_MODEL="claude-opus-4-5-thinking"
-export ANTHROPIC_DEFAULT_SONNET_MODEL="claude-sonnet-4-5-thinking"
-export ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-sonnet-4-5-thinking"
-claude
-```
-
-The launcher adds auto-start and per-profile defaults so you don't have to remember ports and tokens.
-
-</details>
-
----
-
-## Syncing Across Machines
-
-The main benefit of this repo is **portability**. Here's how to sync your config across Mac, Linux, and Windows:
-
-### Initial Setup (First Machine)
-
-1. Fork this repo to your GitHub account
-2. Follow the [Global Installation](#global-installation-recommended) steps
-3. Customize commands, skills, and agents as needed
-4. Commit and push your changes
-
-### Setting Up Additional Machines
-
-1. Clone your forked repo:
-   ```bash
-   cd ~/repos
-   git clone https://github.com/YOUR_USERNAME/claude-code-config.git
-   cd claude-code-config
-   ```
-
-2. Run the setup script:
-   ```bash
-   ./setup.sh        # macOS/Linux
-   .\setup.ps1       # Windows
-   ```
-
-3. Add MCP servers and environment variables (Steps 3-4 from Global Installation)
-
-4. Done! Your config is now synced.
-
-### Keeping Everything in Sync
-
-```bash
-# On any machine, pull the latest changes
-cd ~/repos/claude-code-config
-git pull origin main
-
-# If using symlinks, you're done!
-# If you copied files, re-run the copy commands from Step 3
-```
-
----
-
-## How It Works
-
-### Configuration Scopes
-
-Claude Code supports multiple configuration scopes:
-
-| Scope | Location | Use Case |
-|-------|----------|----------|
-| **User** | `~/.claude/` and `~/.claude.json` | Personal config across all projects |
-| **Project** | `.claude/` and `.mcp.json` | Team-shared config for one repo |
-| **Local** | `.claude/settings.local.json` | Per-machine overrides (gitignored) |
-
-### What Goes Where
-
-| Component | User Scope | Project Scope |
-|-----------|------------|---------------|
-| Skills | `~/.claude/skills/` | `.claude/skills/` |
-| Agents | `~/.claude/agents/` | `.claude/agents/` |
-| Settings | `~/.claude/settings.json` | `.claude/settings.json` |
-| MCP Servers | `~/.claude.json` | `.mcp.json` |
-| Context | `~/.claude/CLAUDE.md` | `CLAUDE.md` |
-
-### Environment Variable Expansion
-
-MCP configs support `${VAR}` syntax for secrets:
-
-```json
-{
-  "mcpServers": {
-    "brave-search": {
-      "command": "npx",
-      "args": ["-y", "@brave/brave-search-mcp-server"],
-      "env": {
-        "BRAVE_API_KEY": "${BRAVE_API_KEY}"
-      }
-    }
-  }
-}
-```
-
-**No secrets in Git!** Each machine sets its own API keys locally.
-
-### Scope Precedence
-
-When the same item exists at multiple scopes, Claude Code uses this priority:
-
-1. **Project** overrides **User** (for project-specific needs)
-2. **User** provides defaults (for personal preferences)
-
-### Sharing `~/.claude` with other installers
-
-`~/.claude` is not ours alone. Other tools install into it — a remote-session
-manager may add `skills/`, a terminal integration may add a `hooks/` script and
-register it in `settings.json`. So `setup.sh` installs **one symlink per repo
-entry**, never one symlink for a whole directory:
-
-```
-~/.claude/hooks/refresh-usage-cache.sh -> <repo>/.claude/hooks/refresh-usage-cache.sh
-~/.claude/hooks/their-hook.sh              (real file, untouched)
-```
-
-Entries this repo does not ship are left exactly as they are. An entry that
-collides with one of ours is moved aside to a timestamped `.bak.<date>` and
-never deleted. Removing an entry from the repo prunes its link on the next run;
-foreign entries are never pruned.
-
-**Why not one symlink for the directory.** It hides every foreign entry at once,
-and it welds live Claude behaviour to a git working tree: once `~/.claude/hooks`
-*is* the repo directory, another installer's file lands inside the checkout as
-an untracked file, and the next `git switch` deletes it — the hook silently
-stops running, with only a `SessionStart hook error` to show for it.
-
-`setup.sh` migrates that older layout automatically: the directory symlink
-becomes a real directory of per-entry links, and any untracked file found inside
-the repo's `.claude/` tree is moved back out to `~/.claude/` where it belongs.
-
-**Running under a remote session manager.** If one is launching Claude for you,
-it owns its own flags and lifecycle hooks — this repo does not try to reproduce
-them. Install the repo for its agents, skills, hooks, MCP registration, status
-line, and shell tooling; let the session manager keep its own settings entries
-and its own permission mode. Both survive `setup.sh`.
-
----
-
-## Adding New MCP Servers
-
-**For global use (user scope):**
-
-```bash
-claude mcp add server-name --scope user \
-  -e API_KEY='${API_KEY}' \
-  -- npx -y @org/mcp-server
-```
-
-**For project use (stored in .mcp.json):**
-
-```bash
-claude mcp add server-name --scope project \
-  -e API_KEY='${API_KEY}' \
-  -- npx -y @org/mcp-server
-```
-
-## Branching Strategy (Trunk-Based / GitHub Flow)
-
-This repository uses Trunk-Based Development (GitHub Flow 2026) with a single protected branch:
-
-| Branch | Purpose | Protected |
-|--------|---------|-----------|
-| `main` | Production (single source of truth) | Yes (via GitHub Rulesets) |
-| `feat/*` | New features | No |
-| `fix/*` | Bug fixes | No |
-| `hotfix/*` | Emergency fixes | No |
-
-### Workflow
-
-All branches merge directly to `main` via Pull Request (squash merge):
-
-```
-feat/*   ──► PR to main (squash merge)
-fix/*    ──► PR to main (squash merge)
-hotfix/* ──► PR to main (squash merge)
-```
-
-### Creating a Feature
-
-```bash
-git checkout main
-git pull origin main              # Automatically rebases!
-git checkout -b feat/my-feature
-# ... make changes ...
-git push -u origin feat/my-feature
-# Create PR: feat/* → main
-```
-
-### Hotfix Flow
-
-```bash
-git checkout main
-git pull origin main              # Automatically rebases!
-git checkout -b hotfix/critical-bug
-# ... fix the bug ...
-git push -u origin hotfix/critical-bug
-# Create PR: hotfix/* → main (expedited review)
-```
-
-### Why Trunk-Based?
-
-- **Simpler**: One protected branch (`main`) vs two (`main` + `develop`)
-- **Faster**: Direct to production, no integration bottleneck
-- **Modern**: Industry standard for 2026 (GitHub, GitLab, Vercel)
-- **CI/CD friendly**: Every merge to `main` can trigger deployment
-
-> **Note**: For GitFlow templates (legacy), see `branch_protection_rules/gitflow/`
-
-## Testing and Portability
-
-> **Platform scope.** Both installers are gated in CI. `setup.sh` runs on macOS and Linux;
-> `setup.ps1` runs its analyzer and tests under Windows PowerShell 5.1 and PowerShell 7 on
-> Windows x64 and arm64, macOS and Linux, and a test fails if the two accept different options.
-> fish support and login-shell detection are Unix-only by nature. The hooks and the statusline
-> are bash scripts, so on Windows they need [Git for Windows](https://gitforwindows.org/).
-
-This repo installs onto other people's machines, so nothing shipped may depend on one developer's paths, shell, package manager, or OS version. Two things enforce that: a cross-platform CI matrix, and a set of static portability guards in the test suite.
-
-### Test lanes
-
-| Command | What it runs | Typical time |
-|---|---|---|
-| `just unit` | Fast, hermetic — stubbed boundaries, no network | ~20s |
-| `just integration` | Drives real scripts end to end, still offline | ~35s |
-| `just smoke` | Runs `setup.sh` itself against a throwaway `HOME` | ~5s |
-| `just test` | Every bats lane | ~45s |
-| `just secrets` | betterleaks over the tree and every commit on every ref | ~60s |
-| `just ps-check` | PSScriptAnalyzer + Pester for `setup.ps1` (skips without `pwsh`) | ~30s |
-| `just check` | The merge gate: `lint` + `lint-workflows` + `format-check` + `secrets` + `test` + `ps-check` | ~3m |
-| `just verify-clean-machine` | The whole suite as CI sees it | ~60s |
-
-**Run `just verify-clean-machine` before pushing.** A developer machine lies in
-two ways CI does not: `~/.claude` is already installed, so tests that read it
-pass for the wrong reason; and Homebrew bash sits ahead of `/bin/bash` on
-`PATH`, so `env bash` finds 5.x while the macOS runner finds 3.2.57. That
-target removes both — empty `HOME`, system bash first — and is the difference
-between catching a portability break locally and finding it in CI.
-
-Lanes are bats tag filters (`--filter-tags`), so a test belongs to a lane by its `# bats test_tags=` or file-level `# bats file_tags=` directive.
-
-Tests run in parallel via `bats --jobs` when GNU parallel is installed (`just install-tools` gets it). Without it the suite still runs, just serially — the justfile probes and degrades rather than failing.
-
-### Hermetic by default
-
-`tests/helpers.bash` provides the harness:
-
-- `isolate_home` — points `HOME` and the `XDG_*` variables at the per-test tmpdir. Without it a test reads the developer's real `~/.claude`, so results depend on personal state and anything that scans it pays for gigabytes of real session history.
-- `stub_bin <name> [body]` — puts a fake executable ahead of the real one on `PATH`.
-- `stub_slow_bin <name> <seconds>` — a stub that hangs, for exercising timeout paths.
-- `require_cmd <cmd>` — skip when a prerequisite is missing.
-
-Call `isolate_home` first in `setup()`. A test that shells out to a real binary should stub it unless the point of the test is that binary.
-
-### Portability guards
-
-`tests/portability.bats` fails the build on machine-specific assumptions:
-
-- hardcoded `/Users/...` or `/home/...` paths
-- a brew prefix named without its alternatives (`/opt/homebrew` is Apple-Silicon-only)
-- `$HOME/.config` written without an `XDG_CONFIG_HOME` fallback
-- `[^\n]` inside a `sed` expression — BSD sed reads it as "not backslash and not the letter n", GNU sed as "not newline", so it silently behaves differently per platform
-- GNU-only flags (`stat -c`, `date -d`) with neither a platform branch nor a BSD fallback
-- shebangs that hardcode an interpreter path instead of using `env`
-- an active absolute `command =` in a shipped Ghostty preset
-- `stat -f … || stat -c …`, which reads as a BSD-then-GNU fallback but is not: on GNU coreutils `-f` means `--file-system`, so the first call *succeeds* and the `||` never fires
-- `date -r <epoch>`, which formats that epoch on BSD but reads a *file's* mtime on GNU
-- a personal directory convention (`~/Documents/dev`, `~/src`) used as a default rather than inside a probe list
-- `PLATFORM` pinned to a literal in a test, which forces the wrong `stat`/`date` branch on every other OS
-- a GitHub Action referenced by tag instead of a full commit SHA
-
-### Which shell gets configured
-
-`setup.sh` installs the `claude` / `clp` shortcuts into the rc file your login shell actually reads. Getting that wrong fails silently — the install reports success and you never get a `claude` function — so the detection is deliberate.
-
-**It does not use `$SHELL`.** That variable is inherited from whatever spawned the process and no shell corrects it on startup:
-
-```bash
-$ SHELL=/bin/made-up fish -c 'echo $SHELL'
-/bin/made-up
-```
-
-A fish user whose terminal was launched with `SHELL=zsh` would get the block written to `~/.zshrc`, which fish never reads. The password database is authoritative, so `detect_login_shell` consults it in this order:
-
-| Order | Source | Why |
-|---|---|---|
-| 1 | `CLAUDE_CONFIG_SHELL` / `--shell` | Explicit override |
-| 2 | `dscl` | macOS uses OpenDirectory; `/etc/passwd` can be stale |
-| 3 | `getent passwd` | NSS-aware, so it works with LDAP/AD |
-| 4 | `/etc/passwd` | Flat-file fallback |
-| 5 | `$SHELL` | Last resort only |
-
-The resolved shell is printed during install. Override it when detection is wrong or you want to target a different shell:
-
-```bash
-./setup.sh --shell "$(command -v fish)"
-```
-
-**Where each shell gets its config:**
-
-| Login shell | Destination |
-|---|---|
-| fish | `$XDG_CONFIG_HOME/fish/functions/{claude,clp}.fish` + `conf.d/` for PATH |
-| zsh | `~/.zshrc` |
-| bash | `~/.bashrc`, plus a bridge in `~/.bash_profile` |
-| anything else | `~/.profile` |
-
-The bash bridge matters: bash reads `~/.bashrc` for non-login interactive shells and `~/.bash_profile` for login shells. Linux terminals open the former, **macOS Terminal.app and iTerm2 open the latter** — so a block written only to `~/.bashrc` never loads on macOS. `setup.sh` appends the conventional `[ -f ~/.bashrc ] && . ~/.bashrc` line, once, and skips it if your `~/.bash_profile` already sources `~/.bashrc`.
-
-fish gets native files rather than a profile because fish is not POSIX — `export VAR=x` and POSIX function syntax are both syntax errors there. The snippet written for every other shell is checked with `shellcheck -s sh` and executed under each installed POSIX shell in CI.
-
-### bash version
-
-macOS ships bash 3.2.57 as `/bin/bash` and cannot ship newer for licensing reasons, so `#!/usr/bin/env bash` lands on 3.2 whenever no newer bash is ahead of it on `PATH` — the default state on a clean Mac, and what GitHub's macOS runners provide.
-
-Everything here therefore targets **bash 3.2**. That rules out namerefs (`local -n`, 4.3), associative arrays (`declare -A`, 4.0), `mapfile`/`readarray`, and `${var,,}` case conversion. Assign by name with `printf -v` (3.1+) or `eval` instead:
-
-```bash
-# 4.3+ only — fails at runtime on macOS, and `bash -n` will not catch it
-local -n out="$1"; out="value"
-
-# works everywhere
-local out_name="$1"; printf -v "$out_name" '%s' "value"
-```
-
-Two guards enforce this, and `just verify-clean-machine` exercises `setup.sh` under the system bash directly.
-
-### CI
-
-`.github/workflows/ci.yml` runs lint and format on Ubuntu, then all three lanes on **both** `ubuntu-latest` and `macos-latest`. `fail-fast: false` so a macOS-only failure is never masked by cancelling on the Linux result — the cross-platform signal is the whole point of the matrix.
-
-Every action is pinned to a full commit SHA. A tag is mutable: when `tj-actions/changed-files` was compromised in 2025, the attacker moved 350+ tags to a malicious commit and every repository pinned by tag executed it with access to the runner.
-
-Tests that shell out over the network (`npx -y …`) probe once per suite and **skip** when the registry is unreachable, rather than failing. A flaky gate is worse than no gate — people learn to re-run it instead of reading it.
-
-## Official Documentation
-
-This configuration follows the official Claude Code documentation:
-
-- [Claude Code Settings](https://code.claude.com/docs/en/settings) - Configuration scopes and file locations
-- [MCP Servers](https://code.claude.com/docs/en/mcp) - Adding and configuring MCP integrations
-- [Subagents](https://code.claude.com/docs/en/sub-agents) - Defining specialized agents
-- [Skills](https://code.claude.com/docs/en/skills) - Creating reusable skills and slash commands
-- [Common Workflows](https://code.claude.com/docs/en/common-workflows) - Best practices and examples
+Shell code targets bash 3.2, the version macOS ships, and avoids GNU-only flags;
+[Testing and portability](docs/testing.md) lists the guards that enforce it.
+Branch from `main` and open a pull request; changes are squash-merged.
 
 ## License
 
-MIT License - Feel free to use and modify for your own projects.
+MIT
