@@ -5,7 +5,7 @@ set -euo pipefail
 # ChatGPT subscription tokens from ~/.codex/auth.json, then print the env vars
 # to use with Claude Code.
 #
-# Default Claude Code model: gpt-5.3-codex(high)
+# Default Claude Code model: gpt-6.1-sol(high)
 #
 # Usage:
 #   ./bin/proxy-start-codex.sh
@@ -15,7 +15,7 @@ set -euo pipefail
 #   PORT=8317
 #   HOST=127.0.0.1
 #   API_KEY=sk-dummy
-#   MODEL='gpt-5.3-codex(high)'
+#   MODEL='gpt-6.1-sol(high)'
 #   CODEX_AUTH_JSON=~/.codex/auth.json           # Codex CLI's token file
 #   CLI_PROXY_AUTH_DIR=~/.cli-proxy-api          # where CLIProxyAPI loads auths
 #   CODEX_FORCE_REIMPORT=1                       # overwrite existing import
@@ -42,7 +42,7 @@ CLI_PROXY_DIR="${CLI_PROXY_DIR:-${XDG_DATA_HOME:-${HOME}/.local/share}/CLIProxyA
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8317}"
 API_KEY="${API_KEY:-sk-dummy}"
-MODEL="${MODEL:-gpt-5.3-codex(high)}"
+MODEL="${MODEL:-gpt-6.1-sol(high)}"
 CODEX_AUTH_JSON="${CODEX_AUTH_JSON:-$HOME/.codex/auth.json}"
 AUTH_DIR="${CLI_PROXY_AUTH_DIR:-$HOME/.cli-proxy-api}"
 

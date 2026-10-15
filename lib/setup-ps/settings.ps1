@@ -392,7 +392,7 @@ function claude {
 Remove-Item -Path Alias:clp -Force -ErrorAction SilentlyContinue
 function clp {
     $model = $env:CLAUDE_PROXY_MODEL
-    if (-not $model) { $model = "gpt-5.5(high)" }
+    if (-not $model) { $model = "gpt-6.1-sol(high)" }
     $mode = "--allow-dangerously-skip-permissions"
     $rest = @($args)
     if ($rest.Count -gt 0 -and @("-a", "--unsafe", "--bypass", "-adskp") -ccontains [string]$rest[0]) {

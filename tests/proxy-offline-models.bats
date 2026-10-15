@@ -209,7 +209,7 @@ EOF
     [[ "$output" == *"fake-antigravity-1"* ]]
     [[ "$output" == *"fake-antigravity-2"* ]]
     # Helpful default hint must still appear
-    [[ "$output" == *"claude-opus-4-6-thinking"* ]]
+    [[ "$output" == *"claude-opus-5-5-high"* ]]
 }
 
 @test "--models offline: shows codex models from sandbox" {
@@ -219,7 +219,7 @@ EOF
     [[ "$output" == *"gpt-5.3-codex-spark"* ]]
     [[ "$output" == *"gpt-5.4-mini"* ]]
     # Default + efforts hint
-    [[ "$output" == *"gpt-5.3-codex(high)"* ]]
+    [[ "$output" == *"gpt-6.1-sol(high)"* ]]
     [[ "$output" == *"minimal"* ]]
 }
 
@@ -288,4 +288,27 @@ EOF
     _run_proxy 'exit 22' -p codex -m "gpt-5.3-codex(turbocharged)"
     [ "$status" -ne 0 ]
     [[ "$output" == *"unknown effort"* ]]
+}
+
+@test "validate_model: codex effort max accepted" {
+    _run_proxy 'exit 22' -p codex -m "gpt-5.3-codex(max)"
+    [ "$status" -eq 0 ]
+}
+
+# The defaults must name models the backends serve: a stale default fails
+# validation the moment its model leaves the catalog.
+@test "default codex model is gpt-6.1-sol and validates against a live catalog" {
+    _run_proxy 'echo "{\"data\":[{\"id\":\"gpt-6.1-sol\"}]}"' -p codex
+    [ "$status" -eq 0 ]
+    _run_proxy 'echo "{\"data\":[{\"id\":\"gpt-5.5\"}]}"' -p codex
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"unknown model 'gpt-6.1-sol'"* ]]
+}
+
+@test "default antigravity model is Opus 5.5 and validates against a live catalog" {
+    _run_proxy 'echo "{\"data\":[{\"id\":\"claude-opus-5-5-high\"}]}"' -p antigravity
+    [ "$status" -eq 0 ]
+    _run_proxy 'echo "{\"data\":[{\"id\":\"claude-opus-4-6-thinking\"}]}"' -p antigravity
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"unknown model 'claude-opus-5-5-high'"* ]]
 }

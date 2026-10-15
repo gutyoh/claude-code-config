@@ -2,7 +2,7 @@ function clp --description 'Claude proxy with model'
     # setup.sh installs this natively for a fish login shell; this copy is the
     # reference for a manual/copy install. Keep the two in sync.
 
-    set -l model 'gpt-5.5(high)'
+    set -l model 'gpt-6.1-sol(high)'
     test -n "$CLAUDE_PROXY_MODEL"; and set model $CLAUDE_PROXY_MODEL
 
     set -l first ""

@@ -29,12 +29,12 @@ set -euo pipefail
 #   It should start the proxy in the foreground (the launcher handles backgrounding).
 #
 # Examples:
-#   ./bin/claude-proxy                                             # codex default
-#   ./bin/claude-proxy -m 'gpt-5.3-codex(medium)'                 # codex + medium effort
-#   ./bin/claude-proxy -p antigravity                              # antigravity default
-#   ./bin/claude-proxy -p antigravity -m 'gemini-3-pro-high[1m]'  # antigravity + gemini
-#   ./bin/claude-proxy -p antigravity --models                     # list antigravity models
-#   ./bin/claude-proxy --no-start -m 'claude-opus-4-6'            # external proxy
+#   ./bin/claude-proxy                                           # codex default
+#   ./bin/claude-proxy -m 'gpt-6.1-sol(medium)'                  # codex + medium effort
+#   ./bin/claude-proxy -p antigravity                            # antigravity default
+#   ./bin/claude-proxy -p antigravity -m 'gemini-4-argon-high'   # antigravity + gemini
+#   ./bin/claude-proxy -p antigravity --models                   # list antigravity models
+#   ./bin/claude-proxy --no-start -m 'claude-opus-5-5'           # external proxy
 
 # --- Model Registry ---
 
@@ -45,10 +45,10 @@ set -euo pipefail
 #      with whatever version you have checked out.
 # No static fallback — the repo clone is the source of truth offline.
 
-readonly ANTIGRAVITY_DEFAULT="claude-opus-4-6-thinking"
-readonly CODEX_DEFAULT="gpt-5.3-codex(high)"
+readonly ANTIGRAVITY_DEFAULT="claude-opus-5-5-high"
+readonly CODEX_DEFAULT="gpt-6.1-sol(high)"
 # Effort levels accepted by CLIProxyAPI's thinking suffix parser.
-readonly CODEX_EFFORTS=("minimal" "low" "medium" "high" "xhigh")
+readonly CODEX_EFFORTS=("minimal" "low" "medium" "high" "xhigh" "max")
 
 # --- Helpers ---
 
@@ -82,11 +82,11 @@ Custom profiles:
 
 Examples:
   claude-proxy                                             # codex default
-  claude-proxy -m 'gpt-5.3-codex(medium)'                  # codex + medium effort
+  claude-proxy -m 'gpt-6.1-sol(medium)'                    # codex + medium effort
   claude-proxy -p antigravity                              # antigravity default
-  claude-proxy -p antigravity -m 'gemini-3-pro-high[1m]'   # antigravity + gemini
+  claude-proxy -p antigravity -m 'gemini-4-argon-high'     # antigravity + gemini
   claude-proxy -p antigravity --models                     # list antigravity models
-  claude-proxy --no-start -m 'claude-opus-4-6'             # external proxy
+  claude-proxy --no-start -m 'claude-opus-5-5'             # external proxy
 EOF
 }
 
@@ -153,7 +153,7 @@ list_models() {
                     echo "  Default: ${ANTIGRAVITY_DEFAULT}"
                     ;;
                 codex)
-                    echo "  Format: model(effort)  e.g. gpt-5.3-codex(high)"
+                    echo "  Format: model(effort)  e.g. gpt-6.1-sol(high)"
                     echo "  Default: ${CODEX_DEFAULT}"
                     ;;
             esac
@@ -176,7 +176,7 @@ list_models() {
                 echo "  Default: ${ANTIGRAVITY_DEFAULT}"
                 ;;
             codex)
-                echo "  Format: model(effort)  e.g. gpt-5.3-codex(high)"
+                echo "  Format: model(effort)  e.g. gpt-6.1-sol(high)"
                 echo "  Valid efforts: ${CODEX_EFFORTS[*]}"
                 echo "  Default: ${CODEX_DEFAULT}"
                 ;;
@@ -224,7 +224,7 @@ validate_model() {
 
     case "${profile}" in
         antigravity)
-            # Strip optional [context] suffix: gemini-3-pro-high[1m] → gemini-3-pro-high
+            # Strip optional [context] suffix: gemini-4-argon-high[1m] → gemini-4-argon-high
             local base="${model%%\[*}"
             if ! _model_in_registry "${base}" "${profile}" "${proxy_url}"; then
                 echo "Error: unknown model '${model}' for profile '${profile}'." >&2

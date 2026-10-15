@@ -901,7 +901,7 @@ clp there
 $global:ProxyArgs -join '|'
 '@
             $out = @(Invoke-AsProfile -Body $body)
-            $out[0] | Should -Be "--no-validate|-m|gpt-5.5(high)|--|--dangerously-skip-permissions|hi"
+            $out[0] | Should -Be "--no-validate|-m|gpt-6.1-sol(high)|--|--dangerously-skip-permissions|hi"
             $out[1] | Should -Be "--no-validate|-m|other-model|--|--allow-dangerously-skip-permissions|there"
         }
 
