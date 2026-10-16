@@ -33,6 +33,12 @@ sgr() { # style [COLORTERM]
         "$BATS_TEST_DIRNAME/../.claude/scripts/lib/statusline/style.sh" "$1"
 }
 
+# Styles text through style_component alone: style text COLORTERM.
+sgr_component() {
+    run env COLORTERM="$3" bash -c 'source "$1"; style_component "$2" "$3"; printf "%s" "$REPLY"' _ \
+        "$BATS_TEST_DIRNAME/../.claude/scripts/lib/statusline/style.sh" "$1" "$2"
+}
+
 # bats test_tags=unit
 @test "a hex background and foreground render in truecolor when the terminal says so" {
     conf 'style.email=bold fg:#1E1E2E bg:#EB4789'
@@ -148,4 +154,53 @@ sgr() { # style [COLORTERM]
     printf 'components=email\nstyle.email=italic\n' >"$HOME/.claude/statusline.local.conf"
     render
     [ "$output" = "${ESC}[3muser@example.com${ESC}[0m" ]
+}
+
+# bats test_tags=unit
+@test "a gradient colors each letter through its stops" {
+    conf 'style.email=gradient:#FF0000-#0000FF'
+    printf '{"oauthAccount":{"emailAddress":"abcde"}}' >"$HOME/.claude.json"
+    render COLORTERM=truecolor
+    [ "$output" = "opus-5.5 | ${ESC}[38;2;255;0;0ma${ESC}[38;2;192;0;63mb${ESC}[38;2;128;0;127mc${ESC}[38;2;64;0;191md${ESC}[38;2;0;0;255me${ESC}[0m" ]
+}
+
+# bats test_tags=unit
+@test "a gradient through three stops passes the middle one, mirrored or not" {
+    sgr_component 'bold gradient:FF0000-00FF00-FF0000' abcde truecolor
+    [ "$output" = "${ESC}[1m${ESC}[38;2;255;0;0ma${ESC}[38;2;128;127;0mb${ESC}[38;2;0;255;0mc${ESC}[38;2;127;128;0md${ESC}[38;2;255;0;0me${ESC}[0m" ]
+}
+
+# bats test_tags=unit
+@test "a gradient falls back to 256 colors and skips repeated codes" {
+    sgr_component 'gradient:#FF0000-#FF0101' abc ''
+    [ "$output" = "${ESC}[38;5;196mabc${ESC}[0m" ]
+}
+
+# bats test_tags=unit
+@test "a gradient keeps multibyte characters whole in a C locale" {
+    run env LC_ALL=C COLORTERM=truecolor bash -c 'source "$1"; style_component "gradient:#FF0000-#0000FF" "$2"; printf "%s" "$REPLY"' _ \
+        "$BATS_TEST_DIRNAME/../.claude/scripts/lib/statusline/style.sh" "━é"
+    [ "$output" = "${ESC}[38;2;255;0;0m━${ESC}[38;2;0;0;255mé${ESC}[0m" ]
+}
+
+# bats test_tags=unit
+@test "a gradient on one letter, a lone stop, or a bad stop" {
+    sgr_component 'gradient:#FF0000-#0000FF' x truecolor
+    [ "$output" = "${ESC}[38;2;255;0;0mx${ESC}[0m" ]
+    sgr_component 'gradient:#FF0000' ab truecolor
+    [ "$output" = "ab" ]
+    sgr_component 'italic gradient:#FF0000-#zzzzzz' ab truecolor
+    [ "$output" = "${ESC}[3mab${ESC}[0m" ]
+}
+
+# bats test_tags=unit
+@test "a component that colors itself keeps its colors under the gradient's first stop" {
+    sgr_component 'gradient:#FF0000-#0000FF' $'a\033[31mb\033[0m' truecolor
+    [ "$output" = "${ESC}[38;2;255;0;0ma${ESC}[31mb${ESC}[0m${ESC}[38;2;255;0;0m${ESC}[0m" ]
+}
+
+# bats test_tags=unit
+@test "none drops a gradient set before it" {
+    sgr_component 'gradient:#FF0000-#0000FF none bold' ab truecolor
+    [ "$output" = "${ESC}[1mab${ESC}[0m" ]
 }

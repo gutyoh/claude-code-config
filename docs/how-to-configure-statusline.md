@@ -151,6 +151,7 @@ words separated by spaces or commas.
 | `bold`, `dimmed`, `italic`, `underline`, `blink`, `inverted`, `hidden`, `strikethrough` | Text attribute |
 | `fg:<color>`, or a bare `<color>` | Text color |
 | `bg:<color>` | Background color |
+| `gradient:#RRGGBB-#RRGGBB[-...]` | Colors the text letter by letter through the stops; repeat the first stop last to come back to it |
 | `none` | Drops the words before it |
 
 A color is an ANSI name (`black`, `red`, `green`, `yellow`, `blue`,
@@ -159,6 +160,11 @@ A color is an ANSI name (`black`, `red`, `green`, `yellow`, `blue`,
 exact. When `COLORTERM` is neither `truecolor` nor `24bit`, a hex color becomes
 the nearest of the 256 colors. Unknown words are skipped, and `NO_COLOR`
 turns styles off with every other color.
+
+A gradient reads like Claude Code's own `ultrathink`. Repeat a stop to mirror
+it, as in `gradient:#FF80B2-#FAD1E1-#FF80B2`, which brightens toward the middle
+and returns. A component that colors itself, like `usage`, keeps its colors and
+takes only the first stop around them.
 
 A background stays visible where Claude Code dims the status line's text. The
 style resumes after any color the component sets itself, and with
