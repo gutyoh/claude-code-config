@@ -41,22 +41,22 @@ sgr_component() {
 
 # bats test_tags=unit
 @test "a hex background and foreground render in truecolor when the terminal says so" {
-    conf 'style.email=bold fg:#1E1E2E bg:#EB4789'
+    conf 'style.email=bold fg:#1E1E2E bg:#F38BA8'
     render COLORTERM=truecolor
     [ "$status" -eq 0 ]
-    [ "$output" = "opus-5.5 | ${ESC}[1;38;2;30;30;46;48;2;235;71;137muser@example.com${ESC}[0m" ]
+    [ "$output" = "opus-5.5 | ${ESC}[1;38;2;30;30;46;48;2;243;139;168muser@example.com${ESC}[0m" ]
 }
 
 # bats test_tags=unit
 @test "a hex color falls back to the nearest 256-color index without truecolor" {
-    conf 'style.email=bg:#EB4789'
+    conf 'style.email=bg:#F38BA8'
     render COLORTERM=
-    [ "$output" = "opus-5.5 | ${ESC}[48;5;204muser@example.com${ESC}[0m" ]
+    [ "$output" = "opus-5.5 | ${ESC}[48;5;211muser@example.com${ESC}[0m" ]
 }
 
 # bats test_tags=unit
 @test "NO_COLOR leaves a styled component plain" {
-    conf 'style.email=bold bg:#EB4789'
+    conf 'style.email=bold bg:#F38BA8'
     render NO_COLOR=1
     [ "$output" = "opus-5.5 | user@example.com" ]
 }
@@ -129,11 +129,11 @@ sgr_component() {
     mkdir -p "$work"
     printf 'components=email\ntheme=none\nstyle.email=bold\n' >"$HOME/.claude/statusline.conf"
     ln -s "$HOME/.claude/statusline.conf" "$work/statusline.conf"
-    printf 'style.email=bg:#EB4789\n' >"$HOME/.claude/statusline.local.conf"
+    printf 'style.email=bg:#F38BA8\n' >"$HOME/.claude/statusline.local.conf"
     printf 'style.email=bg:#56B4E9\n' >"$work/statusline.local.conf"
     printf '{"oauthAccount":{"emailAddress":"work@example.com"}}' >"$work/.claude.json"
     render COLORTERM=truecolor
-    [ "$output" = "${ESC}[48;2;235;71;137muser@example.com${ESC}[0m" ]
+    [ "$output" = "${ESC}[48;2;243;139;168muser@example.com${ESC}[0m" ]
     render COLORTERM=truecolor CLAUDE_CONFIG_DIR="$work"
     [ "$output" = "${ESC}[48;2;86;180;233mwork@example.com${ESC}[0m" ]
 }

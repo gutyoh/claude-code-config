@@ -138,7 +138,7 @@ alone, while `claude-as` shares `statusline.conf` across every account:
 
 ```ini
 # ~/.claude/statusline.local.conf
-style.email=bold fg:#1E1E2E bg:#EB4789
+style.email=bold fg:#1E1E2E bg:#F38BA8
 # ~/.claude-work/statusline.local.conf
 style.email=bold fg:#1E1E2E bg:#56B4E9
 ```
@@ -162,7 +162,7 @@ the nearest of the 256 colors. Unknown words are skipped, and `NO_COLOR`
 turns styles off with every other color.
 
 A gradient reads like Claude Code's own `ultrathink`. Repeat a stop to mirror
-it, as in `gradient:#FF80B2-#FAD1E1-#FF80B2`, which brightens toward the middle
+it, as in `gradient:#F38BA8-#F5C2E7-#F38BA8`, which brightens toward the middle
 and returns. A component that colors itself, like `usage`, keeps its colors and
 takes only the first stop around them.
 
