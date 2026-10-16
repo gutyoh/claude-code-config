@@ -144,7 +144,7 @@ beside it, override it for that profile alone; `claude-as` shares
 | `cc_status_visibility` | `always`, `problem_only` | `always` | When to show status |
 | `cc_status_color` | `none`, `full`, `status_only` | `full` | Status coloring |
 | `router_health` | `on`, `off` | `on` | Show a router's prompt-cache warning ([details](how-to-configure-statusline.md#usage-for-gpt-and-muse-models)) |
-| `style.<component>` | Style string, for example `bold fg:#1E1E2E bg:#EB4789` | none | Colors one component, such as `style.email` ([details](how-to-configure-statusline.md#style-one-component)) |
+| `style.<component>` | Style string, for example `bold fg:#1E1E2E bg:#F38BA8` or `bold gradient:#F38BA8-#F5C2E7-#F38BA8` | none | Colors one component, such as `style.email` ([details](how-to-configure-statusline.md#style-one-component)) |
 
 ## .mcp.json
 

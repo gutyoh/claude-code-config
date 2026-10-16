@@ -49,10 +49,10 @@ setup() {
 
 # bats test_tags=unit
 @test "a rewrite keeps the component styles, spaces and all" {
-    printf 'theme=light\nstyle.email=bold fg:#1E1E2E bg:#EB4789\nstyle.model=italic\n' >"${CLAUDE_DIR}/statusline.conf"
+    printf 'theme=light\nstyle.email=bold fg:#1E1E2E bg:#F38BA8\nstyle.model=italic\n' >"${CLAUDE_DIR}/statusline.conf"
     run configure_statusline_conf "true"
     [ "$status" -eq 0 ]
     grep -qx 'theme=dark' "${CLAUDE_DIR}/statusline.conf"
-    grep -qx 'style.email=bold fg:#1E1E2E bg:#EB4789' "${CLAUDE_DIR}/statusline.conf"
+    grep -qx 'style.email=bold fg:#1E1E2E bg:#F38BA8' "${CLAUDE_DIR}/statusline.conf"
     grep -qx 'style.model=italic' "${CLAUDE_DIR}/statusline.conf"
 }

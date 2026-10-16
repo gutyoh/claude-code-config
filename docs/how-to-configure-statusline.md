@@ -138,7 +138,7 @@ alone, while `claude-as` shares `statusline.conf` across every account:
 
 ```ini
 # ~/.claude/statusline.local.conf
-style.email=bold fg:#1E1E2E bg:#EB4789
+style.email=bold fg:#1E1E2E bg:#F38BA8
 # ~/.claude-work/statusline.local.conf
 style.email=bold fg:#1E1E2E bg:#56B4E9
 ```
@@ -151,6 +151,7 @@ words separated by spaces or commas.
 | `bold`, `dimmed`, `italic`, `underline`, `blink`, `inverted`, `hidden`, `strikethrough` | Text attribute |
 | `fg:<color>`, or a bare `<color>` | Text color |
 | `bg:<color>` | Background color |
+| `gradient:#RRGGBB-#RRGGBB[-...]` | Colors the text letter by letter through the stops; repeat the first stop last to come back to it |
 | `none` | Drops the words before it |
 
 A color is an ANSI name (`black`, `red`, `green`, `yellow`, `blue`,
@@ -159,6 +160,11 @@ A color is an ANSI name (`black`, `red`, `green`, `yellow`, `blue`,
 exact. When `COLORTERM` is neither `truecolor` nor `24bit`, a hex color becomes
 the nearest of the 256 colors. Unknown words are skipped, and `NO_COLOR`
 turns styles off with every other color.
+
+A gradient reads like Claude Code's own `ultrathink`. Repeat a stop to mirror
+it, as in `gradient:#F38BA8-#F5C2E7-#F38BA8`, which brightens toward the middle
+and returns. A component that colors itself, like `usage`, keeps its colors and
+takes only the first stop around them.
 
 A background stays visible where Claude Code dims the status line's text. The
 style resumes after any color the component sets itself, and with
