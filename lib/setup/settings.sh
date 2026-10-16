@@ -174,6 +174,39 @@ except Exception as e:
 PYTHON_SCRIPT
 }
 
+# The public-text guard (hooks/guard-public-text.sh) on every Bash call; it acts
+# only once CLAUDE_LEAK_GUARD names a scanner. An entry naming it stays as it is.
+configure_public_text_guard_hook() {
+    python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
+import json
+import os
+import sys
+
+settings_file = sys.argv[1]
+ref = os.environ.get('CLAUDE_DIR_REF', '~/.claude')
+try:
+    with open(settings_file) as f:
+        data = json.load(f)
+    entries = data.setdefault('hooks', {}).setdefault('PreToolUse', [])
+    if any('guard-public-text.sh' in h.get('command', '')
+           for e in entries for h in e.get('hooks', [])):
+        print("  ✓ Public text guard hook already configured")
+        sys.exit(0)
+    entries.append({'matcher': 'Bash', 'hooks': [{
+        'type': 'command',
+        'command': f'{ref}/hooks/guard-public-text.sh',
+        'timeout': 30,
+    }]})
+    with open(settings_file, 'w') as f:
+        json.dump(data, f, indent=2)
+        f.write('\n')
+    print("  ✓ Public text guard hook added")
+except Exception as e:
+    print(f"  ⚠ Failed to add the public text guard hook: {e}", file=sys.stderr)
+    sys.exit(1)
+PYTHON_SCRIPT
+}
+
 # Claude Code deletes session transcripts after 30 days unless told otherwise,
 # and with them every conversation `--resume` could reopen. Keep them for a
 # century; a value the user already set is theirs and stays.

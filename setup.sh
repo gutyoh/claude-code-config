@@ -299,6 +299,7 @@ main() {
             configure_ide_hook
         fi
         configure_session_name_hooks
+        configure_public_text_guard_hook
         configure_transcript_retention
         configure_session_privacy
 

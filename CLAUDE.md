@@ -23,6 +23,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   │   ├── enforce-git-pull-rebase.sh
 │   │   ├── open-file-in-ide.sh
 │   │   ├── guard-mcp-key.sh            # Blocks MCP calls when API key is missing
+│   │   ├── guard-public-text.sh        # Blocks private text bound for a public repo
 │   │   ├── rate-limit-brave-search.sh  # Rate limits Brave Search API calls
 │   │   ├── auto-rotate-mcp-key.sh     # Auto-rotates API keys on quota exhaustion
 │   │   ├── session-name.sh            # Names sessions <provider>-<start time>
@@ -290,6 +291,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 ### Hooks
 - **enforce-git-pull-rebase**: Automatically adds `--rebase` to all `git pull` commands
 - **ide-diagnostics-opener**: Automatically opens files in IDE before `mcp__ide__getDiagnostics` (fixes JetBrains timeout bug #3085)
+- **guard-public-text**: PreToolUse hook (user scope) that hands what a `gh` or `git` command would publish to a public GitHub repository to the scanner in `CLAUDE_LEAK_GUARD`, and blocks the call when it flags anything. Does nothing until that variable is set.
 - **guard-mcp-key**: PreToolUse hook that blocks MCP tool calls when the required API key (`TAVILY_API_KEY` or `BRAVE_API_KEY`) is not configured. Prevents noisy failures for users without keys and suggests `/web-search` as a zero-config fallback.
 - **rate-limit-brave-search**: Enforces rate limiting on Brave Search MCP calls (configurable via `BRAVE_API_RATE_LIMIT_MS`)
 - **auto-rotate-mcp-key**: PostToolUse hook that auto-rotates API keys on quota exhaustion (Tavily HTTP 432, Brave HTTP 429). Runs `mcp-key-rotate` automatically, enters cooldown to prevent rotation storms, and outputs restart instructions. Configurable via `AUTO_ROTATE_COOLDOWN_SEC` (default: 300s).

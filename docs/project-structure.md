@@ -90,6 +90,7 @@ Dot-sourced by `setup.ps1`. PowerShell port of `lib/setup/` with arrow-key TUI, 
 | File | Trigger | Matcher | Purpose |
 |------|---------|---------|---------|
 | `enforce-git-pull-rebase.sh` | PreToolUse | `Bash` | Adds `--rebase` to `git pull` commands |
+| `guard-public-text.sh` | PreToolUse | `Bash` | Blocks text bound for a public repository that your scanner flags |
 | `open-file-in-ide.sh` | PreToolUse | `mcp__ide__getDiagnostics` | Opens file in IDE before diagnostics (13 IDEs) |
 | `rate-limit-brave-search.sh` | PreToolUse | `mcp__brave-search__.*` | Filesystem mutex + sleep for rate limiting |
 | `sql-guardrail.sh` | PreToolUse | `Bash` (agent-scoped) | Unified DB guardrail: STRICT (Databricks), STANDARD (SQL CLIs), MONGO (mongosh) |

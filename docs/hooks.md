@@ -19,6 +19,7 @@ change it. The scripts live in `.claude/hooks/` and are linked into
 | [`guard-mcp-key.sh`](#mcp-key-guard) | `PreToolUse` (`mcp__(tavily\|brave-search)__.*`) | Repo | Blocks a search call whose API key is missing |
 | [`rate-limit-brave-search.sh`](#brave-search-rate-limit) | `PreToolUse` (`mcp__brave-search__.*`) | Repo | Spaces Brave Search calls to the plan's rate |
 | [`auto-rotate-mcp-key.sh`](#mcp-key-rotation) | `PostToolUse` (`mcp__(tavily\|brave-search)__.*`) | Repo | Moves to the next key when one runs out of quota |
+| [`guard-public-text.sh`](#public-text-guard) | `PreToolUse` (`Bash`) | User | Blocks text bound for a public repository that your scanner flags |
 | [`session-name.sh`](#session-names) | `SessionStart` (`startup`), `UserPromptSubmit` | User | Names each session once, at its first prompt |
 | [`stop-nudge.sh`](#stop-nudge) | `Stop` | Plugin | Nudges a routed model that announces a step and stops |
 | [`sql-guardrail.sh`](#database-guardrail) | `PreToolUse` (`Bash`) | Agent | Blocks destructive database commands |
@@ -34,6 +35,42 @@ Adds `--rebase` to every `git pull` Claude runs, for a linear history:
 git pull origin main            # what Claude asked for
 git pull --rebase origin main   # what runs
 ```
+
+## Public text guard
+
+GitHub keeps every revision of a pull request or issue description and has no
+API to delete one, so private text has to be stopped before it is published.
+Before a Bash command publishes to a **public** GitHub repository, this hook
+hands what it would publish to your scanner and blocks the call when the
+scanner exits non-zero:
+
+| Command | What is checked |
+|---------|-----------------|
+| `gh pr`/`gh issue` `create`, `edit`, `comment`, `review`; `gh release create`/`edit`; `gh gist create` | The command's text, and every `--body-file`/`-F` file |
+| `gh api` | The command's text, `--input` files, and `-F field=@file` files |
+| `git commit` | The message, inline or from `-F`/`--file` |
+| `git push` | The message of every commit the remotes do not have yet |
+
+The scanner is yours, so the list of what is private never enters a public
+repository. `CLAUDE_LEAK_GUARD` holds its command; the hook appends the file
+paths, and `~/` at the start of a word is expanded. For example, a fleet tool
+whose needles come from a private repository:
+
+```json
+{ "env": { "CLAUDE_LEAK_GUARD": "workstation --fleet ~/fleet leak-guard" } }
+```
+
+- **Opt-in:** with `CLAUDE_LEAK_GUARD` unset the hook does nothing.
+- **Public only:** the repository comes from `-R`/`--repo`, a leading
+  `cd <dir> &&`, `git -C <dir>`, or the working directory's `origin`. `gh repo
+  view` gives its visibility, cached for a day. Private and internal
+  repositories, and remotes outside GitHub, pass unchecked; an unknown
+  visibility is checked as public.
+- **Fails closed:** a scanner that cannot run, or a body file the hook cannot
+  read, blocks the call. A body file named through a variable (`--body-file
+  "$F"`) is refused: write the literal path.
+- Local paths in the command, the files it reads and the `cd`/`-C`
+  directory, are not part of what gets published and are left out of the scan.
 
 ## IDE diagnostics
 
