@@ -526,10 +526,13 @@ collect_data() {
     # Account email. `|| true` because jq exits non-zero when .claude.json is
     # missing — which is the normal state on a fresh install — and a bare
     # assignment would abort any caller running under `set -e`. Claude Code keeps
-    # that file inside CLAUDE_CONFIG_DIR when set, beside ~/.claude otherwise.
-    local claude_json="${HOME}/.claude.json"
-    if [[ -n "${CLAUDE_CONFIG_DIR:-}" ]]; then
-        claude_json="${CLAUDE_CONFIG_DIR}/.claude.json"
+    # that file inside CLAUDE_CONFIG_DIR when set, beside ~/.claude otherwise; the
+    # default home named explicitly still has its account beside it.
+    local claude_json="${HOME}/.claude.json" dir="${CLAUDE_CONFIG_DIR:-}"
+    while [[ "${dir}" == */ ]]; do dir="${dir%/}"; done
+    if [[ -n "${dir}" ]]; then
+        claude_json="${dir}/.claude.json"
+        [[ -f "${claude_json}" || "${dir}" != "${HOME}/.claude" ]] || claude_json="${HOME}/.claude.json"
     fi
     DATA_EMAIL=$(jq -r '.oauthAccount.emailAddress // empty' "${claude_json}" 2>/dev/null || true)
     DATA_EMAIL="${DATA_EMAIL:-N/A}"
