@@ -25,6 +25,12 @@ render_all_components() {
         # Skip empty outputs
         [[ -z "${output}" ]] && continue
 
+        local style_var="CONF_STYLE_${key}"
+        if [[ -n "${!style_var:-}" ]]; then
+            style_component "${!style_var}" "${output}"
+            output="${REPLY}"
+        fi
+
         outputs+=("${output}")
         keys+=("${key}")
     done

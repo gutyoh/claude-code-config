@@ -229,8 +229,8 @@ Describe "Update-StatuslineConf" {
 
     It "keeps the per-plan icons when it rewrites the config" {
         # Written as code points: this file stays ASCII for Windows PowerShell 5.1
-        $openai = "icon_openai=$([char]0x058D)"
-        $muse = "icon_muse=$([char]0x221E)"
+        $openai = "icon_openai=$([char]0xEC81)"
+        $muse = "icon_muse=$([char]::ConvertFromUtf32(0xF06E4))"
         Write-Utf8Text -Path $script:StatuslineConf -Content "theme=light`n$openai`n$muse`n"
         Update-StatuslineConf -Force $true
         $lines = (Read-Utf8Text $script:StatuslineConf) -split "`n"
