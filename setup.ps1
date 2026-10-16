@@ -448,6 +448,7 @@ elseif ($script:SettingsMode -eq "merge") {
         Update-IdeHook
     }
     Update-SessionNameHook
+    Update-PublicTextGuardHook
     Update-TranscriptRetention
     Update-SessionPrivacy
 

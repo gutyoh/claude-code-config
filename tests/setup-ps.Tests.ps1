@@ -292,6 +292,19 @@ Describe "Settings JSON manipulation" {
         }
     }
 
+    Context "Update-PublicTextGuardHook" {
+        It "adds the guard on Bash once, beside the hooks already there" {
+            Update-IdeHook
+            Update-PublicTextGuardHook
+            Update-PublicTextGuardHook
+            $settings = Get-Content $script:SettingsJson -Raw | ConvertFrom-Json
+            $guards = @($settings.hooks.PreToolUse | Where-Object { $_.hooks[0].command -like "*guard-public-text.sh" })
+            $guards.Count | Should -Be 1
+            $guards[0].matcher | Should -Be "Bash"
+            @($settings.hooks.PreToolUse | Where-Object { $_.matcher -eq "mcp__ide__getDiagnostics" }).Count | Should -Be 1
+        }
+    }
+
     Context "Update-SessionPrivacy" {
         It "names no session link when the user made no choice" {
             Update-SessionPrivacy

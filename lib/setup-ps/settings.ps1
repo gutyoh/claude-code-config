@@ -114,6 +114,47 @@ function Update-SessionNameHook {
     }
 }
 
+function Update-PublicTextGuardHook {
+    <#
+    .SYNOPSIS
+    Add hooks/guard-public-text.sh on Bash calls (merge mode); it acts only once
+    CLAUDE_LEAK_GUARD names a scanner. An entry already naming it stays as it is.
+    #>
+    try {
+        $settings = Read-Utf8Text $script:SettingsJson | ConvertFrom-Json
+        if (-not $settings.hooks) {
+            $settings | Add-Member -NotePropertyName "hooks" -NotePropertyValue ([PSCustomObject]@{}) -Force
+        }
+        $entries = @($settings.hooks.PreToolUse | Where-Object { $_ })
+        foreach ($entry in $entries) {
+            foreach ($hook in @($entry.hooks)) {
+                if ($hook.command -like "*guard-public-text.sh*") {
+                    Write-Status "  + Public text guard hook already configured" -Color Green
+                    return
+                }
+            }
+        }
+        $entry = [PSCustomObject]@{
+            matcher = "Bash"
+            hooks   = @(
+                [PSCustomObject]@{
+                    type    = "command"
+                    command = "$(Get-ClaudeConfigDirRef)/hooks/guard-public-text.sh"
+                    timeout = 30
+                }
+            )
+        }
+        $list = [System.Collections.ArrayList]@($entries)
+        [void]$list.Add($entry)
+        $settings.hooks | Add-Member -NotePropertyName "PreToolUse" -NotePropertyValue @($list) -Force
+        Write-JsonFile -Path $script:SettingsJson -InputObject $settings
+        Write-Status "  + Public text guard hook added" -Color Green
+    }
+    catch {
+        Write-Status "  ! Failed to add the public text guard hook: $_" -Color Yellow
+    }
+}
+
 function Update-TranscriptRetention {
     <#
     .SYNOPSIS

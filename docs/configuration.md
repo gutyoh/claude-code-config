@@ -170,6 +170,7 @@ Both use `${VAR}` syntax for runtime environment variable expansion.
 |----------|---------|---------|
 | `BRAVE_API_RATE_LIMIT_MS` | `1100` | Rate limit between Brave Search calls (ms). Set to `50` for paid plans. |
 | `CLAUDE_IDE` | Auto-detected | Force a specific IDE for diagnostics hook |
+| `CLAUDE_LEAK_GUARD` | — | Scanner command for the [public text guard](hooks.md#public-text-guard); unset, the guard does nothing |
 | `LANGFUSE_PUBLIC_KEY` | — | Langfuse observability (self-hosted or cloud) |
 | `LANGFUSE_SECRET_KEY` | — | Langfuse observability |
 | `LANGFUSE_HOST` | — | Langfuse host URL |
