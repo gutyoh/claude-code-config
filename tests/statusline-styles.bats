@@ -116,3 +116,36 @@ sgr() { # style [COLORTERM]
     sgr 'fg:#56B4E9' 24bit
     [ "$output" = "${ESC}[38;2;86;180;233m" ]
 }
+
+# bats test_tags=unit
+@test "each profile styles its email from its own local conf over a shared conf" {
+    local work="$HOME/.claude-work"
+    mkdir -p "$work"
+    printf 'components=email\ntheme=none\nstyle.email=bold\n' >"$HOME/.claude/statusline.conf"
+    ln -s "$HOME/.claude/statusline.conf" "$work/statusline.conf"
+    printf 'style.email=bg:#EB4789\n' >"$HOME/.claude/statusline.local.conf"
+    printf 'style.email=bg:#56B4E9\n' >"$work/statusline.local.conf"
+    printf '{"oauthAccount":{"emailAddress":"work@example.com"}}' >"$work/.claude.json"
+    render COLORTERM=truecolor
+    [ "$output" = "${ESC}[48;2;235;71;137muser@example.com${ESC}[0m" ]
+    render COLORTERM=truecolor CLAUDE_CONFIG_DIR="$work"
+    [ "$output" = "${ESC}[48;2;86;180;233mwork@example.com${ESC}[0m" ]
+}
+
+# bats test_tags=unit
+@test "the local conf overrides any key, and the shared one applies without it" {
+    printf 'components=model,email\ntheme=none\n' >"$HOME/.claude/statusline.conf"
+    render
+    [ "$output" = "opus-5.5 | user@example.com" ]
+    printf 'components=email' >"$HOME/.claude/statusline.local.conf"
+    render
+    [ "$output" = "user@example.com" ]
+}
+
+# bats test_tags=unit
+@test "a local conf beside a legacy one-line conf still applies" {
+    printf 'none\n' >"$HOME/.claude/statusline.conf"
+    printf 'components=email\nstyle.email=italic\n' >"$HOME/.claude/statusline.local.conf"
+    render
+    [ "$output" = "${ESC}[3muser@example.com${ESC}[0m" ]
+}

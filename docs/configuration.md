@@ -124,7 +124,9 @@ on Windows the command is `~/.claude/scripts/file-suggestion.ps1`.
 
 ## statusline.conf
 
-Keys for `~/.claude/statusline.conf`:
+Keys for `~/.claude/statusline.conf`. The same keys in `statusline.local.conf`,
+beside it, override it for that profile alone; `claude-as` shares
+`statusline.conf` across accounts but never the local file.
 
 | Key | Values | Default | Description |
 |-----|--------|---------|-------------|

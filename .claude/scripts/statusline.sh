@@ -28,6 +28,7 @@
 #   spark     ▄█▁ 21%                      (compact 5-char vertical bars)
 #
 # Config: ~/.claude/statusline.conf (key=value). Respects NO_COLOR env var.
+# statusline.local.conf beside it overrides keys for that profile alone.
 # style.<component>= colors one component (lib/statusline/style.sh).
 # Legacy: single-line theme name still supported (auto-detected).
 #
@@ -84,6 +85,7 @@ readonly USAGE_STALE_S=900    # Older readings are marked with ~
 readonly BACKOFF_INITIAL_S=30 # First backoff after 429/failure
 readonly BACKOFF_MAX_S=300    # Cap at 5 minutes
 readonly CONF_FILE="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/statusline.conf"
+readonly CONF_LOCAL_FILE="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/statusline.local.conf"
 
 # --- Config Globals (overridden by load_config) ---
 

@@ -131,13 +131,15 @@ A router that judges each plan's prompt cache from the turns it routes can name 
 ## Style one component
 
 A `style.<component>=` line colors one component, named as in `components`.
-Each profile has its own `statusline.conf`, so a different `style.email` per
-profile tells the accounts apart at a glance:
+To tell accounts apart at a glance, give each profile its own `style.email`
+in `statusline.local.conf`, beside `statusline.conf` in the profile's
+`CLAUDE_CONFIG_DIR`. It is read last and overrides any key for that profile
+alone, while `claude-as` shares `statusline.conf` across every account:
 
 ```ini
-# ~/.claude/statusline.conf
+# ~/.claude/statusline.local.conf
 style.email=bold fg:#1E1E2E bg:#EB4789
-# ~/.claude-personal/statusline.conf
+# ~/.claude-work/statusline.local.conf
 style.email=bold fg:#1E1E2E bg:#56B4E9
 ```
 

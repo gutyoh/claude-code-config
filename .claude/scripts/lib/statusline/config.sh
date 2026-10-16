@@ -2,22 +2,30 @@
 # Path: .claude/scripts/lib/statusline/config.sh
 # Sourced by statusline.sh — do not execute directly.
 
+# statusline.conf, then statusline.local.conf beside it. Profiles may share the
+# first (claude-as links it into every home); the second is the profile's own,
+# so a key there, such as style.email, differs per account.
 load_config() {
-    [[ ! -f "${CONF_FILE}" ]] && return
+    _load_conf_file "${CONF_FILE}" legacy
+    _load_conf_file "${CONF_LOCAL_FILE}"
+}
+
+# Reads key=value pairs from $1. With $2 = legacy, a first line without '='
+# is the old single-theme format.
+_load_conf_file() {
+    [[ -f "$1" ]] || return 0
 
     local first_line=""
-    IFS= read -r first_line <"${CONF_FILE}" 2>/dev/null || true
+    IFS= read -r first_line <"$1" 2>/dev/null || true
     first_line="${first_line//[[:space:]]/}"
-    [[ -z "${first_line}" ]] && return
 
-    # Legacy format detection: first non-empty line has no '='
-    if [[ "${first_line}" != *"="* ]]; then
+    if [[ "${2:-}" == legacy && -n "${first_line}" && "${first_line}" != *"="* ]]; then
         CONF_THEME="${first_line}"
-        return
+        return 0
     fi
 
-    # Key=value format
-    while IFS='=' read -r key value; do
+    local key value
+    while IFS='=' read -r key value || [[ -n "${key}" ]]; do
         # Skip empty lines and comments
         [[ -z "${key}" || "${key}" == \#* ]] && continue
         key="${key//[[:space:]]/}"
@@ -47,7 +55,7 @@ load_config() {
             cc_status_visibility) CONF_CC_STATUS_VISIBILITY="${value}" ;;
             cc_status_color) CONF_CC_STATUS_COLOR="${value}" ;;
         esac
-    done <"${CONF_FILE}"
+    done <"$1"
 }
 
 load_theme() {
