@@ -21,6 +21,13 @@ load_config() {
         # Skip empty lines and comments
         [[ -z "${key}" || "${key}" == \#* ]] && continue
         key="${key//[[:space:]]/}"
+        # A style keeps its inner spaces, which separate its words.
+        if [[ "${key}" =~ ^style\.([a-z0-9_]+)$ ]]; then
+            value="${value#"${value%%[![:space:]]*}"}"
+            value="${value%"${value##*[![:space:]]}"}"
+            printf -v "CONF_STYLE_${BASH_REMATCH[1]}" '%s' "${value}"
+            continue
+        fi
         value="${value//[[:space:]]/}"
         case "${key}" in
             theme) CONF_THEME="${value}" ;;

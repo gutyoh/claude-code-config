@@ -68,10 +68,11 @@ function Update-StatuslineConf {
         }
     }
 
-    # Per-plan icons have no setup option; a rewrite keeps the user's own.
+    # Per-plan icons and component styles have no setup option; a rewrite
+    # keeps the user's own.
     $kept = @()
     if (Test-Path $confFile) {
-        $kept = @((Read-Utf8Text $confFile) -split "`r?`n" | Where-Object { $_ -match '^icon_(claude|openai|muse)=' })
+        $kept = @((Read-Utf8Text $confFile) -split "`r?`n" | Where-Object { $_ -cmatch '^(icon_(claude|openai|muse)|style\.[a-z0-9_]+)=' })
     }
 
     # Write the config file (LF line endings for cross-platform compat)

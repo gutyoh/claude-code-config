@@ -21,13 +21,13 @@ setup() {
 
 # bats test_tags=unit
 @test "a rewrite keeps the per-plan icons" {
-    printf 'theme=light\nicon=A\\\nicon_openai=֍\nicon_muse=∞\nicon_claude=✻\n' >"${CLAUDE_DIR}/statusline.conf"
+    printf 'theme=light\nicon=✻\nicon_openai=\nicon_muse=󰛤\nicon_claude=A\\\n' >"${CLAUDE_DIR}/statusline.conf"
     run configure_statusline_conf "true"
     [ "$status" -eq 0 ]
     grep -qx 'theme=dark' "${CLAUDE_DIR}/statusline.conf"
-    grep -qx 'icon_openai=֍' "${CLAUDE_DIR}/statusline.conf"
-    grep -qx 'icon_muse=∞' "${CLAUDE_DIR}/statusline.conf"
-    grep -qx 'icon_claude=✻' "${CLAUDE_DIR}/statusline.conf"
+    grep -qx 'icon_openai=' "${CLAUDE_DIR}/statusline.conf"
+    grep -qx 'icon_muse=󰛤' "${CLAUDE_DIR}/statusline.conf"
+    grep -qxF 'icon_claude=A\' "${CLAUDE_DIR}/statusline.conf"
     [ "$(grep -cE '^icon_(claude|openai|muse)=' "${CLAUDE_DIR}/statusline.conf")" -eq 3 ]
 }
 
@@ -45,4 +45,14 @@ setup() {
     [ "$status" -eq 0 ]
     grep -qx 'theme=dark' "${CLAUDE_DIR}/statusline.conf"
     ! grep -qE '^icon_(claude|openai|muse)=' "${CLAUDE_DIR}/statusline.conf"
+}
+
+# bats test_tags=unit
+@test "a rewrite keeps the component styles, spaces and all" {
+    printf 'theme=light\nstyle.email=bold fg:#1E1E2E bg:#EB4789\nstyle.model=italic\n' >"${CLAUDE_DIR}/statusline.conf"
+    run configure_statusline_conf "true"
+    [ "$status" -eq 0 ]
+    grep -qx 'theme=dark' "${CLAUDE_DIR}/statusline.conf"
+    grep -qx 'style.email=bold fg:#1E1E2E bg:#EB4789' "${CLAUDE_DIR}/statusline.conf"
+    grep -qx 'style.model=italic' "${CLAUDE_DIR}/statusline.conf"
 }

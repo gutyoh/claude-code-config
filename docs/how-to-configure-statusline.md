@@ -128,6 +128,40 @@ A router that judges each plan's prompt cache from the turns it routes can name 
 | `colorblind` | Bold blue | Bold yellow | Bold cyan | Bold magenta |
 | `none` | No colors | No colors | No colors | No colors |
 
+## Style one component
+
+A `style.<component>=` line colors one component, named as in `components`.
+Each profile has its own `statusline.conf`, so a different `style.email` per
+profile tells the accounts apart at a glance:
+
+```ini
+# ~/.claude/statusline.conf
+style.email=bold fg:#1E1E2E bg:#EB4789
+# ~/.claude-personal/statusline.conf
+style.email=bold fg:#1E1E2E bg:#56B4E9
+```
+
+The value is a [Starship style string](https://starship.rs/advanced-config/#style-strings):
+words separated by spaces or commas.
+
+| Word | Effect |
+|------|--------|
+| `bold`, `dimmed`, `italic`, `underline`, `blink`, `inverted`, `hidden`, `strikethrough` | Text attribute |
+| `fg:<color>`, or a bare `<color>` | Text color |
+| `bg:<color>` | Background color |
+| `none` | Drops the words before it |
+
+A color is an ANSI name (`black`, `red`, `green`, `yellow`, `blue`,
+`magenta` or `purple`, `cyan`, `white`), the same with `bright-` in front,
+`0`-`255`, or `#RRGGBB`. Names follow the terminal's theme; hex colors are
+exact. When `COLORTERM` is neither `truecolor` nor `24bit`, a hex color becomes
+the nearest of the 256 colors. Unknown words are skipped, and `NO_COLOR`
+turns styles off with every other color.
+
+A background stays visible where Claude Code dims the status line's text. The
+style resumes after any color the component sets itself, and with
+`color_scope=full` the line color resumes after the styled component.
+
 ## Verify the statusline
 
 Start a new Claude Code session. The statusline appears at the bottom of the terminal:

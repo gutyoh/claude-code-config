@@ -67,9 +67,10 @@ configure_statusline_conf() {
         fi
     fi
 
-    # Per-plan icons have no setup option; a rewrite keeps the user's own.
+    # Per-plan icons and component styles have no setup option; a rewrite
+    # keeps the user's own.
     local kept=""
-    [[ -f "${conf_file}" ]] && kept=$(grep -E '^icon_(claude|openai|muse)=' "${conf_file}" 2>/dev/null || true)
+    [[ -f "${conf_file}" ]] && kept=$(grep -E '^(icon_(claude|openai|muse)|style\.[a-z0-9_]+)=' "${conf_file}" 2>/dev/null || true)
 
     cat >"${conf_file}" <<EOF
 theme=${STATUSLINE_THEME}

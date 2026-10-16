@@ -28,6 +28,7 @@
 #   spark     ▄█▁ 21%                      (compact 5-char vertical bars)
 #
 # Config: ~/.claude/statusline.conf (key=value). Respects NO_COLOR env var.
+# style.<component>= colors one component (lib/statusline/style.sh).
 # Legacy: single-line theme name still supported (auto-detected).
 #
 # Prerequisites: jq, curl, awk, cksum, ccusage (optional for token/cost data)
@@ -90,12 +91,12 @@ CONF_THEME="dark"
 CONF_COMPONENTS="model,usage,weekly,reset,tokens_in,tokens_out,tokens_cache,cost,burn_rate,email"
 CONF_BAR_STYLE="text"
 CONF_BAR_PCT_INSIDE="false"
-CONF_COMPACT="true"           # Compact mode: no verbose prefixes, tokens merged with /, burn_rate hidden
-CONF_COLOR_SCOPE="percentage" # "percentage" = color usage component only, "full" = color entire line
-CONF_ICON=""                  # Prefix icon: e.g. "✻", "A\\", "❋", or "" for none
-CONF_ICON_CLAUDE=""           # Per plan, over icon: e.g. "A\\" for Claude,
-CONF_ICON_OPENAI=""           # "֍" for ChatGPT and "∞" for Muse
-CONF_ICON_MUSE=""
+CONF_COMPACT="true"                # Compact mode: no verbose prefixes, tokens merged with /, burn_rate hidden
+CONF_COLOR_SCOPE="percentage"      # "percentage" = color usage component only, "full" = color entire line
+CONF_ICON=""                       # Prefix icon: e.g. "✻", "A\\", "❋", or "" for none
+CONF_ICON_CLAUDE=""                # Per plan, over icon: "A\\" for Claude, and the
+CONF_ICON_OPENAI=""                # Nerd Font glyphs U+EC81 (OpenAI) and U+F06E4 (Muse);
+CONF_ICON_MUSE=""                  # "֍" and "∞" need no Nerd Font
 CONF_ICON_STYLE="plain"            # plain|bold|bracketed|rounded|reverse|bold-color|angle|double-bracket
 CONF_WEEKLY_SHOW_RESET="false"     # Show weekly reset countdown inline with weekly %
 CONF_CC_STATUS_POSITION="inline"   # inline | newline
@@ -191,6 +192,7 @@ source "${_STATUSLINE_DIR}/lib/statusline/providers.sh"
 source "${_STATUSLINE_DIR}/lib/statusline/data.sh"
 source "${_STATUSLINE_DIR}/lib/statusline/bar.sh"
 source "${_STATUSLINE_DIR}/lib/statusline/color.sh"
+source "${_STATUSLINE_DIR}/lib/statusline/style.sh"
 source "${_STATUSLINE_DIR}/lib/statusline/status.sh"
 source "${_STATUSLINE_DIR}/lib/statusline/components.sh"
 source "${_STATUSLINE_DIR}/lib/statusline/assembly.sh"
@@ -280,7 +282,9 @@ main() {
         fi
         color=$(get_color_for_pct "${max_pct}")
         if [[ -n "${color}" ]]; then
-            printf "%s%s%s%s" "${color}" "${icon_prefix}" "${output}" "${COLOR_RESET}"
+            # A styled icon or component resets; the line color resumes after it.
+            local line="${icon_prefix}${output}"
+            printf "%s%s%s" "${color}" "${line//"${COLOR_RESET}"/${COLOR_RESET}${color}}" "${COLOR_RESET}"
         else
             printf "%s%s" "${icon_prefix}" "${output}"
         fi

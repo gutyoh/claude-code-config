@@ -135,13 +135,14 @@ Keys for `~/.claude/statusline.conf`:
 | `compact` | `true`, `false` | `true` | No labels, merged tokens |
 | `color_scope` | `percentage`, `full` | `percentage` | Color usage only or entire line |
 | `icon` | Unicode string or empty | `""` | Prefix icon |
-| `icon_claude`, `icon_openai`, `icon_muse` | Unicode string or empty | `""` (use `icon`) | Prefix icon while the session's model is on that plan, for example `A\`. A Nerd Font glyph needs a Nerd Font in the terminal |
+| `icon_claude`, `icon_openai`, `icon_muse` | Unicode string or empty | `""` (use `icon`) | Prefix icon while the session's model is on that plan, for example `A\` for Claude, U+EC81 (`nf-cod-openai`) for OpenAI and U+F06E4 (`nf-md-infinity`) for Muse. Those two need a Nerd Font in the terminal; `֍` and `∞` do not |
 | `icon_style` | `plain`, `bold`, `bracketed`, `rounded`, `reverse`, `bold-color`, `angle`, `double-bracket` | `plain` | Icon styling |
 | `weekly_show_reset` | `true`, `false` | `false` | Show weekly reset countdown |
 | `cc_status_position` | `inline`, `newline` | `inline` | Status placement |
 | `cc_status_visibility` | `always`, `problem_only` | `always` | When to show status |
 | `cc_status_color` | `none`, `full`, `status_only` | `full` | Status coloring |
 | `router_health` | `on`, `off` | `on` | Show a router's prompt-cache warning ([details](how-to-configure-statusline.md#usage-for-gpt-and-muse-models)) |
+| `style.<component>` | Style string, for example `bold fg:#1E1E2E bg:#EB4789` | none | Colors one component, such as `style.email` ([details](how-to-configure-statusline.md#style-one-component)) |
 
 ## .mcp.json
 
