@@ -103,11 +103,13 @@ reading any of them has seen.
 [Configure it](docs/how-to-configure-statusline.md).
 
 **Several accounts.** `claude-as` keeps more than one Claude account signed in
-and picks one per session; a session started on one continues on another.
+and picks one per session; a session started on one continues on another. A
+resume keeps the account the session last ran as, and switching asks first.
 
 ```bash
 claude-as --add you@example.com          # once per account and machine
 claude-as you@example.com --continue
+claude-as -r <session id>                # as the account it last ran as
 ```
 
 **Session names.** Each session is named once, at its first prompt, as

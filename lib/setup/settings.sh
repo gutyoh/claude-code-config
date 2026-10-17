@@ -130,8 +130,9 @@ PYTHON_SCRIPT
     fi
 }
 
-# Session naming (hooks/session-name.sh) needs one entry on each of two events;
-# an entry already naming the script is left as it is.
+# Session naming (hooks/session-name.sh) needs one entry on each of two events,
+# and hooks/session-account.sh one on every session start; an entry already
+# naming a script is left as it is.
 configure_session_name_hooks() {
     python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
 import json
@@ -141,8 +142,9 @@ import sys
 settings_file = sys.argv[1]
 ref = os.environ.get('CLAUDE_DIR_REF', '~/.claude')
 wanted = (
-    ('SessionStart', {'matcher': 'startup'}),
-    ('UserPromptSubmit', {'matcher': ''}),
+    ('SessionStart', {'matcher': 'startup'}, 'session-name.sh'),
+    ('UserPromptSubmit', {'matcher': ''}, 'session-name.sh'),
+    ('SessionStart', {'matcher': ''}, 'session-account.sh'),
 )
 
 try:
@@ -150,14 +152,14 @@ try:
         data = json.load(f)
     hooks = data.setdefault('hooks', {})
     added = 0
-    for event, extra in wanted:
+    for event, extra, script in wanted:
         entries = hooks.setdefault(event, [])
-        present = any('session-name.sh' in h.get('command', '')
+        present = any(script in h.get('command', '')
                       for e in entries for h in e.get('hooks', []))
         if not present:
             entries.append({**extra, 'hooks': [{
                 'type': 'command',
-                'command': f'{ref}/hooks/session-name.sh',
+                'command': f'{ref}/hooks/{script}',
                 'timeout': 5,
             }]})
             added += 1
@@ -165,11 +167,11 @@ try:
         with open(settings_file, 'w') as f:
             json.dump(data, f, indent=2)
             f.write('\n')
-        print("  ✓ Session naming hooks added")
+        print("  ✓ Session hooks added")
     else:
-        print("  ✓ Session naming hooks already configured")
+        print("  ✓ Session hooks already configured")
 except Exception as e:
-    print(f"  ⚠ Failed to add session naming hooks: {e}", file=sys.stderr)
+    print(f"  ⚠ Failed to add session hooks: {e}", file=sys.stderr)
     sys.exit(1)
 PYTHON_SCRIPT
 }
@@ -621,7 +623,19 @@ configure_claude_shortcuts() {
     cat >>"${shell_profile}" <<'EOF'
 
 # claude-code-config: claude launch shortcuts
-claude() {
+# A resumed session runs as the account it last ran as (claude-as --where),
+# also when herdr resumes it after a restart. A subshell keeps the variable
+# out of the caller's shell.
+claude() (
+  if [ -z "${CLAUDE_CONFIG_DIR:-}" ] && command -v claude-as >/dev/null 2>&1; then
+    CLAUDE_CONFIG_DIR=$(claude-as --where "$@" 2>/dev/null) || CLAUDE_CONFIG_DIR=
+    if [ -n "${CLAUDE_CONFIG_DIR}" ]; then
+      printf 'claude: as the session last ran, in %s\n' "${CLAUDE_CONFIG_DIR}" >&2
+      export CLAUDE_CONFIG_DIR
+    else
+      unset CLAUDE_CONFIG_DIR
+    fi
+  fi
   case "${1:-}" in
     -a|--unsafe|--bypass|-adskp)
       shift
@@ -631,7 +645,7 @@ claude() {
       command claude --allow-dangerously-skip-permissions "$@"
       ;;
   esac
-}
+)
 
 # No `local`: this block is written to ~/.profile for any shell that is not
 # bash or zsh, and `local` is not in POSIX — it is a widely-implemented
@@ -753,6 +767,16 @@ function claude --description 'Claude Code with proxy launcher defaults'
     # Managed by claude-code-config setup.sh.
     # Defaults to --allow-dangerously-skip-permissions; opt in to
     # --dangerously-skip-permissions via -a / --unsafe / --bypass / -adskp.
+    # A resumed session runs as the account it last ran as (claude-as
+    # --where), also when herdr resumes it after a restart.
+
+    set -l home
+    if not set -q CLAUDE_CONFIG_DIR; and command -q claude-as
+        set home (command claude-as --where $argv 2>/dev/null)
+    end
+    # Outside any block: a variable set in one ends with it.
+    test -n "$home"; and set -lx CLAUDE_CONFIG_DIR $home
+    and printf 'claude: as the session last ran, in %s\n' $home >&2
 
     set -l first ""
     test (count $argv) -gt 0; and set first $argv[1]

@@ -241,7 +241,7 @@ statusline_record() {
 # --- installer --------------------------------------------------------------
 
 # bats test_tags=unit
-@test "merge mode adds both hook entries once and keeps existing hooks" {
+@test "merge mode adds each session hook entry once and keeps existing hooks" {
     require_cmd python3
     export SETTINGS_JSON="${BATS_TEST_TMPDIR}/settings.json"
     printf '%s\n' '{"hooks":{"SessionStart":[{"matcher":"resume","hooks":[{"type":"command","command":"other.sh"}]}]}}' >"${SETTINGS_JSON}"
@@ -254,7 +254,9 @@ statusline_record() {
     [ "$status" -eq 0 ]
     [[ "${output}" == *"already configured"* ]]
 
-    [ "$(jq '.hooks.SessionStart | length' "${SETTINGS_JSON}")" -eq 2 ]
+    [ "$(jq '.hooks.SessionStart | length' "${SETTINGS_JSON}")" -eq 3 ]
+    [ "$(jq -r '.hooks.SessionStart[2].matcher' "${SETTINGS_JSON}")" = "" ]
+    [ "$(jq -r '.hooks.SessionStart[2].hooks[0].command' "${SETTINGS_JSON}")" = "~/.claude/hooks/session-account.sh" ]
     [ "$(jq -r '.hooks.SessionStart[1].matcher' "${SETTINGS_JSON}")" = "startup" ]
     [ "$(jq -r '.hooks.SessionStart[1].hooks[0].command' "${SETTINGS_JSON}")" = "~/.claude/hooks/session-name.sh" ]
     [ "$(jq -r '.hooks.UserPromptSubmit[0].hooks[0].command' "${SETTINGS_JSON}")" = "~/.claude/hooks/session-name.sh" ]

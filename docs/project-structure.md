@@ -96,6 +96,7 @@ Dot-sourced by `setup.ps1`. PowerShell port of `lib/setup/` with arrow-key TUI, 
 | `sql-guardrail.sh` | PreToolUse | `Bash` (agent-scoped) | Unified DB guardrail: STRICT (Databricks), STANDARD (SQL CLIs), MONGO (mongosh) |
 | `refresh-usage-cache.sh` | PreToolUse + Stop | `.*` and `""` | Background Haiku API ping for usage data |
 | `session-name.sh` | SessionStart + UserPromptSubmit | `startup` | Names sessions `<provider>-<start time>`; swaps the prefix after a model switch |
+| `session-account.sh` | SessionStart | `""` | Records each session's account for `claude-as`; warns when a resume changes it |
 
 ### .claude/scripts/
 
@@ -202,6 +203,7 @@ place and runs its [stop-nudge hook](hooks.md#stop-nudge).
 | `langfuse-skill.bats` | Langfuse skill validation |
 | `refresh-usage-cache.bats` | Usage cache refresh hook |
 | `session-name.bats` | Session name hook, statusline model record, installer entries |
+| `session-account.bats` | Session account record and the warning on a resume under another account |
 | `cc-status.bats` | Claude Code service status |
 | `claude-config-dir.bats` | `CLAUDE_CONFIG_DIR`: install target, settings commands, symlinked rc files |
 | `managed-entries.bats` | Per-entry install, legacy link migration, profile chains |

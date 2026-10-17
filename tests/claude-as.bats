@@ -403,3 +403,148 @@ two_accounts() {
     [ "$status" -eq 1 ]
     [[ ${output} == *"is not a home"* ]]
 }
+
+# --- the account a session last ran as -------------------------------------
+
+SID=3f2a9c1e-7b4d-4e8a-9c6f-1a2b3c4d5e6f
+
+# ran <id> <home>: session-account.sh's record of a start in <home>.
+ran() {
+    mkdir -p "${XDG_STATE_HOME}/claude-as"
+    printf '%s\t%s\t%s\n' "$1" "$2" 1792000000 >>"${XDG_STATE_HOME}/claude-as/sessions"
+}
+
+@test "-r <id> with no account resumes as the account the session last ran as" {
+    two_accounts
+    ran "${SID}" "${HOME}/.claude"
+    ran "${SID}" "${HOME}/.claude-home"
+    run "$SCRIPT" -r "${SID}"
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"as it last ran: me@home.example"* ]]
+    [[ ${output} == *"home=${HOME}/.claude-home args=--allow-dangerously-skip-permissions -r ${SID}"* ]]
+    run "$SCRIPT" -a --resume="${SID}"
+    [[ ${output} == *"home=${HOME}/.claude-home args=--dangerously-skip-permissions --resume=${SID}"* ]]
+}
+
+@test "the record outranks CLAUDE_AS for a resume; CLAUDE_AS still starts new sessions" {
+    two_accounts
+    ran "${SID}" "${HOME}/.claude"
+    CLAUDE_AS=me@home.example run "$SCRIPT" --resume "${SID}"
+    [[ ${output} == *"RAN set= home= args=--allow-dangerously-skip-permissions --resume ${SID}"* ]]
+    CLAUDE_AS=me@home.example run "$SCRIPT" -p hi
+    [[ ${output} == *"home=${HOME}/.claude-home args="* ]]
+}
+
+@test "a session name ending in the id's first 8 characters finds its account" {
+    two_accounts
+    ran "${SID}" "${HOME}/.claude-home"
+    run "$SCRIPT" --resume "claude-20260101T0900Z-btree-page-splits-3f2a9c1e"
+    [[ ${output} == *"home=${HOME}/.claude-home"* ]]
+    # Two recorded ids with that start name no one session.
+    ran 3f2a9c1e-0000-4000-8000-000000000000 "${HOME}/.claude"
+    run "$SCRIPT" --resume "claude-x-3f2a9c1e"
+    [ "$status" -eq 2 ]
+    [[ ${output} == *"name the account first"* ]]
+}
+
+@test "with no record, the newest prompt in each home's own history decides" {
+    two_accounts
+    rm -f "${HOME}/.claude-home/history.jsonl"
+    printf '{"display":"a","timestamp":1792000000000,"sessionId":"%s"}\n' "${SID}" >"${HOME}/.claude/history.jsonl"
+    printf '{"display":"b","timestamp":1792000500000,"sessionId":"%s"}\n' "${SID}" >"${HOME}/.claude-home/history.jsonl"
+    run "$SCRIPT" -r "${SID}"
+    [[ ${output} == *"home=${HOME}/.claude-home"* ]]
+    printf '{"display":"c","timestamp":1792000900000,"sessionId":"%s"}\n' "${SID}" >>"${HOME}/.claude/history.jsonl"
+    run "$SCRIPT" -r "${SID}"
+    [[ ${output} == *"RAN set= home="* ]]
+}
+
+@test "an unknown session, or a record naming a home that is gone, still needs an account" {
+    two_accounts
+    run "$SCRIPT" -r "${SID}"
+    [ "$status" -eq 2 ]
+    [[ ${output} == *"name the account first"* ]]
+    ran "${SID}" "${HOME}/.claude-gone"
+    run "$SCRIPT" -r "${SID}"
+    [ "$status" -eq 2 ]
+}
+
+@test "naming another account than the session last ran as says so, and continues without a terminal" {
+    two_accounts
+    ran "${SID}" "${HOME}/.claude"
+    run "$SCRIPT" me@home.example -r "${SID}"
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"session ${SID} last ran as me@work.example"* ]]
+    [[ ${output} == *"continuing it as me@home.example"* ]]
+    [[ ${output} == *"home=${HOME}/.claude-home"* ]]
+    run "$SCRIPT" me@work.example -r "${SID}"
+    [[ ${output} != *"last ran as"* ]]
+}
+
+@test "on a terminal, a switch of account asks first: no keeps it, yes switches" {
+    script --version 2>/dev/null | grep -q util-linux || skip "needs util-linux script(1) for a terminal"
+    two_accounts
+    ran "${SID}" "${HOME}/.claude"
+    run bash -c "printf 'n\n' | script -qec '\"$SCRIPT\" me@home.example -r ${SID}' /dev/null"
+    [[ ${output} == *"Continue it as me@home.example? [y/N]"* ]]
+    [[ ${output} == *"not resumed; as before: claude-as me@work.example -r ${SID}"* ]]
+    [[ ${output} != *"RAN "* ]]
+    run bash -c "printf 'y\n' | script -qec '\"$SCRIPT\" me@home.example -r ${SID}' /dev/null"
+    [[ ${output} == *"RAN set=1 home=${HOME}/.claude-home"* ]]
+}
+
+@test "one account in two homes is not a switch" {
+    account "${HOME}/.claude" me@work.example claude_team Acme
+    linked_home "${HOME}/.claude-two" me@work.example claude_team Acme
+    ran "${SID}" "${HOME}/.claude-two"
+    run "$SCRIPT" me@work.example -r "${SID}"
+    [[ ${output} != *"last ran as"* ]]
+}
+
+@test "--where names a home only for a session that last ran outside ~/.claude" {
+    two_accounts
+    run "$SCRIPT" --where --resume "${SID}"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+    ran "${SID}" "${HOME}/.claude"
+    run "$SCRIPT" --where --allow-dangerously-skip-permissions --resume "${SID}"
+    [ -z "$output" ]
+    ran "${SID}" "${HOME}/.claude-home"
+    run "$SCRIPT" --where -r "${SID}"
+    [ "$output" = "${HOME}/.claude-home" ]
+    run "$SCRIPT" --where -p hi
+    [ -z "$output" ]
+    run "$SCRIPT" --where --resume
+    [ -z "$output" ]
+}
+
+@test "--continue resumes this folder's newest session as the account it last ran as" {
+    two_accounts
+    local work="${BATS_TEST_TMPDIR}/my_repo.v2" key old=11111111-2222-4333-8444-555555555555
+    mkdir -p "${work}"
+    key=$(cd "${work}" && pwd -P | sed 's/[^A-Za-z0-9]/-/g')
+    mkdir -p "${HOME}/.claude/projects/${key}/${SID}/subagents"
+    touch -t 202601010000 "${HOME}/.claude/projects/${key}/${old}.jsonl"
+    touch -t 202601020000 "${HOME}/.claude/projects/${key}/${SID}.jsonl"
+    ran "${old}" "${HOME}/.claude"
+    ran "${SID}" "${HOME}/.claude-home"
+    cd "${work}"
+    run "$SCRIPT" -c
+    [[ ${output} == *"home=${HOME}/.claude-home args=--allow-dangerously-skip-permissions -c"* ]]
+    run "$SCRIPT" --where -a --continue
+    [ "$output" = "${HOME}/.claude-home" ]
+    # Claude Code encodes the path: dots and underscores become dashes too.
+    [[ ${key} == *"-my-repo-v2" ]]
+    touch -t 202601030000 "${HOME}/.claude/projects/${key}/${old}.jsonl"
+    run "$SCRIPT" --where --continue
+    [ -z "$output" ]
+}
+
+@test "--continue in a folder with no session needs an account, as before" {
+    two_accounts
+    cd "${BATS_TEST_TMPDIR}"
+    run "$SCRIPT" -c
+    [ "$status" -eq 2 ]
+    run "$SCRIPT" --where -c
+    [ -z "$output" ]
+}

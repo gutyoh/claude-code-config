@@ -174,7 +174,7 @@ style resumes after any color the component sets itself, and with
 ## Show which machine a session runs on
 
 Add `host` to `components`, after `email` for example, to show the name the
-machine gives itself, cut at the first `.`: `hermann.local` shows `hermann`.
+machine gives itself, cut at the first `.`: `my-laptop.local` shows `my-laptop`.
 It is read at every render, so renaming the machine needs no config change.
 On macOS, set the name `hostname` prints, or it may follow the network:
 

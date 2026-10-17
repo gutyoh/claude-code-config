@@ -168,6 +168,42 @@ stub_proxy() {
 }
 
 # bats test_tags=integration,portability
+@test "claude resumes a session as the account claude-as says it last ran as" {
+    stub_bin claude 'printf "claude:dir=%s:%s\n" "${CLAUDE_CONFIG_DIR-unset}" "$*"'
+    stub_bin claude-as 'echo "asked $*" >>"$ASK_LOG"; [ "$1" = --where ] && [ "$3" = known ] && echo /h/.claude-b; exit 0'
+    local p out
+    export ASK_LOG="${BATS_TEST_TMPDIR}/asked"
+    while read -r p; do
+        [[ -n "$p" ]] || continue
+        out="$("$p" -c ". '$PROFILE'; claude --resume known; echo \"after=[\${CLAUDE_CONFIG_DIR-unset}]\"" 2>&1)"
+        [[ "$out" == *"claude: as the session last ran, in /h/.claude-b"* ]] || { echo "$p: $out"; false; }
+        [[ "$out" == *"claude:dir=/h/.claude-b:--allow-dangerously-skip-permissions --resume known"* ]] || { echo "$p: $out"; false; }
+        [[ "$out" == *"after=[unset]"* ]] || { echo "$p leaked: $out"; false; }
+        out="$("$p" -c ". '$PROFILE'; claude -a --resume other" 2>&1)"
+        [[ "$out" == "claude:dir=unset:--dangerously-skip-permissions --resume other" ]] || { echo "$p: $out"; false; }
+        : >"$ASK_LOG"
+        out="$(CLAUDE_CONFIG_DIR=/mine "$p" -c ". '$PROFILE'; claude --resume known" 2>&1)"
+        [[ "$out" == "claude:dir=/mine:--allow-dangerously-skip-permissions --resume known" ]] || { echo "$p: $out"; false; }
+        [ ! -s "$ASK_LOG" ] || { echo "$p asked claude-as despite CLAUDE_CONFIG_DIR"; false; }
+    done < <(available_shells)
+}
+
+# bats test_tags=integration,portability
+@test "without claude-as, claude starts as before" {
+    stub_bin claude 'printf "claude:dir=%s:%s\n" "${CLAUDE_CONFIG_DIR-unset}" "$*"'
+    local p out dir path=""
+    # PATH as it is, less every directory holding a claude-as.
+    while IFS= read -r -d: dir; do
+        [[ -x ${dir}/claude-as ]] || path+="${dir}:"
+    done <<<"${PATH}:"
+    while read -r p; do
+        [[ -n "$p" ]] || continue
+        out="$(PATH="${path%:}" "$p" -c ". '$PROFILE'; claude --resume known" 2>&1)"
+        [[ "$out" == "claude:dir=unset:--allow-dangerously-skip-permissions --resume known" ]] || { echo "$p: $out"; false; }
+    done < <(available_shells)
+}
+
+# bats test_tags=integration,portability
 @test "sourcing the snippet leaks no variables into the caller" {
     # The old version used `local model=...`; dropping `local` without also
     # dropping the variable would have leaked `model` into the user's shell.

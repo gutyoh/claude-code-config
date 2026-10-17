@@ -895,6 +895,62 @@ Describe "Update-ClaudeShortcut" {
             ((claude -A baz) -join " ").Trim() | Should -Be "--allow-dangerously-skip-permissions -A baz"
         }
 
+        It "claude resumes a session as the account the record names" {
+            $dir = Join-Path $TestDrive "fake-claude-env"
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            if (Test-WindowsHost) {
+                Write-Utf8Text -Path (Join-Path $dir "claude.cmd") -Content "@echo dir=%CLAUDE_CONFIG_DIR% %*`r`n"
+            }
+            else {
+                $fake = Join-Path $dir "claude"
+                Write-Utf8Text -Path $fake -Content "#!/bin/sh`necho `"dir=`${CLAUDE_CONFIG_DIR-unset} `$*`"`n"
+                & chmod +x $fake
+            }
+            $other = Join-Path $TestDrive "home-other"
+            $shared = Join-Path $TestDrive "shared"
+            $work = Join-Path $TestDrive "my_repo.v2"
+            New-Item -ItemType Directory -Path $other, $work -Force | Out-Null
+            $key = (Resolve-Path $work).ProviderPath -replace '[^A-Za-z0-9]', '-'
+            $projects = Join-Path $shared "projects/$key"
+            New-Item -ItemType Directory -Path $projects -Force | Out-Null
+            $id = "3f2a9c1e-7b4d-4e8a-9c6f-1a2b3c4d5e6f"
+            $old = "11111111-2222-4333-8444-555555555555"
+            (Get-Item (New-Item -ItemType File -Path (Join-Path $projects "$old.jsonl") -Force)).LastWriteTimeUtc = [datetime]"2026-01-01"
+            (Get-Item (New-Item -ItemType File -Path (Join-Path $projects "$id.jsonl") -Force)).LastWriteTimeUtc = [datetime]"2026-01-02"
+            $state = Join-Path $TestDrive "state"
+            New-Item -ItemType Directory -Path (Join-Path $state "claude-as") -Force | Out-Null
+            [System.IO.File]::WriteAllText((Join-Path $state "claude-as/sessions"),
+                "$id`t$(Join-Path $HOME '.claude')`t1`n$id`t$other`t2`n$old`t$(Join-Path $HOME '.claude')`t3`n")
+            $saved = @{ PATH = $env:PATH; XDG = $env:XDG_STATE_HOME; SHARED = $env:CLAUDE_AS_SHARED; DIR = $env:CLAUDE_CONFIG_DIR }
+            try {
+                $env:PATH = $dir + [System.IO.Path]::PathSeparator + $env:PATH
+                $env:XDG_STATE_HOME = $state
+                $env:CLAUDE_AS_SHARED = $shared
+                Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue
+                . ([scriptblock]::Create((Get-ClaudeShortcutBlock)))
+
+                "$(claude --resume $id 2>$null)" | Should -BeLike "*dir=$other --allow-dangerously-skip-permissions --resume $id*"
+                "$(claude -a "--resume=$id" 2>$null)" | Should -BeLike "*dir=$other --dangerously-skip-permissions --resume=$id*"
+                $env:CLAUDE_CONFIG_DIR | Should -BeNullOrEmpty
+                "$(claude --resume $old 2>$null)" | Should -Not -BeLike "*$other*"
+                "$(claude --resume 2>$null)" | Should -Not -BeLike "*$other*"
+                Push-Location $work
+                try { "$(claude -c 2>$null)" | Should -BeLike "*dir=$other --allow-dangerously-skip-permissions -c*" }
+                finally { Pop-Location }
+                $env:CLAUDE_CONFIG_DIR = Join-Path $TestDrive "mine"
+                "$(claude --resume $id 2>$null)" | Should -BeLike "*dir=$(Join-Path $TestDrive 'mine') *"
+                Remove-Item Env:CLAUDE_CONFIG_DIR
+                Remove-Item -LiteralPath $other -Recurse
+                "$(claude --resume $id 2>$null)" | Should -Not -BeLike "*$other*"
+            }
+            finally {
+                $env:PATH = $saved.PATH
+                $env:XDG_STATE_HOME = $saved.XDG
+                $env:CLAUDE_AS_SHARED = $saved.SHARED
+                if ($saved.DIR) { $env:CLAUDE_CONFIG_DIR = $saved.DIR } else { Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue }
+            }
+        }
+
         # A profile runs at global scope in a fresh session, where Windows
         # PowerShell 5.1 keeps clp as an AllScope alias; dot-sourcing the block
         # inside an It block would test a child scope instead.

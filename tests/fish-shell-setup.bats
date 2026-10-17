@@ -122,6 +122,39 @@ fish_config_dir() {
 
 # --- Generated fish actually parses -----------------------------------------
 
+# bats test_tags=unit,fish
+@test "generated fish claude function resumes a session as its last account" {
+    require_cmd fish
+    run bash -c "
+        REPO_DIR='$REPO_DIR'
+        CLAUDE_CONFIG_SHELL="$FISH_SHELL"
+        source '$SETTINGS_SH'
+        configure_proxy_path
+    "
+    [ "$status" -eq 0 ]
+    local log="${BATS_TEST_TMPDIR}/calls.log"
+    stub_bin claude 'printf "claude:dir=%s:%s\n" "${CLAUDE_CONFIG_DIR-unset}" "$*" >>"$CALL_LOG"'
+    stub_bin claude-as 'echo "asked $*" >>"$CALL_LOG"; [ "$1" = --where ] && [ "$3" = known ] && echo /h/.claude-b; exit 0'
+
+    # The stubs first: the repo's own bin/ may be on PATH ahead of them.
+    CALL_LOG="$log" run fish -c "
+        set -gx PATH '${STUB_DIR}' \$PATH
+        source '$(fish_config_dir)/functions/claude.fish'
+        claude --resume known
+        echo \"after=[\$CLAUDE_CONFIG_DIR]\" >>\$CALL_LOG
+        claude -a --resume other
+        set -lx CLAUDE_CONFIG_DIR /mine
+        claude --resume known
+    "
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"claude: as the session last ran, in /h/.claude-b"* ]]
+    grep -Fxq 'claude:dir=/h/.claude-b:--allow-dangerously-skip-permissions --resume known' "$log"
+    grep -Fxq 'after=[]' "$log"
+    grep -Fxq 'claude:dir=unset:--dangerously-skip-permissions --resume other' "$log"
+    grep -Fxq 'claude:dir=/mine:--allow-dangerously-skip-permissions --resume known' "$log"
+    [ "$(grep -c '^asked' "$log")" -eq 2 ]
+}
+
 # bats test_tags=integration,fish
 @test "generated fish functions parse under fish -n" {
     require_cmd fish

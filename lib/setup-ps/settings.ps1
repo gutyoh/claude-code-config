@@ -62,8 +62,8 @@ function Update-IdeHook {
 function Update-SessionNameHook {
     <#
     .SYNOPSIS
-    Add the session naming hooks to settings.json (merge mode); an entry already
-    naming hooks/session-name.sh is left as it is.
+    Add the session naming and account hooks to settings.json (merge mode); an
+    entry already naming hooks/session-name.sh or session-account.sh is left as it is.
     #>
     try {
         $settings = Read-Utf8Text $script:SettingsJson | ConvertFrom-Json
@@ -73,14 +73,15 @@ function Update-SessionNameHook {
 
         $added = 0
         foreach ($wanted in @(
-                @{ Event = "SessionStart"; Matcher = "startup" },
-                @{ Event = "UserPromptSubmit"; Matcher = "" }
+                @{ Event = "SessionStart"; Matcher = "startup"; Script = "session-name.sh" },
+                @{ Event = "UserPromptSubmit"; Matcher = ""; Script = "session-name.sh" },
+                @{ Event = "SessionStart"; Matcher = ""; Script = "session-account.sh" }
             )) {
             $entries = @($settings.hooks.($wanted.Event) | Where-Object { $_ })
             $present = $false
             foreach ($entry in $entries) {
                 foreach ($hook in @($entry.hooks)) {
-                    if ($hook.command -like "*session-name.sh*") { $present = $true }
+                    if ($hook.command -like "*$($wanted.Script)*") { $present = $true }
                 }
             }
             if ($present) { continue }
@@ -90,7 +91,7 @@ function Update-SessionNameHook {
                 hooks   = @(
                     [PSCustomObject]@{
                         type    = "command"
-                        command = "$(Get-ClaudeConfigDirRef)/hooks/session-name.sh"
+                        command = "$(Get-ClaudeConfigDirRef)/hooks/$($wanted.Script)"
                         timeout = 5
                     }
                 )
@@ -103,14 +104,14 @@ function Update-SessionNameHook {
 
         if ($added -gt 0) {
             Write-JsonFile -Path $script:SettingsJson -InputObject $settings
-            Write-Status "  + Session naming hooks added" -Color Green
+            Write-Status "  + Session hooks added" -Color Green
         }
         else {
-            Write-Status "  + Session naming hooks already configured" -Color Green
+            Write-Status "  + Session hooks already configured" -Color Green
         }
     }
     catch {
-        Write-Status "  ! Failed to add session naming hooks: $_" -Color Yellow
+        Write-Status "  ! Failed to add session hooks: $_" -Color Yellow
     }
 }
 
@@ -412,6 +413,7 @@ function Get-ClaudeShortcutBlock {
     return @'
 # claude-code-config: claude launch shortcuts
 # claude: bypass offered; claude -a (or --unsafe, --bypass, -adskp): bypass now.
+# A resumed session runs as the account it last ran as.
 function claude {
     $mode = "--allow-dangerously-skip-permissions"
     $rest = @($args)
@@ -424,7 +426,55 @@ function claude {
         Write-Error "claude not found on PATH. Install: irm https://claude.ai/install.ps1 | iex"
         return
     }
-    & $exe.Source $mode @rest
+    $configDir = Get-ClaudeSessionHome $rest
+    if (-not $configDir) {
+        & $exe.Source $mode @rest
+        return
+    }
+    [Console]::Error.WriteLine("claude: as the session last ran, in $configDir")
+    $env:CLAUDE_CONFIG_DIR = $configDir
+    try { & $exe.Source $mode @rest }
+    finally { Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue }
+}
+
+# The home a resumed session last ran in, from the record
+# hooks/session-account.sh keeps, as claude-as --where finds it: for
+# --resume <id>, or --continue's newest session in this folder. Nothing when
+# CLAUDE_CONFIG_DIR is set, or the session last ran in ~/.claude.
+function Get-ClaudeSessionHome([object[]]$Arguments) {
+    if ($env:CLAUDE_CONFIG_DIR) { return $null }
+    $id = $null
+    $continued = $false
+    for ($i = 0; $i -lt $Arguments.Count; $i++) {
+        $arg = [string]$Arguments[$i]
+        if (($arg -ceq "-r" -or $arg -ceq "--resume") -and $i + 1 -lt $Arguments.Count -and
+            -not ([string]$Arguments[$i + 1]).StartsWith("-")) {
+            $id = [string]$Arguments[$i + 1]
+            break
+        }
+        if ($arg.StartsWith("--resume=")) { $id = $arg.Substring(9); break }
+        if ($arg -ceq "-c" -or $arg -ceq "--continue") { $continued = $true }
+    }
+    $shared = $env:CLAUDE_AS_SHARED
+    if (-not $shared) { $shared = Join-Path $HOME ".claude" }
+    if (-not $id -and $continued) {
+        $key = (Get-Location).ProviderPath -replace '[^A-Za-z0-9]', '-'
+        $newest = Get-ChildItem -LiteralPath (Join-Path $shared "projects/$key") -Filter *.jsonl -File -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+        if ($newest) { $id = $newest.BaseName }
+    }
+    $state = $env:XDG_STATE_HOME
+    if (-not $state) { $state = Join-Path $HOME ".local/state" }
+    $ledger = Join-Path $state "claude-as/sessions"
+    if (-not $id -or -not (Test-Path -LiteralPath $ledger)) { return $null }
+    $last = $null
+    foreach ($line in [System.IO.File]::ReadAllLines($ledger)) {
+        $fields = $line -split "`t"
+        if ($fields[0] -ceq $id) { $last = $fields[1] }
+    }
+    if (-not $last -or $last -eq (Join-Path $HOME ".claude")) { return $null }
+    if (-not (Test-Path -LiteralPath $last -PathType Container)) { return $null }
+    return $last
 }
 
 # clp: the same through claude-proxy; CLAUDE_PROXY_MODEL picks the model.
