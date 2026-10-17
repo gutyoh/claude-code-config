@@ -65,7 +65,7 @@ PYTHON_SCRIPT
 }
 
 configure_ide_hook() {
-    if python3 - "${SETTINGS_JSON}" <<'PYTHON_CHECK' 2>/dev/null
+    if python3 - "${SETTINGS_JSON}" <<'PYTHON_CHECK' 2>/dev/null; then
 import json
 import sys
 try:
@@ -79,7 +79,6 @@ try:
 except Exception:
     sys.exit(1)
 PYTHON_CHECK
-    then
         echo "  ✓ IDE diagnostics hook already configured"
     else
         echo "  Adding IDE diagnostics hook to existing settings..."
@@ -279,7 +278,7 @@ PYTHON_SCRIPT
 }
 
 configure_file_suggestion() {
-    if python3 - "${SETTINGS_JSON}" <<'PYTHON_CHECK' 2>/dev/null
+    if python3 - "${SETTINGS_JSON}" <<'PYTHON_CHECK' 2>/dev/null; then
 import json
 import sys
 try:
@@ -291,7 +290,6 @@ try:
 except Exception:
     sys.exit(1)
 PYTHON_CHECK
-    then
         echo "  ✓ File suggestion already configured"
     else
         echo "  Adding file suggestion to settings..."
@@ -326,7 +324,7 @@ PYTHON_SCRIPT
 
 configure_agent_teams() {
     if [[ "${INSTALL_AGENT_TEAMS}" == "true" ]]; then
-        if python3 - "${SETTINGS_JSON}" <<'PYTHON_CHECK' 2>/dev/null
+        if python3 - "${SETTINGS_JSON}" <<'PYTHON_CHECK' 2>/dev/null; then
 import json
 import sys
 try:
@@ -338,7 +336,6 @@ try:
 except Exception:
     sys.exit(1)
 PYTHON_CHECK
-        then
             echo "  ✓ Agent teams already enabled"
         else
             echo "  Adding agent teams env to settings..."
