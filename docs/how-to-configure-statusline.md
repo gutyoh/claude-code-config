@@ -192,7 +192,13 @@ the same:
 ```ini
 # ~/.claude/statusline.d/machine.conf
 style.host=bold fg:#A3CFEA
+host_icon=
 ```
+
+`host_icon` goes before the name, with one space, in the same style. The
+example is U+F179 (`nf-fa-apple`) and needs a Nerd Font; U+F315
+(`nf-linux-raspberry_pi`) and U+F313 (`nf-linux-nixos`) are others. Leave it
+out for the name alone.
 
 ## Verify the statusline
 

@@ -118,7 +118,7 @@ Dot-sourced by `setup.ps1`. PowerShell port of `lib/setup/` with arrow-key TUI, 
 | `bar.sh` | `render_progress_bar`, `_overlay_pct_inside` | Progress bar rendering (6 styles) |
 | `color.sh` | `get_color_for_pct`, `get_utilization_color`, `get_cc_status_color` | Color helpers |
 | `status.sh` | `collect_service_status` | Claude Code service health (status.claude.com) |
-| `components.sh` | 15 `render_component_*` functions | Individual component renderers |
+| `components.sh` | 16 `render_component_*` functions | Individual component renderers |
 | `assembly.sh` | `render_all_components` | Component joining with merge groups |
 
 ### .claude/skills/
@@ -132,6 +132,7 @@ Dot-sourced by `setup.ps1`. PowerShell port of `lib/setup/` with arrow-key TUI, 
 | `design-doc-standards` | 7 | Design doc + DRI working doc + ADR standards |
 | `diataxis-standards` | 9 | Diataxis documentation framework |
 | `dotnet-standards` | 10 | .NET/C# engineering standards |
+| `full-search` | 2 | Full-page reading and search across Firecrawl, Tavily, Brave and Bright Data |
 | `internet-research` | 1 | Multi-source internet research |
 | `kedro-standards` | 7 | Kedro pipeline standards |
 | `langfuse` | 5 | Langfuse observability standards |

@@ -138,6 +138,7 @@ files another tool owns, the second for that profile alone. `claude-as` shares
 | `compact` | `true`, `false` | `true` | No labels, merged tokens |
 | `color_scope` | `percentage`, `full` | `percentage` | Color usage only or entire line |
 | `icon` | Unicode string or empty | `""` | Prefix icon |
+| `host_icon` | Unicode string or empty | `""` | Printed before the `host` component, with one space, in the host's style: for example U+F179 (`nf-fa-apple`), U+F315 (`nf-linux-raspberry_pi`) or U+F313 (`nf-linux-nixos`), which need a Nerd Font. Set it per machine in `statusline.d/` |
 | `icon_claude`, `icon_openai`, `icon_muse` | Unicode string or empty | `""` (use `icon`) | Prefix icon while the session's model is on that plan, for example `A\` for Claude, U+EC81 (`nf-cod-openai`) for OpenAI and U+F06E4 (`nf-md-infinity`) for Muse. Those two need a Nerd Font in the terminal; `֍` and `∞` do not |
 | `icon_style` | `plain`, `bold`, `bracketed`, `rounded`, `reverse`, `bold-color`, `angle`, `double-bracket` | `plain` | Icon styling |
 | `weekly_show_reset` | `true`, `false` | `false` | Show weekly reset countdown |
@@ -158,12 +159,17 @@ Both use `${VAR}` syntax for runtime environment variable expansion.
 
 ## Environment variables
 
-### Required
+### Search keys
 
-| Variable | Purpose | Where to get it |
+All optional: without them the search servers stay off, `/web-search` uses the built-in search, and
+`/full-search` uses keyless tiers. Each also takes a comma-separated `*_POOL` that rotates.
+
+| Variable | Used by | Where to get it |
 |----------|---------|----------------|
-| `BRAVE_API_KEY` | Brave Search MCP server | https://api-dashboard.search.brave.com/ |
-| `TAVILY_API_KEY` | Tavily MCP server | https://tavily.com |
+| `BRAVE_API_KEY` | Brave Search MCP server, `/full-search` | https://api-dashboard.search.brave.com/ |
+| `TAVILY_API_KEY` | Tavily MCP server, `/full-search` | https://tavily.com |
+| `FIRECRAWL_API_KEY` | `/full-search` | https://firecrawl.dev |
+| `BRIGHTDATA_API_TOKEN` | `/full-search` | https://brightdata.com |
 
 ### Optional
 
@@ -183,6 +189,9 @@ Both use `${VAR}` syntax for runtime environment variable expansion.
 | `MCP_KEY_ROTATE_CACHE_TTL` | `300` | Cache TTL in seconds for quota checks |
 | `CODEX_TOKEN_MAX_AGE_HOURS` | `48` | Max age for Codex auth token before warning |
 | `HOOK_STALE_THRESHOLD` | `300` | Seconds before hook cache data is marked stale |
+| `FULL_SEARCH_FNOX` | `1` | `0` stops `/full-search` from asking fnox for keys |
+| `FULL_SEARCH_STATE` | `${XDG_STATE_HOME:-~/.local/state}/full-search` | Where `/full-search` keeps its key cooldowns |
+| `FULL_SEARCH_TIMEOUT` | `60` | Seconds one `/full-search` provider call may take |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude Code's config dir; setup, the statusline, the hooks and the MCP key tools follow it |
 | `CLAUDE_SESSION_NAME_TZ` | `UTC` | IANA time zone for [session names](#session-names) |
 | `CLAUDE_SESSION_NAME` | — | `off` disables [session names](#session-names) |

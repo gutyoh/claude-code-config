@@ -443,6 +443,29 @@ read_url() { run bash "$SCRIPT" "$@"; }
 }
 
 # bats test_tags=unit
+@test "with no key set, the search keys are read from mcp-keys.env, never sourced" {
+    mkdir -p "$HOME/.claude"
+    printf '%s\r\n' '# comment' 'export TAVILY_API_KEY="from-file"' 'OTHER_SECRET=nope' 'touch $HOME/sourced' >"$HOME/.claude/mcp-keys.env"
+    stub_bin fnox 'echo "$*" >>"$BATS_TEST_TMPDIR/fnox.log"; exit 0'
+    export FULL_SEARCH_FNOX=1 FAKE_TAVILY="200|$(tv_ok "$long")"
+    read_url --via tavily https://example.com/a
+    [[ "$output" == "ok    tavily"* ]]
+    grep -q 'Bearer from-file"' "$LOG"
+    [ ! -e "$HOME/sourced" ]
+    [ ! -f "$BATS_TEST_TMPDIR/fnox.log" ]
+}
+
+# bats test_tags=unit
+@test "a key in the environment wins over mcp-keys.env" {
+    mkdir -p "$HOME/.claude"
+    printf 'TAVILY_API_KEY=from-file\n' >"$HOME/.claude/mcp-keys.env"
+    export TAVILY_API_KEY=from-env FAKE_TAVILY="200|$(tv_ok "$long")"
+    read_url --via tavily https://example.com/a
+    grep -q 'Bearer from-env"' "$LOG"
+    ! grep -q 'from-file' "$LOG"
+}
+
+# bats test_tags=unit
 @test "with no key set, only the search keys are taken from fnox" {
     stub_bin fnox 'echo "$*" >>"$BATS_TEST_TMPDIR/fnox.log"; case "$1" in list) exit 0 ;; get) [ "$2" = TAVILY_API_KEY ] && echo from-fnox || exit 1 ;; *) exit 9 ;; esac'
     export FULL_SEARCH_FNOX=1 FAKE_TAVILY="200|$(tv_ok "$long")"

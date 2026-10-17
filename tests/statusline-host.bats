@@ -51,6 +51,32 @@ render() { # HOSTNAME value, then extra env assignments
 }
 
 # bats test_tags=unit
+@test "a host icon from statusline.d goes before the name, with one space" {
+    printf 'host_icon=\xef\x85\xb9\n' >"$HOME/.claude/statusline.d/machine.conf"
+    render laptop.local
+    [ "$output" = "user@example.com | $(printf '\xef\x85\xb9') laptop" ]
+    printf 'host_icon=\xf3\xb0\xb0\x96\n' >"$HOME/.claude/statusline.d/machine.conf"
+    render devbox
+    [ "$output" = "user@example.com | $(printf '\xf3\xb0\xb0\x96') devbox" ]
+}
+
+# bats test_tags=unit
+@test "without a host icon the name stands alone, and an empty one adds no space" {
+    render devbox
+    [ "$output" = "user@example.com | devbox" ]
+    printf 'host_icon=\n' >"$HOME/.claude/statusline.d/machine.conf"
+    render devbox
+    [ "$output" = "user@example.com | devbox" ]
+}
+
+# bats test_tags=unit
+@test "the host style colors the icon and the name together" {
+    printf 'theme=dark\nhost_icon=*\nstyle.host=bold fg:#C74634\n' >"$HOME/.claude/statusline.d/machine.conf"
+    render devbox
+    [[ "$output" == *"${ESC}[1;38;2;199;70;52m* devbox${ESC}[0m"* ]]
+}
+
+# bats test_tags=unit
 @test "without HOSTNAME the kernel's node name is used" {
     stub_bin uname 'if [ "$1" = -n ]; then echo node-7.lan; else echo Linux; fi'
     render ""

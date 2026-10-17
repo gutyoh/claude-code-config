@@ -71,6 +71,27 @@ guard() {
 }
 
 # bats test_tags=unit
+@test "a body file followed by an operator is still read and checked" {
+    printf 'body with SECRETNAME\n' >"$BATS_TEST_TMPDIR/body.md"
+    for op in '; echo done' '&& echo done' '|| echo failed' '| cat'; do
+        guard "gh pr edit 7 --body-file $BATS_TEST_TMPDIR/body.md$op"
+        [ "$status" -eq 2 ]
+        [[ "$output" == *"leak guard flags"* ]]
+    done
+    printf 'clean body\n' >"$BATS_TEST_TMPDIR/body.md"
+    guard "gh pr edit 7 --body-file $BATS_TEST_TMPDIR/body.md; echo done"
+    [ "$status" -eq 0 ]
+}
+
+# bats test_tags=unit
+@test "a gh api field file followed by an operator is still read and checked" {
+    printf 'SECRETNAME\n' >"$BATS_TEST_TMPDIR/field.txt"
+    guard "gh api repos/acme/widgets/issues -F body=@$BATS_TEST_TMPDIR/field.txt; echo done"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"leak guard flags"* ]]
+}
+
+# bats test_tags=unit
 @test "a body file named through a variable is refused, since it cannot be read" {
     guard 'F=/tmp/x.md; gh pr create --body-file "$F"'
     [ "$status" -eq 2 ]

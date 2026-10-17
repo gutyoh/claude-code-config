@@ -136,7 +136,7 @@ render_component_email() {
 render_component_host() {
     local name="${HOSTNAME:-}"
     [[ -n "${name}" ]] || name=$(uname -n 2>/dev/null)
-    printf "%s" "${name%%.*}"
+    printf "%s%s" "${CONF_HOST_ICON:+${CONF_HOST_ICON} }" "${name%%.*}"
 }
 
 render_component_cc_status() {

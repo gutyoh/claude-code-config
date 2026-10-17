@@ -41,11 +41,22 @@ Keys raise those caps. Set any of these in the environment:
 
 A pool is a comma-separated list. The single variable is tried first, then the pool.
 
+### From mcp-keys.env
+
+When none of the variables is set, the script reads those eight names, and only those, from
+`~/.claude/mcp-keys.env` (or `$MCP_KEYS_ENV_FILE`), the file the [quick start](../README.md#quick-start)
+puts the Brave and Tavily keys in. The file is parsed, never run.
+
 ### From fnox (optional)
 
-When none of the variables is set and [fnox](https://fnox.jdx.dev) can resolve secrets in the current
-directory, the script asks fnox for those eight names, and only those, with a 10-second limit and no
-prompt. Nothing changes when fnox is not installed.
+When neither the environment nor that file holds a key and [fnox](https://fnox.jdx.dev) can resolve
+secrets in the current directory, the script asks fnox for the same eight names, with a 10-second limit
+and no prompt. Nothing changes when fnox is not installed. To resolve them from every directory, import
+the store from fnox's global config, `~/.config/fnox/config.toml`:
+
+```toml
+import = ["/path/to/your/fnox.toml"]
+```
 
 ## Rotation
 
