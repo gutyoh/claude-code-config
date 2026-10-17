@@ -2,11 +2,15 @@
 # Path: .claude/scripts/lib/statusline/config.sh
 # Sourced by statusline.sh — do not execute directly.
 
-# statusline.conf, then statusline.local.conf beside it. Profiles may share the
-# first (claude-as links it into every home); the second is the profile's own,
-# so a key there, such as style.email, differs per account.
+# statusline.conf, then statusline.d/*.conf in name order, then
+# statusline.local.conf. Profiles may share the first two (claude-as links them
+# into every home); the last is the profile's own, so style.email can differ.
 load_config() {
     _load_conf_file "${CONF_FILE}" legacy
+    local dropin
+    for dropin in "${CONF_DROPIN_DIR}"/*.conf; do
+        _load_conf_file "${dropin}"
+    done
     _load_conf_file "${CONF_LOCAL_FILE}"
 }
 

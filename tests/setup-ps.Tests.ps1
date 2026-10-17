@@ -51,13 +51,13 @@ BeforeAll {
     $script:SettingsMode = "merge"
     $script:AllComponentKeys = @(
         "model", "usage", "weekly", "reset", "tokens_in", "tokens_out", "tokens_cache",
-        "cost", "burn_rate", "email", "cc_status", "version", "lines", "session_time", "cwd"
+        "cost", "burn_rate", "email", "host", "cc_status", "version", "lines", "session_time", "cwd"
     )
     $script:AllComponentDescs = @(
         "Model name (opus-4.5)", "Session utilization (5h)", "Weekly utilization (7d)",
         "Reset countdown timer", "Input tokens count", "Output tokens count",
         "Cache read tokens", "Session cost in USD", "Burn rate (USD/hr)",
-        "Account email address", "Claude Code service status", "Claude Code version",
+        "Account email address", "Machine name (devbox)", "Claude Code service status", "Claude Code version",
         "Lines added/removed", "Session elapsed time", "Working directory"
     )
 }

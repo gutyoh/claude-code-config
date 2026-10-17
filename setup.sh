@@ -100,7 +100,7 @@ USER_CUSTOMIZED_STATUSLINE="false" # Set to true when user goes through TUI stat
 
 readonly ALL_COMPONENT_KEYS=(
     "model" "usage" "weekly" "reset" "tokens_in" "tokens_out" "tokens_cache"
-    "cost" "burn_rate" "email" "cc_status" "version" "lines" "session_time" "cwd"
+    "cost" "burn_rate" "email" "host" "cc_status" "version" "lines" "session_time" "cwd"
 )
 
 readonly ALL_COMPONENT_DESCS=(
@@ -114,6 +114,7 @@ readonly ALL_COMPONENT_DESCS=(
     "Session cost in USD"
     "Burn rate (USD/hr)"
     "Account email address"
+    "Machine name (devbox)"
     "Claude Code service status"
     "Claude Code version"
     "Lines added/removed"

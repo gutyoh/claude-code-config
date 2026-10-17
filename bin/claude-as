@@ -38,7 +38,7 @@ set -euo pipefail
 # What every account shares. Anything else stays per account: the login,
 # .claude.json, prompt history (Claude Code refuses a linked history.jsonl),
 # the organization's managed settings, caches, and files a release adds.
-SHARE="CLAUDE.md settings.json keybindings.json statusline.conf agents commands
+SHARE="CLAUDE.md settings.json keybindings.json statusline.conf statusline.d agents commands
 hooks output-styles plans plugins projects rules scripts skills file-history
 tasks teams"
 
