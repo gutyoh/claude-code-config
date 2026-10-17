@@ -139,6 +139,7 @@ fish_config_dir() {
     # The stubs first: the repo's own bin/ may be on PATH ahead of them.
     CALL_LOG="$log" run fish -c "
         set -gx PATH '${STUB_DIR}' \$PATH
+        source '$(fish_config_dir)/functions/__claude_as_home.fish'
         source '$(fish_config_dir)/functions/claude.fish'
         claude --resume known
         echo \"after=[\$CLAUDE_CONFIG_DIR]\" >>\$CALL_LOG
@@ -153,6 +154,81 @@ fish_config_dir() {
     grep -Fxq 'claude:dir=unset:--dangerously-skip-permissions --resume other' "$log"
     grep -Fxq 'claude:dir=/mine:--allow-dangerously-skip-permissions --resume known' "$log"
     [ "$(grep -c '^asked' "$log")" -eq 2 ]
+}
+
+# bats test_tags=integration,fish
+@test "a failing claude-as --where says so and runs as the default account" {
+    require_cmd fish
+    run bash -c "
+        REPO_DIR='$REPO_DIR'
+        CLAUDE_CONFIG_SHELL="$FISH_SHELL"
+        source '$SETTINGS_SH'
+        configure_proxy_path
+    "
+    [ "$status" -eq 0 ]
+    local log="${BATS_TEST_TMPDIR}/calls.log"
+    stub_bin claude 'printf "claude:dir=%s:%s\n" "${CLAUDE_CONFIG_DIR-unset}" "$*" >>"$CALL_LOG"'
+    stub_bin claude-as 'exit 3'
+    CALL_LOG="$log" run fish -c "
+        set -gx PATH '${STUB_DIR}' \$PATH
+        source '$(fish_config_dir)/functions/__claude_as_home.fish'
+        source '$(fish_config_dir)/functions/claude.fish'
+        claude --resume known
+    "
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"claude: claude-as --where failed; running as the default account"* ]]
+    grep -Fxq 'claude:dir=unset:--allow-dangerously-skip-permissions --resume known' "$log"
+}
+
+# bats test_tags=integration,fish
+@test "a hand-written claude.fish is told how to route, and routes through the helper" {
+    require_cmd fish
+    local fdir="${XDG_CONFIG_HOME}/fish/functions"
+    mkdir -p "$fdir"
+    cat >"$fdir/claude.fish" <<'FISH'
+function claude --description 'hand written'
+    command claude $argv
+end
+FISH
+    run bash -c "
+        REPO_DIR='$REPO_DIR'
+        CLAUDE_CONFIG_SHELL='$FISH_SHELL'
+        source '$SETTINGS_SH'
+        configure_proxy_path
+    "
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"does not route a resume to its account"* ]]
+    [[ "$output" == *'set -l home (__claude_as_home $argv)'* ]]
+    [ -f "$fdir/__claude_as_home.fish" ]
+
+    # The lines the warning names, added by hand, route the resume.
+    cat >"$fdir/claude.fish" <<'FISH'
+function claude --description 'hand written'
+    set -l home (__claude_as_home $argv)
+    test -n "$home"; and set -lx CLAUDE_CONFIG_DIR $home
+    command claude $argv
+end
+FISH
+    local log="${BATS_TEST_TMPDIR}/calls.log"
+    stub_bin claude 'printf "claude:dir=%s:%s\n" "${CLAUDE_CONFIG_DIR-unset}" "$*" >>"$CALL_LOG"'
+    stub_bin claude-as '[ "$1" = --where ] && [ "$3" = known ] && echo /h/.claude-b; exit 0'
+    CALL_LOG="$log" run fish -c "
+        set -gx PATH '${STUB_DIR}' \$PATH
+        source '$fdir/__claude_as_home.fish'
+        source '$fdir/claude.fish'
+        claude --resume known
+    "
+    [ "$status" -eq 0 ]
+    grep -Fxq 'claude:dir=/h/.claude-b:--resume known' "$log"
+
+    run bash -c "
+        REPO_DIR='$REPO_DIR'
+        CLAUDE_CONFIG_SHELL='$FISH_SHELL'
+        source '$SETTINGS_SH'
+        configure_proxy_path
+    "
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"does not route a resume to its account"* ]]
 }
 
 # bats test_tags=integration,fish
@@ -240,7 +316,7 @@ fish_config_dir() {
     [ "$status" -eq 0 ]
 
     local f
-    for f in claude clp; do
+    for f in claude clp __claude_as_home; do
         local doc gen
         doc="$(grep -vE '^[[:space:]]*#' "${REPO_DIR}/docs/fish/config-power-user/functions/${f}.fish" | grep -v '^[[:space:]]*$')"
         gen="$(grep -vE '^[[:space:]]*#' "${XDG_CONFIG_HOME}/fish/functions/${f}.fish" | grep -v '^[[:space:]]*$')"

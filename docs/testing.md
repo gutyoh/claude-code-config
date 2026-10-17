@@ -93,7 +93,7 @@ The resolved shell is printed during install. Override it when detection is wron
 
 | Login shell | Destination |
 |---|---|
-| fish | `$XDG_CONFIG_HOME/fish/functions/{claude,clp}.fish` + `conf.d/` for PATH |
+| fish | `$XDG_CONFIG_HOME/fish/functions/{claude,clp,__claude_as_home}.fish` + `conf.d/` for PATH |
 | zsh | `~/.zshrc` |
 | bash | `~/.bashrc`, plus a bridge in `~/.bash_profile` |
 | anything else | `~/.profile` |

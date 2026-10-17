@@ -65,7 +65,7 @@ PYTHON_SCRIPT
 }
 
 configure_ide_hook() {
-    if python3 - "${SETTINGS_JSON}" <<'PYTHON_CHECK' 2>/dev/null; then
+    if python3 - "${SETTINGS_JSON}" <<'PYTHON_CHECK' 2>/dev/null
 import json
 import sys
 try:
@@ -79,6 +79,7 @@ try:
 except Exception:
     sys.exit(1)
 PYTHON_CHECK
+    then
         echo "  ✓ IDE diagnostics hook already configured"
     else
         echo "  Adding IDE diagnostics hook to existing settings..."
@@ -278,7 +279,7 @@ PYTHON_SCRIPT
 }
 
 configure_file_suggestion() {
-    if python3 - "${SETTINGS_JSON}" <<'PYTHON_CHECK' 2>/dev/null; then
+    if python3 - "${SETTINGS_JSON}" <<'PYTHON_CHECK' 2>/dev/null
 import json
 import sys
 try:
@@ -290,6 +291,7 @@ try:
 except Exception:
     sys.exit(1)
 PYTHON_CHECK
+    then
         echo "  ✓ File suggestion already configured"
     else
         echo "  Adding file suggestion to settings..."
@@ -324,7 +326,7 @@ PYTHON_SCRIPT
 
 configure_agent_teams() {
     if [[ "${INSTALL_AGENT_TEAMS}" == "true" ]]; then
-        if python3 - "${SETTINGS_JSON}" <<'PYTHON_CHECK' 2>/dev/null; then
+        if python3 - "${SETTINGS_JSON}" <<'PYTHON_CHECK' 2>/dev/null
 import json
 import sys
 try:
@@ -336,6 +338,7 @@ try:
 except Exception:
     sys.exit(1)
 PYTHON_CHECK
+        then
             echo "  ✓ Agent teams already enabled"
         else
             echo "  Adding agent teams env to settings..."
@@ -628,7 +631,10 @@ configure_claude_shortcuts() {
 # out of the caller's shell.
 claude() (
   if [ -z "${CLAUDE_CONFIG_DIR:-}" ] && command -v claude-as >/dev/null 2>&1; then
-    CLAUDE_CONFIG_DIR=$(claude-as --where "$@" 2>/dev/null) || CLAUDE_CONFIG_DIR=
+    CLAUDE_CONFIG_DIR=$(claude-as --where "$@" 2>/dev/null) || {
+      printf 'claude: claude-as --where failed; running as the default account\n' >&2
+      CLAUDE_CONFIG_DIR=
+    }
     if [ -n "${CLAUDE_CONFIG_DIR}" ]; then
       printf 'claude: as the session last ran, in %s\n' "${CLAUDE_CONFIG_DIR}" >&2
       export CLAUDE_CONFIG_DIR
@@ -762,21 +768,40 @@ configure_fish_shell() {
 fish_add_path -ga '${fish_bin_dir}'
 EOF
 
+    # The routing lives in its own function, so a hand-written claude.fish,
+    # which setup leaves alone, can call it too.
+    _write_managed_fish "${functions_dir}/__claude_as_home.fish" "resume routing function" <<'EOF'
+function __claude_as_home --description 'The home a resumed session last ran in'
+    # Managed by claude-code-config setup.sh.
+    # Prints the home `claude-as --where` names for these claude arguments, or
+    # nothing: a session not resumed, one that last ran in ~/.claude, or a
+    # CLAUDE_CONFIG_DIR already set. A claude function routes with:
+    #   set -l home (__claude_as_home $argv)
+    #   test -n "$home"; and set -lx CLAUDE_CONFIG_DIR $home
+    set -q CLAUDE_CONFIG_DIR; and return 0
+    command -q claude-as; or return 0
+    set -l home (command claude-as --where $argv 2>/dev/null)
+    or begin
+        printf 'claude: claude-as --where failed; running as the default account\n' >&2
+        return 0
+    end
+    test -n "$home"; or return 0
+    printf 'claude: as the session last ran, in %s\n' $home >&2
+    printf '%s\n' $home
+end
+EOF
+
     _write_managed_fish "${functions_dir}/claude.fish" "claude function" <<'EOF'
 function claude --description 'Claude Code with proxy launcher defaults'
     # Managed by claude-code-config setup.sh.
     # Defaults to --allow-dangerously-skip-permissions; opt in to
     # --dangerously-skip-permissions via -a / --unsafe / --bypass / -adskp.
-    # A resumed session runs as the account it last ran as (claude-as
-    # --where), also when herdr resumes it after a restart.
+    # A resumed session runs as the account it last ran as (__claude_as_home),
+    # also when herdr resumes it after a restart.
 
-    set -l home
-    if not set -q CLAUDE_CONFIG_DIR; and command -q claude-as
-        set home (command claude-as --where $argv 2>/dev/null)
-    end
+    set -l home (__claude_as_home $argv)
     # Outside any block: a variable set in one ends with it.
     test -n "$home"; and set -lx CLAUDE_CONFIG_DIR $home
-    and printf 'claude: as the session last ran, in %s\n' $home >&2
 
     set -l first ""
     test (count $argv) -gt 0; and set first $argv[1]
@@ -812,6 +837,17 @@ function clp --description 'Claude proxy with model'
     end
 end
 EOF
+
+    local claude_fn="${functions_dir}/claude.fish"
+    if [[ -f ${claude_fn} ]] && ! grep -qF "${MANAGED_MARKER}" "${claude_fn}" \
+        && ! grep -qF '__claude_as_home' "${claude_fn}"; then
+        echo "  ⚠ ${claude_fn} does not route a resume to its account:"
+        echo "    \`claude --resume <id>\`, and herdr restoring a pane, run as ~/.claude"
+        echo "    whatever account the session last ran as. Add at the top of the"
+        echo "    function, outside any if or switch:"
+        echo "      set -l home (__claude_as_home \$argv)"
+        echo "      test -n \"\$home\"; and set -lx CLAUDE_CONFIG_DIR \$home"
+    fi
 
     echo ""
     echo "  Open a new terminal (or 'exec fish'), then:"

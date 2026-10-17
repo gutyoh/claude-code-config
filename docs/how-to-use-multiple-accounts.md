@@ -81,7 +81,20 @@ place of the id. herdr resumes its panes after a restart with
 from before the record are found from each account's prompt history. The
 `claude` functions for bash, zsh, POSIX shells, fish and PowerShell all do this.
 `--continue` takes the folder's newest session, as Claude Code does. Set
-`CLAUDE_CONFIG_DIR` to choose the home yourself.
+`CLAUDE_CONFIG_DIR` to choose the home yourself. When `claude-as --where`
+fails, the function says so and runs as `~/.claude`.
+
+A `claude.fish` you wrote yourself is left alone by `setup.sh`, which then
+prints the two lines that route a resume. Add them at the top of the
+function, outside any `if` or `switch`:
+
+```fish
+set -l home (__claude_as_home $argv)
+test -n "$home"; and set -lx CLAUDE_CONFIG_DIR $home
+```
+
+`setup.sh` installs `__claude_as_home` beside it, in
+`$XDG_CONFIG_HOME/fish/functions/`.
 
 ## Continue a session as another account
 

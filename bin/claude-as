@@ -242,16 +242,41 @@ accounts_of() {
 
 # The session `--continue` reopens: Claude Code's newest conversation for
 # this directory, whose folder name is the path with every character but
-# letters and digits made a dash.
+# letters and digits made a dash. Claude Code counts those characters in
+# UTF-16 units, which sed cannot do for a non-ASCII path, so a folder that
+# is not where the name says is found by the cwd its transcripts record.
 continued_id() {
-    local dir file newest=""
-    dir="${shared}/projects/$(pwd -P | sed 's/[^A-Za-z0-9]/-/g')"
+    local cwd dir file newest=""
+    cwd=$(pwd -P)
+    dir="${shared}/projects/$(printf '%s' "${cwd}" | sed 's/[^A-Za-z0-9]/-/g')"
+    [[ -d ${dir} ]] || dir=$(project_dir_by_cwd "${cwd}")
+    [[ -n ${dir} ]] || return 0
     for file in "${dir}"/*.jsonl; do
         if [[ -f ${file} && (-z ${newest} || ${file} -nt ${newest}) ]]; then
             newest=${file}
         fi
     done
     [[ -z ${newest} ]] || basename "${newest}" .jsonl
+}
+
+# The project folder whose transcripts ran in <cwd>: Claude Code writes the
+# cwd on a transcript's first lines, so three transcripts per folder suffice.
+project_dir_by_cwd() {
+    local cwd=$1 dir file n
+    for dir in "${shared}"/projects/*/; do
+        n=0
+        for file in "${dir}"*.jsonl; do
+            [[ -f ${file} ]] || break
+            # No grep -q: an early exit would SIGPIPE head, and pipefail
+            # would then report a match as a failure.
+            if head -n 50 "${file}" | grep -F "\"cwd\":\"${cwd}\"" >/dev/null; then
+                printf '%s\n' "${dir%/}"
+                return 0
+            fi
+            n=$((n + 1))
+            ((n < 3)) || break
+        done
+    done
 }
 
 # The session id a claude command line resumes, when it names one or

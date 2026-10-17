@@ -85,6 +85,7 @@ Modern fish config uses **modular files**, not a monolithic `config.fish`:
 │   ├── 30-abbreviations.fish
 │   └── 40-bun.fish
 ├── functions/               auto-loaded ON FIRST CALL (lazy, zero startup cost)
+│   ├── __claude_as_home.fish
 │   ├── claude.fish
 │   └── clp.fish
 └── completions/             tab-completion definitions per command

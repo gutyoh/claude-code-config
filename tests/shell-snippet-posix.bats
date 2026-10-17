@@ -189,6 +189,19 @@ stub_proxy() {
 }
 
 # bats test_tags=integration,portability
+@test "a failing claude-as --where says so and runs as the default account" {
+    stub_bin claude 'printf "claude:dir=%s:%s\n" "${CLAUDE_CONFIG_DIR-unset}" "$*"'
+    stub_bin claude-as 'exit 3'
+    local p out
+    while read -r p; do
+        [[ -n "$p" ]] || continue
+        out="$("$p" -c ". '$PROFILE'; claude --resume known" 2>&1)"
+        [[ "$out" == *"claude: claude-as --where failed; running as the default account"* ]] || { echo "$p: $out"; false; }
+        [[ "$out" == *"claude:dir=unset:--allow-dangerously-skip-permissions --resume known"* ]] || { echo "$p: $out"; false; }
+    done < <(available_shells)
+}
+
+# bats test_tags=integration,portability
 @test "without claude-as, claude starts as before" {
     stub_bin claude 'printf "claude:dir=%s:%s\n" "${CLAUDE_CONFIG_DIR-unset}" "$*"'
     local p out dir path=""

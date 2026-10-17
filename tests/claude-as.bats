@@ -481,15 +481,26 @@ ran() {
     [[ ${output} != *"last ran as"* ]]
 }
 
+# Answers <reply> to claude-as on a terminal. BSD script(1), as on macOS,
+# sends piped input before the prompt and then an EOF, so the reply waits.
+on_terminal() {
+    if script --version 2>/dev/null | grep -q util-linux; then
+        printf '%s\n' "$1" | script -qec "\"$SCRIPT\" me@home.example -r ${SID}" /dev/null
+    else
+        (sleep 1 && printf '%s\n' "$1") | script -q /dev/null "$SCRIPT" me@home.example -r "${SID}"
+    fi
+}
+
 @test "on a terminal, a switch of account asks first: no keeps it, yes switches" {
-    script --version 2>/dev/null | grep -q util-linux || skip "needs util-linux script(1) for a terminal"
+    script -q /dev/null true >/dev/null 2>&1 || script --version 2>/dev/null | grep -q util-linux \
+        || skip "needs script(1) for a terminal"
     two_accounts
     ran "${SID}" "${HOME}/.claude"
-    run bash -c "printf 'n\n' | script -qec '\"$SCRIPT\" me@home.example -r ${SID}' /dev/null"
+    run on_terminal n
     [[ ${output} == *"Continue it as me@home.example? [y/N]"* ]]
     [[ ${output} == *"not resumed; as before: claude-as me@work.example -r ${SID}"* ]]
     [[ ${output} != *"RAN "* ]]
-    run bash -c "printf 'y\n' | script -qec '\"$SCRIPT\" me@home.example -r ${SID}' /dev/null"
+    run on_terminal y
     [[ ${output} == *"RAN set=1 home=${HOME}/.claude-home"* ]]
 }
 
@@ -538,6 +549,22 @@ ran() {
     touch -t 202601030000 "${HOME}/.claude/projects/${key}/${old}.jsonl"
     run "$SCRIPT" --where --continue
     [ -z "$output" ]
+}
+
+@test "--continue finds a non-ASCII folder by the cwd its transcripts record" {
+    two_accounts
+    local work="${BATS_TEST_TMPDIR}/año" cwd key
+    mkdir -p "${work}"
+    cwd=$(cd "${work}" && pwd -P)
+    # Claude Code makes "ñ" one dash, one UTF-16 unit; sed makes it one per byte.
+    key="$(printf '%s' "${cwd%/año}" | sed 's/[^A-Za-z0-9]/-/g')-a-o"
+    mkdir -p "${HOME}/.claude/projects/${key}"
+    printf '{"type":"user","cwd":"%s","sessionId":"%s"}\n' "${cwd}" "${SID}" \
+        >"${HOME}/.claude/projects/${key}/${SID}.jsonl"
+    ran "${SID}" "${HOME}/.claude-home"
+    cd "${work}"
+    run "$SCRIPT" --where --continue
+    [ "$output" = "${HOME}/.claude-home" ]
 }
 
 @test "--continue in a folder with no session needs an account, as before" {
