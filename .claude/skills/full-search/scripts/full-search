@@ -1,0 +1,531 @@
+#!/usr/bin/env bash
+# full-search
+# Path: .claude/skills/full-search/scripts/full-search
+#
+# Reads web pages as rendered Markdown, or searches and lists results, through
+# whichever provider answers: Firecrawl, Tavily, Bright Data, then a plain
+# fetch. Measured on 32 pages, Firecrawl alone read 28 and Tavily read the
+# ones it refuses (Reddit, LinkedIn, NYTimes), so that order covers 31.
+#
+# Each provider tries its keys in turn, then its keyless tier. A key that is
+# out of credit, rejected or rate limited rests in a cooldown file until it can
+# answer again, so every agent on the machine skips it. Each page lands in a
+# file; only one summary line per page enters the agent's context.
+#
+# Usage:
+#   full-search URL [URL ...]          read pages
+#   full-search -q QUERY [-n N]        search, list N results (default 5)
+#   full-search -q QUERY --read N      search, then read the top N results
+#   full-search --status               keys, pools and cooldowns, masked
+#   options: --via PROVIDER  --out DIR  --min-chars N
+#   providers: firecrawl tavily brightdata jina direct (read), tavily firecrawl brave (search)
+#
+# Keys, all optional: FIRECRAWL_API_KEY, TAVILY_API_KEY, BRAVE_API_KEY and
+# BRIGHTDATA_API_TOKEN, each with an optional comma-separated *_POOL. When none
+# is set and fnox can resolve secrets here, the script reruns under `fnox exec`.
+#
+# Exit: 0 every page or the search succeeded, 1 some failed, 2 usage error.
+
+set -uo pipefail
+set +x
+unset BASH_ENV
+umask 077
+
+READ_CHAIN="${FULL_SEARCH_READ_CHAIN:-firecrawl tavily brightdata direct}"
+SEARCH_CHAIN="${FULL_SEARCH_SEARCH_CHAIN:-tavily firecrawl brave}"
+TIMEOUT="${FULL_SEARCH_TIMEOUT:-60}"
+MIN_CHARS=300
+OUT_DIR="${FULL_SEARCH_OUT:-}"
+STATE_DIR="${FULL_SEARCH_STATE:-${XDG_STATE_HOME:-${HOME}/.local/state}/full-search}"
+COOLDOWN_FILE="${STATE_DIR}/cooldown"
+UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140 Safari/537.36"
+
+die() {
+    printf 'full-search: %s\n' "$1" >&2
+    exit "${2:-2}"
+}
+
+now() { date +%s; }
+
+# Seconds from now until the first day of next month, UTC: when a monthly
+# credit allowance comes back.
+until_next_month() {
+    local y m
+    y=$(date -u +%Y)
+    m=$((10#$(date -u +%m) + 1))
+    ((m > 12)) && m=1 && y=$((y + 1))
+    local target
+    target=$(date -u -d "${y}-$(printf %02d "${m}")-01" +%s 2>/dev/null ||
+        date -u -j -f '%Y-%m-%d %H:%M:%S' "${y}-$(printf %02d "${m}")-01 00:00:00" +%s)
+    printf '%s' $((target - $(now)))
+}
+
+# --- Keys and cooldowns --------------------------------------------------
+
+# A key's stable id for the cooldown file: a short SHA-256, never the key.
+key_id() {
+    [[ -z "$1" ]] && printf 'keyless' && return
+    printf '%s' "$1" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-16
+}
+
+mask() {
+    [[ -z "$1" ]] && printf 'keyless' && return
+    printf '...%s' "${1: -4}"
+}
+
+# The keys a provider tries, in order: the active one, the rest of the pool,
+# then keyless where the provider allows it. One per line; empty = keyless.
+keys_for() {
+    local var="$1" keyless="$2" pool_var="${1}_POOL" k seen=","
+    local all="${!var:-},${!pool_var:-}"
+    local IFS=','
+    for k in ${all}; do
+        k="${k//[[:space:]]/}"
+        [[ -z "${k}" || "${seen}" == *",${k},"* ]] && continue
+        seen="${seen}${k},"
+        printf '%s\n' "${k}"
+    done
+    [[ "${keyless}" == yes ]] && printf '\n'
+}
+
+# Holds the cooldown file's lock for the length of "$@". mkdir is atomic on
+# every platform, and macOS has no flock.
+with_lock() {
+    local lock="${STATE_DIR}/.lock" tries=0 holder rc
+    mkdir -p "${STATE_DIR}" 2>/dev/null || return 1
+    until mkdir "${lock}" 2>/dev/null; do
+        tries=$((tries + 1))
+        # A holder that is gone, or a lock older than 30 s, is stale.
+        # The pid may not be written yet: an empty holder is not stale.
+        holder=$(cat "${lock}/pid" 2>/dev/null) || holder=""
+        if { [[ -n "${holder}" ]] && ! kill -0 "${holder}" 2>/dev/null; } ||
+            (($(now) - $(mtime "${lock}") > 30)); then
+            rm -rf "${lock}"
+            continue
+        fi
+        # Never take a live lock: skip this write after about 10 s.
+        ((tries > 100)) && return 1
+        sleep 0.1
+    done
+    printf '%s' "$$" >"${lock}/pid"
+    "$@"
+    rc=$?
+    rm -rf "${lock}"
+    return "${rc}"
+}
+
+# A file's modification time in epoch seconds: GNU stat, then BSD stat.
+mtime() {
+    local m
+    m=$(stat -c %Y "$1" 2>/dev/null) || m=""
+    [[ "${m}" =~ ^[0-9]+$ ]] || m=$(stat -f %m "$1" 2>/dev/null) || m=""
+    if [[ "${m}" =~ ^[0-9]+$ ]]; then
+        printf '%s' "${m}"
+    else
+        now
+    fi
+}
+
+cooling() { # provider keyid -> 0 while it rests
+    [[ -f "${COOLDOWN_FILE}" ]] || return 1
+    awk -v p="$1" -v k="$2" -v t="$(now)" '$1 == p && $2 == k && $3 > t {found = 1} END {exit !found}' "${COOLDOWN_FILE}"
+}
+
+_rest() { # provider keyid seconds reason
+    local tmp="${COOLDOWN_FILE}.$$" until=$(($(now) + $3))
+    {
+        [[ -f "${COOLDOWN_FILE}" ]] &&
+            awk -v p="$1" -v k="$2" -v t="$(now)" '!($1 == p && $2 == k) && $3 > t' "${COOLDOWN_FILE}"
+        printf '%s %s %s %s\n' "$1" "$2" "${until}" "$4"
+    } >"${tmp}" && mv "${tmp}" "${COOLDOWN_FILE}"
+}
+
+rest() { with_lock _rest "$@"; }
+
+# Classifies a failed answer: prints "seconds reason" for a cooldown, or
+# nothing when the failure says nothing about the key (a bad page, a 5xx).
+# Brave's monthly window is rolling: the second X-RateLimit-Reset value says
+# when it reopens. Other providers say nothing, so the month's turn is used.
+verdict() { # provider status body
+    local p="$1" s="$2" body="$3" retry reset
+    case "${p}:${s}" in
+        # Firecrawl's and Bright Data's 403 refuse the site, not the key.
+        firecrawl:401 | tavily:401 | brave:401 | brave:403 | brave:422 | brightdata:401)
+            [[ -n "${KEY}" ]] && printf '604800 rejected'
+            ;;
+        # A feature outside this key's plan: the next key may have it.
+        brave:400) printf '0 skip' ;;
+        tavily:432 | tavily:433 | firecrawl:402) printf '%s exhausted' "$(until_next_month)" ;;
+        brave:429)
+            if printf '%s' "${body}" | grep -q QUOTA_LIMITED; then
+                reset="${RL_RESET##*,}"
+                reset="${reset//[!0-9]/}"
+                [[ -n "${reset}" ]] || reset=$(until_next_month)
+                printf '%s exhausted' "${reset}"
+            else
+                printf '2 throttled'
+            fi
+            ;;
+        *:429)
+            retry=$(printf '%s' "${body}" | jq -r '.retry_after_seconds // empty' 2>/dev/null)
+            [[ "${retry}" =~ ^[0-9]+$ ]] || retry="${RETRY_AFTER//[!0-9]/}"
+            if [[ "${retry}" =~ ^[0-9]+$ ]] && ((retry > 0)); then
+                printf '%s %s' "${retry}" "$( ((retry > 3600)) && echo exhausted || echo throttled)"
+            else
+                printf '60 throttled'
+            fi
+            ;;
+    esac
+}
+
+# --- HTTP ----------------------------------------------------------------
+
+# curl with headers read from stdin, so a key never shows in the process list,
+# and no redirects, so a key header never follows one to another host.
+# $1 = header lines; the rest are curl arguments. Prints the body, then a last
+# line: status, Retry-After and X-RateLimit-Reset, separated by "|" (tabs
+# would collapse when a header is empty).
+http() {
+    local headers="$1"
+    shift
+    printf '%s\n' "${headers}" | sed '/^$/d; s/"/\\"/g; s/^/header = "/; s/$/"/' |
+        curl -sS --connect-timeout 10 --max-time "${TIMEOUT}" --config - \
+            -w '\n%{http_code}|%header{retry-after}|%header{x-ratelimit-reset}' "$@" 2>/dev/null
+}
+
+split() {
+    IFS='|' read -r STATUS RETRY_AFTER RL_RESET <<<"${1##*$'\n'}"
+    BODY="${1%$'\n'*}"
+}
+
+# Runs "call_<provider>" with each usable key until one answers 200; a key
+# that fails for a key reason goes to rest. Sets BODY on success.
+with_keys() { # provider keyvar keyless(yes|no) args...
+    local provider="$1" var="$2" keyless="$3" key id v
+    shift 3
+    while IFS= read -r key; do
+        id=$(key_id "${key}")
+        cooling "${provider}" "${id}" && continue
+        KEY="${key}"
+        split "$("call_${provider}" "$@")"
+        [[ "${STATUS}" == 200 ]] && return 0
+        v=$(verdict "${provider}" "${STATUS}" "${BODY}")
+        # A throttle of a second or two is worth one more try on this key.
+        if [[ "${v#* }" == throttled && "${v% *}" -le 2 ]]; then
+            sleep "${v% *}"
+            split "$("call_${provider}" "$@")"
+            [[ "${STATUS}" == 200 ]] && return 0
+            v=$(verdict "${provider}" "${STATUS}" "${BODY}")
+        fi
+        if [[ -n "${v}" ]]; then
+            [[ "${v#* }" == skip ]] || rest "${provider}" "${id}" "${v% *}" "${v#* }"
+            continue
+        fi
+        return 1
+    done < <(keys_for "${var}" "${keyless}")
+    return 1
+}
+
+# --- Providers -----------------------------------------------------------
+
+auth_bearer() { [[ -n "${KEY}" ]] && printf 'Authorization: Bearer %s' "${KEY}"; }
+
+call_firecrawl() { # endpoint body
+    http "Content-Type: application/json
+$(auth_bearer)" -X POST "https://api.firecrawl.dev/v2/$1" --data "$2"
+}
+
+call_tavily() { # endpoint body
+    local auth="X-Tavily-Access-Mode: keyless"
+    [[ -n "${KEY}" ]] && auth="Authorization: Bearer ${KEY}"
+    http "Content-Type: application/json
+${auth}" -X POST "https://api.tavily.com/$1" --data "$2"
+}
+
+call_brightdata() { # body
+    http "Content-Type: application/json
+$(auth_bearer)" -X POST https://api.brightdata.com/request --data "$1"
+}
+
+call_brave() { # query count
+    local q
+    q=$(jq -rn --arg q "$1" '$q | @uri')
+    http "Accept: application/json
+X-Subscription-Token: ${KEY}" "https://api.search.brave.com/res/v1/web/search?q=${q}&count=$2"
+}
+
+read_firecrawl() {
+    with_keys firecrawl FIRECRAWL_API_KEY yes scrape \
+        "$(jq -nc --arg u "$1" '{url:$u, formats:["markdown"], onlyMainContent:true}')" || return 1
+    # Firecrawl answers 200 for a page that was itself an error.
+    printf '%s' "${BODY}" | jq -er '.data | select((.metadata.statusCode // 200) < 400) | .markdown // empty'
+}
+
+read_tavily() {
+    with_keys tavily TAVILY_API_KEY yes extract \
+        "$(jq -nc --arg u "$1" '{urls:[$u], extract_depth:"advanced", format:"markdown"}')" || return 1
+    printf '%s' "${BODY}" | jq -er '.results[0].raw_content // empty'
+}
+
+read_brightdata() {
+    with_keys brightdata BRIGHTDATA_API_TOKEN no \
+        "$(jq -nc --arg u "$1" --arg z "${BRIGHTDATA_ZONE:-mcp_unlocker}" \
+            '{zone:$z, url:$u, format:"raw", data_format:"markdown"}')" || return 1
+    printf '%s' "${BODY}"
+}
+
+read_jina() {
+    split "$(http "X-Timeout: 30" "https://r.jina.ai/$1")"
+    [[ "${STATUS}" == 200 ]] || return 1
+    printf '%s' "${BODY}"
+}
+
+# Follows redirects one hop at a time, so a public page cannot redirect the
+# fetch to a private address.
+read_direct() {
+    local url="$1" hop out code next host
+    for hop in 1 2 3 4 5 6; do
+        out=$(curl -sS --connect-timeout 10 --max-time "${TIMEOUT}" --proto =http,https -A "${UA}" \
+            -w '\n%{http_code} %{redirect_url}' "${url}" 2>/dev/null) || return 1
+        BODY="${out%$'\n'*}"
+        read -r code next <<<"${out##*$'\n'}"
+        [[ "${code}" =~ ^3 && -n "${next}" ]] || break
+        host="${next#*://}"
+        host="${host%%[/:?#]*}"
+        [[ "${ORIGIN_PRIVATE}" == 0 ]] && private_host "${host}" && return 1
+        url="${next}"
+        ((hop == 6)) && return 1
+    done
+    [[ "${code}" =~ ^2 ]] || return 1
+    looks_blocked "${BODY}" && return 1
+    # Scripts and styles span lines; perl drops them whole where it exists.
+    if command -v perl >/dev/null 2>&1; then
+        printf '%s' "${BODY}" | perl -0777 -pe 's/<(script|style|noscript)\b.*?<\/\1\s*>//gis; s/<[^>]+>/ /g'
+    else
+        printf '%s' "${BODY}" | sed -E 's/<(script|style)[^>]*>.*<\/(script|style)>//g; s/<[^>]+>/ /g'
+    fi | LC_ALL=C tr -s ' \t'
+}
+
+search_tavily() {
+    with_keys tavily TAVILY_API_KEY yes search \
+        "$(jq -nc --arg q "$1" --argjson n "$2" '{query:$q, max_results:$n}')" || return 1
+    printf '%s' "${BODY}" | jq -er '.results | select(length > 0) | .[] | [.title, .url, (.content // "" | gsub("\\s+"; " ") | .[0:300])] | @tsv'
+}
+
+search_firecrawl() {
+    with_keys firecrawl FIRECRAWL_API_KEY yes search \
+        "$(jq -nc --arg q "$1" --argjson n "$2" '{query:$q, limit:$n}')" || return 1
+    printf '%s' "${BODY}" | jq -er '.data.web | select(length > 0) | .[] | [.title, .url, (.description // "" | gsub("\\s+"; " ") | .[0:300])] | @tsv'
+}
+
+search_brave() {
+    with_keys brave BRAVE_API_KEY no "$1" "$2" || return 1
+    printf '%s' "${BODY}" | jq -er '.web.results | select(length > 0) | .[] | [.title, .url, (.description // "" | gsub("<[^>]+>"; "") | .[0:300])] | @tsv'
+}
+
+# --- Pages ---------------------------------------------------------------
+
+# A host whose traffic must not leave this machine: loopback, private and
+# tailnet ranges, single labels, and names that resolve to one of those.
+# A name that does not resolve here stays here too: it may be internal.
+private_host() {
+    local host="$1" ips ip
+    case "${host}" in
+        localhost | *.localhost | *.local | *.internal | *.lan | *.home.arpa | *.ts.net | *[!.a-zA-Z0-9-]*) return 0 ;;
+        *.*) ;;
+        *) return 0 ;;
+    esac
+    if [[ "${host}" =~ ^[0-9.]+$ ]]; then
+        ips="${host}"
+    elif command -v getent >/dev/null 2>&1; then
+        ips=$(getent ahosts "${host}" 2>/dev/null | awk '{print $1}' | sort -u)
+        [[ -n "${ips}" ]] || return 0
+    elif command -v dscacheutil >/dev/null 2>&1; then
+        ips=$(dscacheutil -q host -a name "${host}" 2>/dev/null | awk '/^ipv?6?_?address:/{print $2}')
+        [[ -n "${ips}" ]] || return 0
+    else
+        return 1
+    fi
+    for ip in ${ips}; do
+        ip=$(printf '%s' "${ip}" | tr '[:upper:]' '[:lower:]')
+        [[ "${ip}" =~ ^(10\.|127\.|0\.|192\.168\.|169\.254\.|172\.(1[6-9]|2[0-9]|3[01])\.|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.) ]] && return 0
+        [[ "${ip}" =~ ^(::1$|::$|f[cd][0-9a-f]{2}:|fe[89ab][0-9a-f]:|::ffff:(10\.|127\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)) ]] && return 0
+    done
+    return 1
+}
+
+# Text that is a block page or a shell rather than the page itself.
+looks_blocked() {
+    local text="$1" n
+    # Bytes, not characters: a page that is not UTF-8 must still count.
+    local LC_ALL=C
+    # A bot challenge, at any length: these pages are mostly script.
+    printf '%s' "${text}" | grep -qE 'cdn-cgi/challenge-platform|cf-chl-|cf_chl_|Enable JavaScript and cookies to continue|<title>Just a moment|captcha-delivery\.com|px-captcha|_Incapsula_Resource|Reference #18\.[0-9a-f]' && return 0
+    n=$(printf '%s' "${text}" | tr -d '[:space:]' | wc -c)
+    ((n < MIN_CHARS)) && return 0
+    ((n > 3000)) && return 1
+    printf '%s' "${text}" | grep -qiE 'captcha|verify you are (a )?human|just a moment|access denied|enable javascript|are you a robot|unusual traffic|request (was )?blocked|attention required'
+}
+
+# Writes one page to a file between random markers; prints the summary line.
+save() {
+    local url="$1" provider="$2" text="$3" index="$4" host token file
+    host="${url#*://}"
+    host="${host%%/*}"
+    token=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+    file="${OUT_DIR}/$(printf '%02d' "${index}")-${host//[^a-zA-Z0-9.-]/_}.md"
+    {
+        printf '<!-- source: %s | via: %s | fetched: %s -->\n' "${url}" "${provider}" "$(date -u +%FT%TZ)"
+        printf '<untrusted-web-content id="%s">\n%s\n</untrusted-web-content id="%s">\n' "${token}" "${text}" "${token}"
+    } >"${file}"
+    printf 'ok    %-10s %7s chars  %s  %s\n' "${provider}" "${#text}" "${file}" "${url}"
+}
+
+read_url() {
+    local url="$1" index="$2" chain="${VIA:-${READ_CHAIN}}" provider text tried=""
+    [[ "${url}" =~ ^https?://[^/]+ ]] || {
+        printf 'fail  %-10s %7s        %s\n' "-" "-" "not an http(s) URL: ${url}"
+        return 1
+    }
+    local host="${url#*://}"
+    host="${host%%[/:?#]*}"
+    ORIGIN_PRIVATE=0
+    private_host "${host}" && chain="direct" && ORIGIN_PRIVATE=1
+    for provider in ${chain}; do
+        tried="${tried} ${provider}"
+        text=$("read_${provider}" "${url}") || continue
+        looks_blocked "${text}" && continue
+        save "${url}" "${provider}" "${text}" "${index}"
+        return 0
+    done
+    printf 'fail  %-10s %7s        %s  (tried:%s)\n' "-" "-" "${url}" "${tried}"
+    return 1
+}
+
+status() {
+    local p var keyless key id left until reason
+    for p in firecrawl:FIRECRAWL_API_KEY:yes tavily:TAVILY_API_KEY:yes brave:BRAVE_API_KEY:no brightdata:BRIGHTDATA_API_TOKEN:no; do
+        IFS=: read -r p var keyless <<<"${p}"
+        printf '%s\n' "${p}"
+        while IFS= read -r key; do
+            id=$(key_id "${key}")
+            read -r until reason < <(awk -v p="${p}" -v k="${id}" '$1 == p && $2 == k {print $3, $4}' "${COOLDOWN_FILE}" 2>/dev/null)
+            left=$(( ${until:-0} - $(now) ))
+            if ((left > 0)); then
+                printf '  %-12s resting %s, %dh%02dm left\n' "$(mask "${key}")" "${reason}" $((left / 3600)) $((left % 3600 / 60))
+            else
+                printf '  %-12s ready\n' "$(mask "${key}")"
+            fi
+            until=""
+        done < <(keys_for "${var}" "${keyless}")
+    done
+}
+
+# Runs "$@" for at most $1 seconds, with no stdin, so a secret store that
+# wants a prompt cannot hang an agent. Prints its stdout.
+bounded() {
+    local secs="$1" out pid watcher rc
+    shift
+    out=$(mktemp "${TMPDIR:-/tmp}/full-search.XXXXXX") || return 1
+    "$@" </dev/null >"${out}" 2>/dev/null &
+    pid=$!
+    # The watcher keeps no output open, or $(...) would wait for its sleep.
+    (sleep "${secs}" && kill "${pid}" 2>/dev/null) >/dev/null 2>&1 </dev/null &
+    watcher=$!
+    # bash 3.2 reports a killed job on stderr; the braces keep it out.
+    { wait "${pid}"; } 2>/dev/null
+    rc=$?
+    kill "${watcher}" 2>/dev/null
+    cat "${out}"
+    rm -f "${out}"
+    return "${rc}"
+}
+
+# With no key in the environment, takes the search keys, and only those, from
+# fnox when it can resolve them here.
+maybe_fnox() {
+    [[ "${FULL_SEARCH_FNOX:-1}" == 0 ]] && return
+    [[ -n "${FIRECRAWL_API_KEY:-}${TAVILY_API_KEY:-}${BRAVE_API_KEY:-}${BRIGHTDATA_API_TOKEN:-}" ]] && return
+    command -v fnox >/dev/null 2>&1 || return
+    bounded 10 fnox list >/dev/null || return
+    local name value
+    for name in FIRECRAWL_API_KEY FIRECRAWL_API_KEY_POOL TAVILY_API_KEY TAVILY_API_KEY_POOL \
+        BRAVE_API_KEY BRAVE_API_KEY_POOL BRIGHTDATA_API_TOKEN BRIGHTDATA_API_TOKEN_POOL; do
+        value=$(bounded 10 fnox get "${name}") || continue
+        [[ -n "${value}" ]] && printf -v "${name}" '%s' "${value}" && export "${name?}"
+    done
+}
+
+main() {
+    local query="" count=5 read_top=0 urls=() show_status=0
+    VIA=""
+    KEY=""
+    maybe_fnox
+    while (($#)); do
+        case "$1" in
+            -q | --query) query="${2:-}" && shift ;;
+            -n) count="${2:-}" && shift ;;
+            --read) read_top="${2:-}" && shift ;;
+            --via) VIA="${2:-}" && shift ;;
+            --out) OUT_DIR="${2:-}" && shift ;;
+            --min-chars) MIN_CHARS="${2:-}" && shift ;;
+            --status) show_status=1 ;;
+            -h | --help) sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//' && exit 0 ;;
+            -*) die "unknown option $1" ;;
+            *) urls+=("$1") ;;
+        esac
+        shift
+    done
+    command -v curl >/dev/null 2>&1 || die "curl is required"
+    command -v jq >/dev/null 2>&1 || die "jq is required"
+    ((show_status)) && status && exit 0
+    [[ "${count}" =~ ^[0-9]+$ && "${read_top}" =~ ^[0-9]+$ && "${MIN_CHARS}" =~ ^[0-9]+$ ]] || die "counts must be numbers"
+    [[ -n "${query}" || ${#urls[@]} -gt 0 ]] || die "give URLs, or -q QUERY (see --help)"
+    if [[ -n "${VIA}" ]]; then
+        declare -F "read_${VIA}" >/dev/null || declare -F "search_${VIA}" >/dev/null || die "unknown provider ${VIA}"
+    fi
+    # Each run writes to its own private directory unless one is named.
+    if [[ -n "${OUT_DIR}" ]]; then
+        mkdir -p "${OUT_DIR}" || die "cannot create ${OUT_DIR}"
+    else
+        local base
+        base="${TMPDIR:-/tmp}/full-search-$(id -u)"
+        mkdir -p "${base}" 2>/dev/null
+        # Another user could pre-create or link a shared path.
+        [[ -d "${base}" && ! -L "${base}" && -O "${base}" ]] || die "unsafe output directory ${base}"
+        chmod 700 "${base}"
+        OUT_DIR=$(mktemp -d "${base}/run.XXXXXX") || die "cannot create an output directory"
+    fi
+    ((read_top > count)) && count="${read_top}"
+
+    local failed=0 index=0
+    if [[ -n "${query}" ]]; then
+        local provider rows="" chain="${VIA:-${SEARCH_CHAIN}}"
+        for provider in ${chain}; do
+            declare -F "search_${provider}" >/dev/null || continue
+            rows=$("search_${provider}" "${query}" "${count}") && break
+        done
+        [[ -n "${rows}" ]] || die "no search provider answered (tried: ${chain})" 1
+        printf 'search via %s: %s\n' "${provider}" "${query}"
+        local title url snippet n=0 token
+        token=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+        printf '<untrusted-web-content id="%s">\n' "${token}"
+        # Control characters could drive the terminal; they never reach it.
+        while IFS=$'\t' read -r title url snippet; do
+            n=$((n + 1))
+            printf '%d. %s\n   %s\n   %s\n' "${n}" "${title}" "${url}" "${snippet}"
+            [[ "${url}" =~ ^https?:// ]] && ((n <= read_top)) && urls+=("${url}")
+        done < <(printf '%s\n' "${rows}" | LC_ALL=C tr -d '\000-\010\013-\037\177')
+        printf '</untrusted-web-content id="%s">\n' "${token}"
+        ((${#urls[@]})) && printf '\n'
+    fi
+    declare -F "read_${VIA}" >/dev/null 2>&1 || VIA=""
+    # bash 3.2, macOS's /bin/bash, calls an empty array unbound under set -u.
+    for url in ${urls[@]+"${urls[@]}"}; do
+        index=$((index + 1))
+        read_url "${url}" "${index}" || failed=1
+    done
+    return "${failed}"
+}
+
+main "$@"
