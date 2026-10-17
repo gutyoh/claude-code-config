@@ -130,8 +130,9 @@ PYTHON_SCRIPT
     fi
 }
 
-# Session naming (hooks/session-name.sh) needs one entry on each of two events;
-# an entry already naming the script is left as it is.
+# Session naming (hooks/session-name.sh) needs one entry on each of two events,
+# and hooks/session-account.sh one on every session start; an entry already
+# naming a script is left as it is.
 configure_session_name_hooks() {
     python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
 import json
@@ -141,8 +142,9 @@ import sys
 settings_file = sys.argv[1]
 ref = os.environ.get('CLAUDE_DIR_REF', '~/.claude')
 wanted = (
-    ('SessionStart', {'matcher': 'startup'}),
-    ('UserPromptSubmit', {'matcher': ''}),
+    ('SessionStart', {'matcher': 'startup'}, 'session-name.sh'),
+    ('UserPromptSubmit', {'matcher': ''}, 'session-name.sh'),
+    ('SessionStart', {'matcher': ''}, 'session-account.sh'),
 )
 
 try:
@@ -150,14 +152,14 @@ try:
         data = json.load(f)
     hooks = data.setdefault('hooks', {})
     added = 0
-    for event, extra in wanted:
+    for event, extra, script in wanted:
         entries = hooks.setdefault(event, [])
-        present = any('session-name.sh' in h.get('command', '')
+        present = any(script in h.get('command', '')
                       for e in entries for h in e.get('hooks', []))
         if not present:
             entries.append({**extra, 'hooks': [{
                 'type': 'command',
-                'command': f'{ref}/hooks/session-name.sh',
+                'command': f'{ref}/hooks/{script}',
                 'timeout': 5,
             }]})
             added += 1
@@ -165,11 +167,11 @@ try:
         with open(settings_file, 'w') as f:
             json.dump(data, f, indent=2)
             f.write('\n')
-        print("  ✓ Session naming hooks added")
+        print("  ✓ Session hooks added")
     else:
-        print("  ✓ Session naming hooks already configured")
+        print("  ✓ Session hooks already configured")
 except Exception as e:
-    print(f"  ⚠ Failed to add session naming hooks: {e}", file=sys.stderr)
+    print(f"  ⚠ Failed to add session hooks: {e}", file=sys.stderr)
     sys.exit(1)
 PYTHON_SCRIPT
 }
@@ -621,7 +623,22 @@ configure_claude_shortcuts() {
     cat >>"${shell_profile}" <<'EOF'
 
 # claude-code-config: claude launch shortcuts
-claude() {
+# A resumed session runs as the account it last ran as (claude-as --where),
+# also when herdr resumes it after a restart. A subshell keeps the variable
+# out of the caller's shell.
+claude() (
+  if [ -z "${CLAUDE_CONFIG_DIR:-}" ] && command -v claude-as >/dev/null 2>&1; then
+    CLAUDE_CONFIG_DIR=$(claude-as --where "$@" 2>/dev/null) || {
+      printf 'claude: claude-as --where failed; running as the default account\n' >&2
+      CLAUDE_CONFIG_DIR=
+    }
+    if [ -n "${CLAUDE_CONFIG_DIR}" ]; then
+      printf 'claude: as the session last ran, in %s\n' "${CLAUDE_CONFIG_DIR}" >&2
+      export CLAUDE_CONFIG_DIR
+    else
+      unset CLAUDE_CONFIG_DIR
+    fi
+  fi
   case "${1:-}" in
     -a|--unsafe|--bypass|-adskp)
       shift
@@ -631,7 +648,7 @@ claude() {
       command claude --allow-dangerously-skip-permissions "$@"
       ;;
   esac
-}
+)
 
 # No `local`: this block is written to ~/.profile for any shell that is not
 # bash or zsh, and `local` is not in POSIX — it is a widely-implemented
@@ -748,11 +765,40 @@ configure_fish_shell() {
 fish_add_path -ga '${fish_bin_dir}'
 EOF
 
+    # The routing lives in its own function, so a hand-written claude.fish,
+    # which setup leaves alone, can call it too.
+    _write_managed_fish "${functions_dir}/__claude_as_home.fish" "resume routing function" <<'EOF'
+function __claude_as_home --description 'The home a resumed session last ran in'
+    # Managed by claude-code-config setup.sh.
+    # Prints the home `claude-as --where` names for these claude arguments, or
+    # nothing: a session not resumed, one that last ran in ~/.claude, or a
+    # CLAUDE_CONFIG_DIR already set. A claude function routes with:
+    #   set -l home (__claude_as_home $argv)
+    #   test -n "$home"; and set -lx CLAUDE_CONFIG_DIR $home
+    set -q CLAUDE_CONFIG_DIR; and return 0
+    command -q claude-as; or return 0
+    set -l home (command claude-as --where $argv 2>/dev/null)
+    or begin
+        printf 'claude: claude-as --where failed; running as the default account\n' >&2
+        return 0
+    end
+    test -n "$home"; or return 0
+    printf 'claude: as the session last ran, in %s\n' $home >&2
+    printf '%s\n' $home
+end
+EOF
+
     _write_managed_fish "${functions_dir}/claude.fish" "claude function" <<'EOF'
 function claude --description 'Claude Code with proxy launcher defaults'
     # Managed by claude-code-config setup.sh.
     # Defaults to --allow-dangerously-skip-permissions; opt in to
     # --dangerously-skip-permissions via -a / --unsafe / --bypass / -adskp.
+    # A resumed session runs as the account it last ran as (__claude_as_home),
+    # also when herdr resumes it after a restart.
+
+    set -l home (__claude_as_home $argv)
+    # Outside any block: a variable set in one ends with it.
+    test -n "$home"; and set -lx CLAUDE_CONFIG_DIR $home
 
     set -l first ""
     test (count $argv) -gt 0; and set first $argv[1]
@@ -788,6 +834,17 @@ function clp --description 'Claude proxy with model'
     end
 end
 EOF
+
+    local claude_fn="${functions_dir}/claude.fish"
+    if [[ -f ${claude_fn} ]] && ! grep -qF "${MANAGED_MARKER}" "${claude_fn}" \
+        && ! grep -qF '__claude_as_home' "${claude_fn}"; then
+        echo "  ⚠ ${claude_fn} does not route a resume to its account:"
+        echo "    \`claude --resume <id>\`, and herdr restoring a pane, run as ~/.claude"
+        echo "    whatever account the session last ran as. Add at the top of the"
+        echo "    function, outside any if or switch:"
+        echo "      set -l home (__claude_as_home \$argv)"
+        echo "      test -n \"\$home\"; and set -lx CLAUDE_CONFIG_DIR \$home"
+    fi
 
     echo ""
     echo "  Open a new terminal (or 'exec fish'), then:"

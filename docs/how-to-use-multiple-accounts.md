@@ -64,6 +64,38 @@ One account signed in to two homes runs from `~/.claude`, or else the first.
 
 Plain `claude` keeps using `~/.claude`.
 
+## Resume a session as its account
+
+Each session is recorded with the account it last ran as
+([`session-account.sh`](hooks.md#session-accounts)), so a resume keeps it:
+
+```bash
+claude-as -r <session id>          # as the account it last ran as
+claude-as -c                       # this folder's newest session, the same way
+claude --resume <session id>       # the same, through the claude shell function
+```
+
+A session name made by [`session-name.sh`](hooks.md#session-names) works in
+place of the id. herdr resumes its panes after a restart with
+`claude --resume <id>`, so they come back as their own accounts too. Sessions
+from before the record are found from each account's prompt history. The
+`claude` functions for bash, zsh, POSIX shells, fish and PowerShell all do this.
+`--continue` takes the folder's newest session, as Claude Code does. Set
+`CLAUDE_CONFIG_DIR` to choose the home yourself. When `claude-as --where`
+fails, the function says so and runs as `~/.claude`.
+
+A `claude.fish` you wrote yourself is left alone by `setup.sh`, which then
+prints the two lines that route a resume. Add them at the top of the
+function, outside any `if` or `switch`:
+
+```fish
+set -l home (__claude_as_home $argv)
+test -n "$home"; and set -lx CLAUDE_CONFIG_DIR $home
+```
+
+`setup.sh` installs `__claude_as_home` beside it, in
+`$XDG_CONFIG_HOME/fish/functions/`.
+
 ## Continue a session as another account
 
 When one account reaches its usage limit:
@@ -71,7 +103,19 @@ When one account reaches its usage limit:
 ```bash
 /exit
 claude-as other@example.com --continue
+claude-as other@example.com -r <session id>
 ```
+
+Naming another account than a session last ran as asks first, on a terminal:
+
+```text
+claude-as: session <id> last ran as you@work.example
+Continue it as other@example.com? [y/N]
+```
+
+Two emails that start alike are easy to mix up, and a shell's suggestion from
+history fills in the last one typed. Resumed inside Claude Code with `/resume`,
+the session shows the same warning once it starts.
 
 Accounts on Free, Pro and Max plans fall under Anthropic's consumer terms; Team
 and Enterprise fall under the commercial terms. Continuing a work session as a

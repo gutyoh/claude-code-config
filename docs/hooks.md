@@ -21,6 +21,7 @@ change it. The scripts live in `.claude/hooks/` and are linked into
 | [`auto-rotate-mcp-key.sh`](#mcp-key-rotation) | `PostToolUse` (`mcp__(tavily\|brave-search)__.*`) | Repo | Moves to the next key when one runs out of quota |
 | [`guard-public-text.sh`](#public-text-guard) | `PreToolUse` (`Bash`) | User | Blocks text bound for a public repository that your scanner flags |
 | [`session-name.sh`](#session-names) | `SessionStart` (`startup`), `UserPromptSubmit` | User | Names each session once, at its first prompt |
+| [`session-account.sh`](#session-accounts) | `SessionStart` (every source) | User | Records each session's account; warns when a resume changes it |
 | [`stop-nudge.sh`](#stop-nudge) | `Stop` | Plugin | Nudges a routed model that announces a step and stops |
 | [`sql-guardrail.sh`](#database-guardrail) | `PreToolUse` (`Bash`) | Agent | Blocks destructive database commands |
 
@@ -126,6 +127,23 @@ Names each interactive session once, at its first prompt, as
 `claude-20261012T1412Z-btree-page-splits-0ed0b890`, and never renames it: the
 name is how `--resume` and other sessions find it. Details and switches in
 [Configuration: session names](configuration.md#session-names).
+
+## Session accounts
+
+With several accounts ([`claude-as`](how-to-use-multiple-accounts.md)), any
+account can resume any session, and Claude Code does not show that the account
+changed. This hook records the account (`CLAUDE_CONFIG_DIR`) each session starts
+in, in `~/.local/state/claude-as/sessions`. When a session resumes under another
+account, Claude Code shows:
+
+```text
+This session last ran as you@work.example and now runs as you@home.example.
+To go back: /exit, then claude-as you@work.example -r <id>
+```
+
+`claude-as -r <id>` and `claude --resume <id>` read the record to resume as the
+same account, also when herdr resumes its panes after a restart. Bad input never
+blocks a session, and the record keeps its newest 4000 lines past 1 MB.
 
 ## Stop nudge
 

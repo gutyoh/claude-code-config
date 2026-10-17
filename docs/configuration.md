@@ -37,6 +37,7 @@ each one does.
 | `Stop` | `""` | `refresh-usage-cache.sh` | Refresh usage cache when agent stops |
 | `SessionStart` | `startup` | `session-name.sh` | Record when a session started (see [Session names](#session-names)) |
 | `UserPromptSubmit` | `""` | `session-name.sh` | Name the session once, at its first prompt |
+| `SessionStart` | `""` | `session-account.sh` | Record the session's account; warn when a resume changes it (see [Session accounts](hooks.md#session-accounts)) |
 
 #### Plugin hooks
 

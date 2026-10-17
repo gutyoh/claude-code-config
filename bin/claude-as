@@ -14,6 +14,10 @@
 #   claude-as                         list accounts
 #   claude-as <email> [claude args]   run claude as the account that email signed in
 #   claude-as <email> -a [args]       the same, with bypass permissions on from the start
+#   claude-as -r <session id> [args]  resume a session as the account it last ran as
+#   claude-as -c [args]               continue this folder's newest session the same way
+#   claude-as --where [claude args]   that account's home, when the args resume a
+#                                     session that last ran outside ~/.claude
 #   claude-as --add <email> [args]    new home for an account, then sign it in
 #   claude-as --check                 every home: login, links, shared history
 #   claude-as --relink                link shared items a home is missing
@@ -24,6 +28,8 @@
 # /<organization id>, as in `claude-as me@example.com/team`. A home's path
 # (`claude-as ~/.claude-work`) names it directly.
 # With CLAUDE_AS set, a first argument that is a claude option runs as it.
+# A session resumed by id runs as the account it last ran as, which
+# hooks/session-account.sh records; naming another account asks first.
 # --add passes [args] to `claude auth login` (for example --sso).
 #
 # Env:
@@ -32,6 +38,7 @@
 #   CLAUDE_AS_SHARED   the home the others link to (default: ~/.claude)
 #   CLAUDE_AS_SHARE    names linked into each home (default: SHARE below)
 #   CLAUDE_AS_CLAUDE   the claude to run (default: claude on PATH)
+#   XDG_STATE_HOME     where the session record is (default: ~/.local/state)
 
 set -euo pipefail
 
@@ -51,6 +58,7 @@ CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY"
 
 shared=${CLAUDE_AS_SHARED:-${HOME}/.claude}
 shared=${shared%/}
+ledger="${XDG_STATE_HOME:-${HOME}/.local/state}/claude-as/sessions"
 claude_bin=${CLAUDE_AS_CLAUDE:-claude}
 
 die() {
@@ -230,6 +238,130 @@ accounts_of() {
         [[ ${home} == "$1" ]] \
             && printf '%s/%s (%s, %s, %s)\n' "${email}" "${plan}" "${org}" "${uuid}" "$(short "${home}")"
     done < <(accounts)
+}
+
+# The session `--continue` reopens: Claude Code's newest conversation for
+# this directory, whose folder name is the path with every character but
+# letters and digits made a dash. Claude Code counts those characters in
+# UTF-16 units, which sed cannot do for a non-ASCII path, so a folder that
+# is not where the name says is found by the cwd its transcripts record.
+continued_id() {
+    local cwd dir file newest=""
+    cwd=$(pwd -P)
+    dir="${shared}/projects/$(printf '%s' "${cwd}" | sed 's/[^A-Za-z0-9]/-/g')"
+    [[ -d ${dir} ]] || dir=$(project_dir_by_cwd "${cwd}")
+    [[ -n ${dir} ]] || return 0
+    for file in "${dir}"/*.jsonl; do
+        if [[ -f ${file} && (-z ${newest} || ${file} -nt ${newest}) ]]; then
+            newest=${file}
+        fi
+    done
+    [[ -z ${newest} ]] || basename "${newest}" .jsonl
+}
+
+# The project folder whose transcripts ran in <cwd>: Claude Code writes the
+# cwd on a transcript's first lines, so three transcripts per folder suffice.
+project_dir_by_cwd() {
+    local cwd=$1 dir file n
+    for dir in "${shared}"/projects/*/; do
+        n=0
+        for file in "${dir}"*.jsonl; do
+            [[ -f ${file} ]] || break
+            # No grep -q: an early exit would SIGPIPE head, and pipefail
+            # would then report a match as a failure.
+            if head -n 50 "${file}" | grep -F "\"cwd\":\"${cwd}\"" >/dev/null; then
+                printf '%s\n' "${dir%/}"
+                return 0
+            fi
+            n=$((n + 1))
+            ((n < 3)) || break
+        done
+    done
+}
+
+# The session id a claude command line resumes, when it names one or
+# continues this directory's newest.
+resumed_id() {
+    local prev="" arg continued=""
+    for arg in "$@"; do
+        case ${prev}:${arg} in
+            -r:-* | --resume:-*) ;;
+            -r:* | --resume:*)
+                printf '%s\n' "${arg}"
+                return
+                ;;
+            *:--resume=*)
+                printf '%s\n' "${arg#--resume=}"
+                return
+                ;;
+            *:-c | *:--continue) continued=1 ;;
+            *) ;;
+        esac
+        prev=${arg}
+    done
+    [[ -z ${continued} ]] || continued_id
+}
+
+# The full id a resume argument names: an id, or a session name ending in
+# the id's first 8 characters (session-name.sh), when one recorded id has it.
+full_id() {
+    local short ids
+    if [[ $1 =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+        printf '%s\n' "$1"
+    elif [[ $1 =~ -([0-9a-f]{8})$ && -r ${ledger} ]]; then
+        short=${BASH_REMATCH[1]}
+        ids=$(awk -F'\t' -v s="${short}" 'index($1, s) == 1 { print $1 }' "${ledger}" | sort -u)
+        if [[ -n ${ids} && ${ids} != *$'\n'* ]]; then
+            printf '%s\n' "${ids}"
+        fi
+    fi
+}
+
+# The home session <id> last ran in, while it is still a home: from the
+# record hooks/session-account.sh keeps, else from the newest prompt each
+# home's own history.jsonl holds for it (sessions older than the record).
+last_home() {
+    local id last="" home stamp best=0
+    id=$(full_id "$1")
+    [[ -n ${id} ]] || return 0
+    [[ -r ${ledger} ]] && last=$(awk -F'\t' -v id="${id}" '$1 == id { h = $2 } END { print h }' "${ledger}")
+    if [[ -z ${last} ]]; then
+        while IFS= read -r home; do
+            stamp=$(grep -F "\"sessionId\":\"${id}\"" "${home}/history.jsonl" 2>/dev/null | tail -n 1 \
+                | grep -oE '"timestamp":[0-9]+' | grep -oE '[0-9]+$' || true)
+            if [[ -n ${stamp} ]] && ((stamp > best)); then
+                best=${stamp} last=${home}
+            fi
+        done < <(homes)
+    fi
+    [[ -n ${last} ]] || return 0
+    while IFS= read -r home; do
+        if [[ ${home} == "${last}" ]]; then
+            printf '%s\n' "${home}"
+            return 0
+        fi
+    done < <(homes)
+}
+
+# Resuming a session as another account than it last ran as. Both emails can
+# start alike, and the shell offers the last command typed, so ask first.
+confirm_switch() {
+    local home=$1 id last was now answer
+    shift
+    id=$(full_id "$(resumed_id "$@")")
+    last=$(last_home "${id}")
+    [[ -n ${last} && ${last} != "${home}" ]] || return 0
+    was=$(name_of "${last}")
+    now=$(name_of "${home}")
+    [[ -n ${was} && ${was} != "${now}" ]] || return 0
+    printf 'claude-as: session %s last ran as %s\n' "${id}" "${was}" >&2
+    if [[ -t 0 && -t 2 ]]; then
+        printf 'Continue it as %s? [y/N] ' "${now}" >&2
+        read -r answer || answer=""
+        [[ ${answer} == [yY]* ]] || die "not resumed; as before: claude-as ${was} -r ${id}"
+    else
+        printf 'claude-as: continuing it as %s\n' "${now}" >&2
+    fi
 }
 
 # Credentials in the environment outrank every home's login.
@@ -440,6 +572,11 @@ case ${1:-} in
         add "$@"
         ;;
     --check) check ;;
+    --where)
+        shift
+        home=$(last_home "$(resumed_id "$@")")
+        [[ -z ${home} || ${home} == "${HOME}/.claude" ]] || printf '%s\n' "${home}"
+        ;;
     --relink)
         while IFS= read -r home; do link_shared "${home}"; done < <(homes)
         ;;
@@ -452,13 +589,19 @@ case ${1:-} in
         run_in "${home}"
         ;;
     -*)
-        [[ -n ${CLAUDE_AS:-} ]] || die "name the account first (claude-as <who> $1), or set CLAUDE_AS" 2
-        home=$(resolve "${CLAUDE_AS}")
+        home=$(last_home "$(resumed_id "$@")")
+        if [[ -n ${home} ]]; then
+            printf 'claude-as: as it last ran: %s\n' "$(accounts_of "${home}")" >&2
+        else
+            [[ -n ${CLAUDE_AS:-} ]] || die "name the account first (claude-as <who> $1), or set CLAUDE_AS" 2
+            home=$(resolve "${CLAUDE_AS}")
+        fi
         run_in "${home}" "$@"
         ;;
     *)
         home=$(resolve "$1")
         shift
+        confirm_switch "${home}" "$@"
         [[ -t 2 ]] && printf 'claude-as: %s\n' "$(accounts_of "${home}")" >&2
         run_in "${home}" "$@"
         ;;

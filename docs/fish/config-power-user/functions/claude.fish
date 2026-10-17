@@ -3,6 +3,12 @@ function claude --description 'Claude Code with proxy launcher defaults'
     # reference for a manual/copy install. Keep the two in sync.
     # Defaults to --allow-dangerously-skip-permissions; opt-in to
     # --dangerously-skip-permissions via the -a / --unsafe / --bypass / -adskp flags.
+    # A resumed session runs as the account it last ran as (__claude_as_home),
+    # also when herdr resumes it after a restart.
+
+    set -l home (__claude_as_home $argv)
+    # Outside any block: a variable set in one ends with it.
+    test -n "$home"; and set -lx CLAUDE_CONFIG_DIR $home
 
     set -l first ""
     test (count $argv) -gt 0; and set first $argv[1]
