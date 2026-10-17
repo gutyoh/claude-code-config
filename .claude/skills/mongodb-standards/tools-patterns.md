@@ -33,7 +33,7 @@ mongoexport --uri="mongodb://localhost:27017/mydb" \
   --collection=users --query='{"status":"active"}' --out=active_users.json
 
 # Export with authentication
-mongoexport --uri="mongodb+srv://user:pass@cluster.mongodb.net/mydb" \
+mongoexport --uri="$MONGODB_URI" \
   --collection=orders --out=orders.json
 ```
 
@@ -80,7 +80,7 @@ mongodump --uri="mongodb://localhost:27017/mydb" \
   --archive=mydb_backup.archive --gzip
 
 # Dump from Atlas
-mongodump --uri="mongodb+srv://user:pass@cluster.mongodb.net/mydb" \
+mongodump --uri="$MONGODB_URI" \
   --out=./backup
 ```
 

@@ -34,8 +34,8 @@ mongosh "mongodb://localhost:27017/mydb"
 # With authentication
 mongosh "mongodb://user:password@localhost:27017/mydb?authSource=admin"
 
-# MongoDB Atlas
-mongosh "mongodb+srv://user:password@cluster.abc123.mongodb.net/mydb"
+# MongoDB Atlas (mongosh prompts for the password)
+mongosh "mongodb+srv://<cluster-host>/mydb" --username "<user>"
 
 # Environment variable
 mongosh "${MONGODB_URI}"
