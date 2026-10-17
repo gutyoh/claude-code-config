@@ -54,6 +54,7 @@ _load_conf_file() {
             icon_openai) CONF_ICON_OPENAI="${value}" ;;
             icon_muse) CONF_ICON_MUSE="${value}" ;;
             icon_style) CONF_ICON_STYLE="${value}" ;;
+            host_icon) CONF_HOST_ICON="${value}" ;;
             weekly_show_reset) CONF_WEEKLY_SHOW_RESET="${value}" ;;
             cc_status_position) CONF_CC_STATUS_POSITION="${value}" ;;
             cc_status_visibility) CONF_CC_STATUS_VISIBILITY="${value}" ;;

@@ -138,6 +138,7 @@ files another tool owns, the second for that profile alone. `claude-as` shares
 | `compact` | `true`, `false` | `true` | No labels, merged tokens |
 | `color_scope` | `percentage`, `full` | `percentage` | Color usage only or entire line |
 | `icon` | Unicode string or empty | `""` | Prefix icon |
+| `host_icon` | Unicode string or empty | `""` | Printed before the `host` component, with one space, in the host's style: for example U+F179 (`nf-fa-apple`), U+F315 (`nf-linux-raspberry_pi`) or U+F313 (`nf-linux-nixos`), which need a Nerd Font. Set it per machine in `statusline.d/` |
 | `icon_claude`, `icon_openai`, `icon_muse` | Unicode string or empty | `""` (use `icon`) | Prefix icon while the session's model is on that plan, for example `A\` for Claude, U+EC81 (`nf-cod-openai`) for OpenAI and U+F06E4 (`nf-md-infinity`) for Muse. Those two need a Nerd Font in the terminal; `֍` and `∞` do not |
 | `icon_style` | `plain`, `bold`, `bracketed`, `rounded`, `reverse`, `bold-color`, `angle`, `double-bracket` | `plain` | Icon styling |
 | `weekly_show_reset` | `true`, `false` | `false` | Show weekly reset countdown |

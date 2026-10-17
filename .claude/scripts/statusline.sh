@@ -101,6 +101,7 @@ CONF_ICON=""                       # Prefix icon: e.g. "✻", "A\\", "❋", or "
 CONF_ICON_CLAUDE=""                # Per plan, over icon: "A\\" for Claude, and the
 CONF_ICON_OPENAI=""                # Nerd Font glyphs U+EC81 (OpenAI) and U+F06E4 (Muse);
 CONF_ICON_MUSE=""                  # "֍" and "∞" need no Nerd Font
+CONF_HOST_ICON=""                  # Before the host name, for example a Nerd Font OS logo
 CONF_ICON_STYLE="plain"            # plain|bold|bracketed|rounded|reverse|bold-color|angle|double-bracket
 CONF_WEEKLY_SHOW_RESET="false"     # Show weekly reset countdown inline with weekly %
 CONF_CC_STATUS_POSITION="inline"   # inline | newline
