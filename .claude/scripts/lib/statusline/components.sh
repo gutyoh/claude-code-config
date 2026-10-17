@@ -132,6 +132,13 @@ render_component_email() {
     printf "%s" "${DATA_EMAIL}"
 }
 
+# The name the machine gives itself, so a rename shows up with no config.
+render_component_host() {
+    local name="${HOSTNAME:-}"
+    [[ -n "${name}" ]] || name=$(uname -n 2>/dev/null)
+    printf "%s" "${name%%.*}"
+}
+
 render_component_cc_status() {
     # Empty data — nothing to show
     [[ -z "${DATA_CC_STATUS}" ]] && return

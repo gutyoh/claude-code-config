@@ -187,6 +187,7 @@ function Get-StatuslinePreview {
                 if (-not $isCompact) { [void]$parts.Add("(`$2.99/hr)"); [void]$partKeys.Add("burn_rate") }
             }
             "email"        { [void]$parts.Add("user@email.com"); [void]$partKeys.Add("email") }
+            "host"         { [void]$parts.Add("devbox"); [void]$partKeys.Add("host") }
             "cc_status" {
                 $label = if ($script:StatuslineCcStatusVisibility -eq "problem_only") { "degraded" } else { "on" }
                 [void]$parts.Add($label); [void]$partKeys.Add("cc_status")

@@ -75,6 +75,7 @@ cc_status_color=full
 | `cost` | Session cost | `$5.21` | `$5.21` |
 | `burn_rate` | Cost per hour | `($2.99/hr)` | Hidden |
 | `email` | Account email | `user@email.com` | `user@email.com` |
+| `host` | Machine name, up to the first `.` | `devbox` | `devbox` |
 | `cc_status` | Claude Code service status | `on` / `degraded` | Same |
 | `version` | Claude Code version | `v2.0.37` | Same |
 | `lines` | Lines added/removed | `+2109 -103` | `+2109/-103` |
@@ -169,6 +170,29 @@ takes only the first stop around them.
 A background stays visible where Claude Code dims the status line's text. The
 style resumes after any color the component sets itself, and with
 `color_scope=full` the line color resumes after the styled component.
+
+## Show which machine a session runs on
+
+Add `host` to `components`, after `email` for example, to show the name the
+machine gives itself, cut at the first `.`: `hermann.local` shows `hermann`.
+It is read at every render, so renaming the machine needs no config change.
+On macOS, set the name `hostname` prints, or it may follow the network:
+
+```sh
+sudo scutil --set HostName "$(scutil --get LocalHostName)"
+```
+
+To give each machine its own color, put `style.host` in a file in
+`statusline.d/`, beside `statusline.conf`. Every `*.conf` file there is read in
+name order, after `statusline.conf` and before `statusline.local.conf`, so a
+tool that manages the machine can own its own file there without editing
+yours. `claude-as` shares the directory across accounts, since the machine is
+the same:
+
+```ini
+# ~/.claude/statusline.d/machine.conf
+style.host=bold fg:#A3CFEA
+```
 
 ## Verify the statusline
 

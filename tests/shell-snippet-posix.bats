@@ -171,10 +171,10 @@ stub_proxy() {
 @test "sourcing the snippet leaks no variables into the caller" {
     # The old version used `local model=...`; dropping `local` without also
     # dropping the variable would have leaked `model` into the user's shell.
+    command -v dash >/dev/null 2>&1 || skip "dash not available"
     stub_proxy
     local out
-    out="$(dash -c ". '$PROFILE'; clp >/dev/null 2>&1; echo \"model=[\${model:-}]\"" 2>&1 | tail -1)" ||
-        skip "dash not available"
+    out="$(dash -c ". '$PROFILE'; clp >/dev/null 2>&1; echo \"model=[\${model:-}]\"" 2>&1 | tail -1)"
     [[ "$out" == "model=[]" ]]
 }
 

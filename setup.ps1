@@ -84,7 +84,7 @@ $script:RepoDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 $script:AllComponentKeys = @(
     "model", "usage", "weekly", "reset", "tokens_in", "tokens_out", "tokens_cache",
-    "cost", "burn_rate", "email", "cc_status", "version", "lines", "session_time", "cwd"
+    "cost", "burn_rate", "email", "host", "cc_status", "version", "lines", "session_time", "cwd"
 )
 
 $script:AllComponentDescs = @(
@@ -98,6 +98,7 @@ $script:AllComponentDescs = @(
     "Session cost in USD",
     "Burn rate (USD/hr)",
     "Account email address",
+    "Machine name (devbox)",
     "Claude Code service status",
     "Claude Code version",
     "Lines added/removed",
@@ -242,7 +243,7 @@ if ($Help) {
     Write-Status ""
     Write-Status "Available components:"
     Write-Status "  model, usage, weekly, reset, tokens_in, tokens_out, tokens_cache,"
-    Write-Status "  cost, burn_rate, email, cc_status, version, lines, session_time, cwd"
+    Write-Status "  cost, burn_rate, email, host, cc_status, version, lines, session_time, cwd"
     Write-Status ""
     Write-Status "Available MCP servers:"
     Write-Status "  brave-search, tavily"

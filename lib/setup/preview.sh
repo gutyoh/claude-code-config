@@ -232,6 +232,10 @@ show_statusline_preview() {
                 parts+=("user@email.com")
                 part_keys+=("email")
                 ;;
+            host)
+                parts+=("devbox")
+                part_keys+=("host")
+                ;;
             cc_status)
                 local cc_preview_label="on"
                 # Show a problem label if problem_only to make preview meaningful
