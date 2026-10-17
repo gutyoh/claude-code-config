@@ -68,6 +68,8 @@ Add-Content "$HOME\.claude\mcp-keys.env" 'BRAVE_API_KEY=your-key', 'TAVILY_API_K
 ```
 
 Without keys everything else works, and `/web-search` uses Claude's built-in search.
+`/full-search` reads the same file, and also takes keys from the environment or
+[fnox](docs/how-to-read-full-pages.md#from-fnox-optional).
 
 **3. Check it**
 
@@ -159,7 +161,7 @@ Claude Code against OpenAI Codex or Antigravity models.
 | Skill | For |
 |---|---|
 | `web-search`, `brave-search`, `tavily-search` | One search with Claude's built-in tool, Brave Search or Tavily |
-| `full-search` | Rendered page text, JavaScript and PDFs included, through Firecrawl, Tavily or Bright Data, no keys needed |
+| `full-search` | Rendered page text, JavaScript and PDFs included, through Firecrawl, Tavily or Bright Data, and search through Tavily, Firecrawl or Brave; keyless tiers without keys |
 | `internet-research` | Research across Brave Search and Tavily |
 | `pr`, `pr-writing` | Pull requests and commit messages in Conventional Commits |
 | `pr-operations`, `pr-review` | Pull request operations and multi-agent review on GitHub, GitLab and Azure DevOps |

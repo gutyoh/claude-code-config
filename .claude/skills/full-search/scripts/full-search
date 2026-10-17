@@ -22,7 +22,7 @@
 #
 # Keys, all optional: FIRECRAWL_API_KEY, TAVILY_API_KEY, BRAVE_API_KEY and
 # BRIGHTDATA_API_TOKEN, each with an optional comma-separated *_POOL. When none
-# is set and fnox can resolve secrets here, the script reruns under `fnox exec`.
+# is set, they come from ~/.claude/mcp-keys.env, else from fnox.
 #
 # Exit: 0 every page or the search succeeded, 1 some failed, 2 usage error.
 
@@ -441,6 +441,25 @@ bounded() {
     return "${rc}"
 }
 
+readonly KEY_NAMES="FIRECRAWL_API_KEY FIRECRAWL_API_KEY_POOL TAVILY_API_KEY TAVILY_API_KEY_POOL BRAVE_API_KEY BRAVE_API_KEY_POOL BRIGHTDATA_API_TOKEN BRIGHTDATA_API_TOKEN_POOL"
+
+# With no key in the environment, reads the search keys, and only those, from
+# the file setup's search servers use. The file is parsed, never sourced.
+maybe_keys_file() {
+    local file="${MCP_KEYS_ENV_FILE:-${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/mcp-keys.env}"
+    [[ -n "${FIRECRAWL_API_KEY:-}${TAVILY_API_KEY:-}${BRAVE_API_KEY:-}${BRIGHTDATA_API_TOKEN:-}" ]] && return
+    [[ -r "${file}" ]] || return
+    local line name value
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        [[ "${line}" =~ ^[[:space:]]*(export[[:space:]]+)?([A-Z_]+)=(.*)$ ]] || continue
+        name="${BASH_REMATCH[2]}" value="${BASH_REMATCH[3]}"
+        [[ " ${KEY_NAMES} " == *" ${name} "* ]] || continue
+        value="${value%$'\r'}"
+        [[ "${value}" =~ ^\"(.*)\"$ || "${value}" =~ ^\'(.*)\'$ ]] && value="${BASH_REMATCH[1]}"
+        [[ -n "${value}" ]] && printf -v "${name}" '%s' "${value}" && export "${name?}"
+    done <"${file}"
+}
+
 # With no key in the environment, takes the search keys, and only those, from
 # fnox when it can resolve them here.
 maybe_fnox() {
@@ -449,8 +468,7 @@ maybe_fnox() {
     command -v fnox >/dev/null 2>&1 || return
     bounded 10 fnox list >/dev/null || return
     local name value
-    for name in FIRECRAWL_API_KEY FIRECRAWL_API_KEY_POOL TAVILY_API_KEY TAVILY_API_KEY_POOL \
-        BRAVE_API_KEY BRAVE_API_KEY_POOL BRIGHTDATA_API_TOKEN BRIGHTDATA_API_TOKEN_POOL; do
+    for name in ${KEY_NAMES}; do
         value=$(bounded 10 fnox get "${name}") || continue
         [[ -n "${value}" ]] && printf -v "${name}" '%s' "${value}" && export "${name?}"
     done
@@ -460,6 +478,7 @@ main() {
     local query="" count=5 read_top=0 urls=() show_status=0
     VIA=""
     KEY=""
+    maybe_keys_file
     maybe_fnox
     while (($#)); do
         case "$1" in

@@ -127,7 +127,8 @@ main() {
     local rest="${cmd}" arg path
     local file_flags='(--body-file|--file|-F)'
     [[ "${kind}" == "gh" && "${cmd}" =~ gh[[:space:]]+api ]] && file_flags='(--input)'
-    while [[ "${rest}" =~ (^|[[:space:]])${file_flags}([[:space:]]+|=)(\"[^\"]*\"|\'[^\']*\'|[^[:space:]]+) ]]; do
+    # An unquoted path ends at the first operator: `--body-file b.md; echo` reads b.md.
+    while [[ "${rest}" =~ (^|[[:space:]])${file_flags}([[:space:]]+|=)(\"[^\"]*\"|\'[^\']*\'|[^[:space:]\;\&\|]+) ]]; do
         arg="${BASH_REMATCH[4]}"
         rest="${rest#*"${BASH_REMATCH[0]}"}"
         [[ "${arg}" == "-" ]] && continue
@@ -138,7 +139,7 @@ main() {
     done
     # gh api fields read with @file.
     rest="${cmd}"
-    while [[ "${rest}" =~ (-F|--field)[[:space:]]+[^=[:space:]]+=@([^[:space:]]+) ]]; do
+    while [[ "${rest}" =~ (-F|--field)[[:space:]]+[^=[:space:]]+=@([^[:space:]\;\&\|]+) ]]; do
         arg="${BASH_REMATCH[2]}"
         rest="${rest#*"${BASH_REMATCH[0]}"}"
         path=$(literal_path "${arg}" "${dir}") || block "write @${arg} as a literal path so the text it holds can be checked"
