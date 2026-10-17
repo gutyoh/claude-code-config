@@ -23,6 +23,7 @@ opus-5.5 | 32%/72% (39h12m) | 2h13m | 1.6k/68.1k/72.3M | $19.51 | user@example.c
 | **[Hooks](docs/hooks.md)** | Session names, `git pull --rebase`, IDE diagnostics, a database guardrail, and API key guards for the search servers |
 | **[Status line](docs/how-to-configure-statusline.md)** | Model, 5-hour and weekly usage, reset times, tokens, cost and service status, sized to the terminal |
 | **[MCP search](docs/how-to-add-mcp-server.md)** | Brave Search and Tavily, with key pools that rotate when one runs out of quota |
+| **[Full-page reading](docs/how-to-read-full-pages.md)** | `/full-search` reads JavaScript pages and PDFs through Firecrawl, Tavily or Bright Data, keys and fnox optional |
 | **Command-line tools** | [`claude-as`](docs/how-to-use-multiple-accounts.md) for several accounts, [`claude-permissions-audit`](docs/how-to-audit-permissions.md), [`claude-proxy`](docs/how-to-use-the-proxy-launcher.md), `mcp-key-rotate` and `mcp-env-inject` |
 | **Shell and terminal presets** | Optional [fish](docs/how-to-configure-fish.md) and [Ghostty](docs/how-to-configure-ghostty.md) configurations |
 
@@ -158,6 +159,7 @@ Claude Code against OpenAI Codex or Antigravity models.
 | Skill | For |
 |---|---|
 | `web-search`, `brave-search`, `tavily-search` | One search with Claude's built-in tool, Brave Search or Tavily |
+| `full-search` | Rendered page text, JavaScript and PDFs included, through Firecrawl, Tavily or Bright Data, no keys needed |
 | `internet-research` | Research across Brave Search and Tavily |
 | `pr`, `pr-writing` | Pull requests and commit messages in Conventional Commits |
 | `pr-operations`, `pr-review` | Pull request operations and multi-agent review on GitHub, GitLab and Azure DevOps |
@@ -179,7 +181,7 @@ Claude Code against OpenAI Codex or Antigravity models.
 | | |
 |---|---|
 | **Tutorial** | [Getting started](docs/getting-started.md) |
-| **How-to guides** | [Configure the status line](docs/how-to-configure-statusline.md) · [Use multiple accounts](docs/how-to-use-multiple-accounts.md) · [Sync across machines](docs/how-to-sync-across-machines.md) · [Audit permission rules](docs/how-to-audit-permissions.md) · [Use the proxy launcher](docs/how-to-use-the-proxy-launcher.md) · [Add an MCP server](docs/how-to-add-mcp-server.md) · [Add an agent](docs/how-to-add-agent.md) · [Add a skill](docs/how-to-add-skill.md) · [Run skill evals](docs/how-to-run-evals.md) · [Configure fish](docs/how-to-configure-fish.md) · [Configure Ghostty](docs/how-to-configure-ghostty.md) |
+| **How-to guides** | [Configure the status line](docs/how-to-configure-statusline.md) · [Use multiple accounts](docs/how-to-use-multiple-accounts.md) · [Sync across machines](docs/how-to-sync-across-machines.md) · [Audit permission rules](docs/how-to-audit-permissions.md) · [Use the proxy launcher](docs/how-to-use-the-proxy-launcher.md) · [Add an MCP server](docs/how-to-add-mcp-server.md) · [Read full pages](docs/how-to-read-full-pages.md) · [Add an agent](docs/how-to-add-agent.md) · [Add a skill](docs/how-to-add-skill.md) · [Run skill evals](docs/how-to-run-evals.md) · [Configure fish](docs/how-to-configure-fish.md) · [Configure Ghostty](docs/how-to-configure-ghostty.md) |
 | **Reference** | [Configuration](docs/configuration.md) · [Hooks](docs/hooks.md) · [Project structure](docs/project-structure.md) |
 | **Explanation** | [Architecture](docs/architecture.md) · [Design decisions](docs/design-decisions.md) · [Testing and portability](docs/testing.md) · [Branching strategies](docs/branching-strategies.md) |
 
