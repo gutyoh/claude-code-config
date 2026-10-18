@@ -56,7 +56,8 @@ and the last line for a name wins. An empty value leaves that name to fnox.
 ### From fnox (optional)
 
 When [fnox](https://fnox.jdx.dev) is installed, the script asks it for the names still missing that its
-listing shows, each with a 10-second limit and no prompt. fnox runs from your home directory, so a
+listing shows, each with a 10-second limit and no prompt, and about 15 seconds in all. A store too slow
+for that leaves the later names, Brave and Bright Data first, to the keyless tiers. fnox runs from your home directory, so a
 `fnox.toml` in a repository you cloned never supplies keys, unless your home directory is itself that
 checkout, as in some CI containers; there set `FULL_SEARCH_FNOX=0`. Import your store from fnox's
 global config, `~/.config/fnox/config.toml`:
