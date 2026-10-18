@@ -41,18 +41,25 @@ Keys raise those caps. Set any of these in the environment:
 
 A pool is a comma-separated list. The single variable is tried first, then the pool.
 
+Each of the eight names comes from the first place that has it: the environment, then
+`mcp-keys.env`, then fnox. A Tavily key in one place does not hide Firecrawl keys in another. A
+provider tries its single key first, then its pool, whichever place each came from. To use only the
+environment's keys, set `FULL_SEARCH_FNOX=0` and leave the file out.
+
 ### From mcp-keys.env
 
-When none of the variables is set, the script reads those eight names, and only those, from
-`~/.claude/mcp-keys.env` (or `$MCP_KEYS_ENV_FILE`), the file the [quick start](../README.md#quick-start)
-puts the Brave and Tavily keys in. The file is parsed, never run.
+The script reads those eight names, and only those, from `~/.claude/mcp-keys.env` (or
+`$MCP_KEYS_ENV_FILE`), the file the [quick start](../README.md#quick-start) puts the Brave and Tavily
+keys in. The file is parsed, never run, the way a shell reads it: a value in quotes or ended by ` #`,
+and the last line for a name wins. An empty value leaves that name to fnox.
 
 ### From fnox (optional)
 
-When neither the environment nor that file holds a key and [fnox](https://fnox.jdx.dev) can resolve
-secrets in the current directory, the script asks fnox for the same eight names, with a 10-second limit
-and no prompt. Nothing changes when fnox is not installed. To resolve them from every directory, import
-the store from fnox's global config, `~/.config/fnox/config.toml`:
+When [fnox](https://fnox.jdx.dev) is installed, the script asks it for the names still missing that its
+listing shows, each with a 10-second limit and no prompt. fnox runs from your home directory, so a
+`fnox.toml` in a repository you cloned never supplies keys, unless your home directory is itself that
+checkout, as in some CI containers; there set `FULL_SEARCH_FNOX=0`. Import your store from fnox's
+global config, `~/.config/fnox/config.toml`:
 
 ```toml
 import = ["/path/to/your/fnox.toml"]
@@ -66,7 +73,9 @@ never the key:
 
 | Answer | Rest |
 |--------|------|
-| Out of credit: Tavily 432/433, Firecrawl 402, Brave quota 429 | Until the provider's reset, or the 1st of next month |
+| Out of credit: Firecrawl 402 | Until that account renews, from Firecrawl's credit-usage endpoint, which costs no credit; a day when it does not answer |
+| Spend limit: Firecrawl 402 with credit left | One hour |
+| Out of credit: Tavily 432/433, Brave quota 429 | Tavily until the 1st of next month, its reset; Brave until its `X-RateLimit-Reset` |
 | Rejected: 401 | One week |
 | Rate limited: 429 | Its `Retry-After` or `retry_after_seconds`, else 60 s |
 | Server error, site refused (403), page error | No rest |

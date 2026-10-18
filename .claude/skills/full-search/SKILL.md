@@ -36,9 +36,9 @@ then a plain fetch. Firecrawl and Tavily work without keys.
 - A `fail` that tried every provider means the site blocks all of them (Cloudflare challenges do).
   Say so and offer the browser route. Never present a guess as the page's content.
 - Keys are optional: `FIRECRAWL_API_KEY`, `TAVILY_API_KEY`, `BRAVE_API_KEY`, `BRIGHTDATA_API_TOKEN`,
-  each with a comma-separated `*_POOL`. With none set, the script runs itself under `fnox exec`
-  when fnox can resolve secrets. It never prints a key and keeps them out of the process list.
-- Rotation is automatic. A key that is out of credit rests until the month turns, a rejected
+  each with a comma-separated `*_POOL`. Each name comes from the environment, else
+  `~/.claude/mcp-keys.env`, else fnox. It never prints a key and keeps them out of the process list.
+- Rotation is automatic. A key that is out of credit rests until its account renews, a rejected
   one for a week, a throttled one for its retry time, and the next key or the keyless tier
   answers. The cooldowns are shared by every agent on the machine. When the user asks about
   keys or quota, run `full-search --status`: it shows each key's last 4 characters and why it rests.
