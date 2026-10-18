@@ -347,6 +347,18 @@ read_url() { run bash "$SCRIPT" "$@"; }
 }
 
 # bats test_tags=unit
+@test "a renewal date written with a +00:00 offset is read like one ending in Z" {
+    renew=$(($(date +%s) + 9 * 86400))
+    stamp=$(date -u -d "@$renew" +%Y-%m-%dT%H:%M:%S 2>/dev/null || date -u -r "$renew" +%Y-%m-%dT%H:%M:%S)
+    export FIRECRAWL_API_KEY=k1 FAKE_KEY_k1='402|{}' FAKE_FIRECRAWL_KEYLESS="200|$(fc_ok "$long")"
+    export FAKE_FIRECRAWL_USAGE="200|{\"data\":{\"remainingCredits\":0,\"billingPeriodEnd\":\"${stamp}+00:00\"}}"
+    read_url --via firecrawl https://example.com/a
+    until=$(awk '$4 == "exhausted" {print $3}' "$COOL")
+    [ "$until" -ge "$((renew - 5))" ]
+    [ "$until" -le "$((renew + 5))" ]
+}
+
+# bats test_tags=unit
 @test "a Firecrawl 402 with credit left is the key's spend limit, so it rests an hour" {
     export FIRECRAWL_API_KEY=k1 FIRECRAWL_API_KEY_POOL=k2 FAKE_KEY_k1='402|{}' FAKE_KEY_k2="200|$(fc_ok "$long")"
     export FAKE_FIRECRAWL_USAGE='200|{"success":true,"data":{"remainingCredits":250,"billingPeriodEnd":"2099-01-01T00:00:00Z"}}'
@@ -360,7 +372,7 @@ read_url() { run bash "$SCRIPT" "$@"; }
 
 # bats test_tags=unit
 @test "a Firecrawl 402 whose balance cannot be read rests a day, then asks again" {
-    for usage in '500|' '200|not json' '200|{"data":{"remainingCredits":0,"billingPeriodEnd":"garbage"}}' \
+    for usage in '500|' '200|not json' '200|{"data":{"remainingCredits":0,"billingPeriodEnd":"2026-11-01"}}' '200|{"data":{"remainingCredits":0,"billingPeriodEnd":"garbage"}}' \
         '200|{"data":{"remainingCredits":0,"billingPeriodEnd":"2001-01-01T00:00:00Z"}}' \
         '200|{"data":{"remainingCredits":0,"billingPeriodEnd":"2199-01-01T00:00:00Z"}}'; do
         rm -f "$COOL"
@@ -652,7 +664,7 @@ read_url() { run bash "$SCRIPT" "$@"; }
     export FULL_SEARCH_FNOX=1
     start=$(date +%s)
     run bash "$SCRIPT" --status
-    [ "$(($(date +%s) - start))" -lt 25 ]
+    [ "$(($(date +%s) - start))" -lt 19 ]
     [ "$(grep -c '^get' "$BATS_TEST_TMPDIR/fnox.log")" -eq 2 ]
 }
 
@@ -663,6 +675,17 @@ read_url() { run bash "$SCRIPT" "$@"; }
     run bash "$SCRIPT" --status
     sleep 1
     [ "$(ps -eo args | awk '$1 == "sleep" && $2 == "31"' | wc -l)" -eq 0 ]
+}
+
+# bats test_tags=unit
+@test "a fnox that ignores TERM is killed two seconds after its timeout" {
+    stub_bin fnox 'case "$1" in list) printf " TAVILY_API_KEY age\n" ;; get) trap "" TERM; exec sleep 33 ;; esac'
+    export FULL_SEARCH_FNOX=1
+    start=$(date +%s)
+    run bash "$SCRIPT" --status
+    [ "$(($(date +%s) - start))" -lt 16 ]
+    sleep 1
+    [ "$(ps -eo args | awk '$1 == "sleep" && $2 == "33"' | wc -l)" -eq 0 ]
 }
 
 # bats test_tags=unit

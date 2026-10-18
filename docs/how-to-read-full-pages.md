@@ -50,13 +50,13 @@ environment's keys, set `FULL_SEARCH_FNOX=0` and leave the file out.
 
 The script reads those eight names, and only those, from `~/.claude/mcp-keys.env` (or
 `$MCP_KEYS_ENV_FILE`), the file the [quick start](../README.md#quick-start) puts the Brave and Tavily
-keys in. The file is parsed, never run, the way a shell reads it: a value in quotes or ended by ` #`,
-and the last line for a name wins. An empty value leaves that name to fnox.
+keys in. The file is parsed, never run: a value is what sits between its quotes, or what comes before
+` #`, and the last line for a name wins. An empty value leaves that name to fnox.
 
 ### From fnox (optional)
 
 When [fnox](https://fnox.jdx.dev) is installed, the script asks it for the names still missing that its
-listing shows, each with a 10-second limit and no prompt, and about 15 seconds in all. A store too slow
+listing shows, with no prompt, each get within 10 seconds and all of them within about 15. A store too slow
 for that leaves the later names, Brave and Bright Data first, to the keyless tiers. fnox runs from your home directory, so a
 `fnox.toml` in a repository you cloned never supplies keys, unless your home directory is itself that
 checkout, as in some CI containers; there set `FULL_SEARCH_FNOX=0`. Import your store from fnox's

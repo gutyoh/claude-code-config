@@ -190,8 +190,11 @@ firecrawl_rest() {
         if [[ "${STATUS}" == 200 ]]; then
             read -r left end < <(printf '%s' "${BODY}" | jq -r '.data
                 | [(.remainingCredits // 0 | floor),
-                   (.billingPeriodEnd // "" | sub("\\.[0-9]+"; "") | fromdateiso8601? // 0 | floor)]
+                   (.billingPeriodEnd // "" | sub("\\.[0-9]+"; "") | sub("\\+00:?00$"; "Z")
+                    | fromdateiso8601? // 0 | floor)]
                 | @tsv' 2>/dev/null)
+            # A Windows jq ends its line with a carriage return.
+            end="${end%$'\r'}"
             [[ "${left}" =~ ^-?[0-9]+$ && "${end}" =~ ^[0-9]+$ ]] || left="" end=0
             [[ -n "${left}" ]] && ((left > 0)) && printf '3600 limited' && return
             ((end > t + 60 && end < t + 40 * 86400)) && printf '%s exhausted' $((end - t)) && return
@@ -460,11 +463,15 @@ bounded() {
     pid=$!
     # The watcher keeps no output open, or $(...) would wait for its sleep.
     # Stopped early, it stops its sleep too, so no sleep outlives the call.
+    # What ignores TERM gets KILL two seconds later.
     (
-        trap 'kill "${nap:-}" 2>/dev/null; exit 0' TERM
+        trap 'kill $(jobs -p) 2>/dev/null; exit 0' TERM
         sleep "${secs}" &
-        nap=$!
-        wait "${nap}" && kill "${pid}" 2>/dev/null
+        wait "$!" || exit 0
+        kill "${pid}" 2>/dev/null
+        sleep 2 &
+        wait "$!" || exit 0
+        kill -9 "${pid}" 2>/dev/null
     ) >/dev/null 2>&1 </dev/null &
     watcher=$!
     # bash 3.2 reports a killed job on stderr; the braces keep it out.
@@ -487,8 +494,8 @@ missing_keys() {
 }
 
 # Fills each search key the environment lacks, and only those, from the file
-# setup's search servers use. The file is parsed, never sourced, and read as a
-# shell would: a quoted value or one ended by " #", and the last line wins.
+# setup's search servers use. The file is parsed, never sourced: a value is
+# what sits between its quotes, or what comes before " #", and the last line wins.
 maybe_keys_file() {
     local file="${MCP_KEYS_ENV_FILE:-${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/mcp-keys.env}"
     [[ -r "${file}" ]] || return
@@ -520,7 +527,7 @@ fnox_home() { cd "${HOME}" && exec fnox "$@"; }
 # for, unless its listing names none of them.
 maybe_fnox() {
     [[ "${FULL_SEARCH_FNOX:-1}" == 0 ]] && return
-    local wanted listed name value deadline=$((SECONDS + 15))
+    local wanted listed name value limit deadline=$((SECONDS + 15))
     wanted=$(missing_keys)
     [[ -n "${wanted}" ]] || return
     command -v fnox >/dev/null 2>&1 || return
@@ -534,11 +541,14 @@ maybe_fnox() {
     done
     for name in ${wanted}; do
         ((known)) && [[ "${listed}" != *$'\n'"${name}"$'\n'* ]] && continue
-        # A slow store costs at most about 15 s per run, whatever each get takes.
-        ((SECONDS < deadline)) || return
-        value=$(bounded 10 fnox_home get "${name}")
+        # A slow store costs at most about 15 s per run: each get has what is left.
+        limit=$((deadline - SECONDS))
+        ((limit > 0)) || return
+        ((limit > 10)) && limit=10
+        value=$(bounded "${limit}" fnox_home get "${name}")
         # A get that ran out of time (killed: above 128) means the next would too.
         case $? in 0) ;; 129 | 1[3-9][0-9] | 2[0-9][0-9]) return ;; *) continue ;; esac
+        value="${value%$'\r'}"
         [[ -n "${value}" ]] && printf -v "${name}" '%s' "${value}" && export "${name?}"
     done
 }
