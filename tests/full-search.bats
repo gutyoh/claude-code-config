@@ -63,6 +63,8 @@ dns_public() { stub_bin getent 'echo "93.184.216.34 STREAM x"'; }
 fc_ok() { jq -nc --arg m "$1" '{success:true, data:{markdown:$m, metadata:{statusCode:200}}}'; }
 tv_ok() { jq -nc --arg m "$1" '{results:[{raw_content:$m}]}'; }
 read_url() { run bash "$SCRIPT" "$@"; }
+# Git for Windows' bash: chmod does not reach NTFS modes, and ln -s copies.
+on_windows() { case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac; return 1; }
 
 # bats test_tags=unit
 @test "Firecrawl answers first and the page lands in a file" {
@@ -281,11 +283,18 @@ read_url() { run bash "$SCRIPT" "$@"; }
 
 # bats test_tags=unit
 @test "without jq it stops with a usage error" {
+    # Each tool's own directory keeps the libraries beside it, which Git Bash's
+    # bash needs; where jq shares one of them, the tools are linked one by one.
+    local path="$STUB_DIR" dir t p
     mkdir -p "$BATS_TEST_TMPDIR/nojq"
     for t in bash curl sed tr wc od date mkdir awk grep cat head; do
-        p=$(command -v "$t") && ln -sf "$p" "$BATS_TEST_TMPDIR/nojq/$t"
+        p=$(command -v "$t") || continue
+        ln -sf "$p" "$BATS_TEST_TMPDIR/nojq/$t"
+        dir=$(dirname "$p")
+        [[ ":$path:" == *":$dir:"* ]] || path="$path:$dir"
     done
-    run env PATH="$STUB_DIR:$BATS_TEST_TMPDIR/nojq" bash "$SCRIPT" https://example.com/a
+    PATH="$path" command -v jq >/dev/null && path="$STUB_DIR:$BATS_TEST_TMPDIR/nojq"
+    run env PATH="$path" bash "$SCRIPT" https://example.com/a
     [ "$status" -eq 2 ]
     [[ "$output" == *"jq is required"* ]]
 }
@@ -753,6 +762,8 @@ STUB
     run bash "$SCRIPT" https://example.com/a
     two=$(awk '{print $5}' <<<"$output")
     [ "${one%/*}" != "${two%/*}" ]
+    # On Windows the per-user temp directory's ACL keeps it private instead.
+    on_windows && return 0
     [ "$(file_mode "${one%/*}")" = 700 ]
     [ "$(file_mode "$one")" = 600 ]
 }
@@ -887,6 +898,7 @@ STUB
     export TMPDIR="$BATS_TEST_TMPDIR/tmp"
     mkdir -p "$TMPDIR" "$BATS_TEST_TMPDIR/elsewhere"
     ln -s "$BATS_TEST_TMPDIR/elsewhere" "$TMPDIR/full-search-$(id -u)"
+    [ -L "$TMPDIR/full-search-$(id -u)" ] || skip "ln -s made a copy here, not a symlink"
     run bash "$SCRIPT" https://example.com/a
     [ "$status" -eq 2 ]
     [[ "$output" == *"unsafe output directory"* ]]
