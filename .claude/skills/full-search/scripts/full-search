@@ -459,7 +459,13 @@ bounded() {
     "$@" </dev/null >"${out}" 2>/dev/null &
     pid=$!
     # The watcher keeps no output open, or $(...) would wait for its sleep.
-    (sleep "${secs}" && kill "${pid}" 2>/dev/null) >/dev/null 2>&1 </dev/null &
+    # Stopped early, it stops its sleep too, so no sleep outlives the call.
+    (
+        trap 'kill "${nap:-}" 2>/dev/null; exit 0' TERM
+        sleep "${secs}" &
+        nap=$!
+        wait "${nap}" && kill "${pid}" 2>/dev/null
+    ) >/dev/null 2>&1 </dev/null &
     watcher=$!
     # bash 3.2 reports a killed job on stderr; the braces keep it out.
     { wait "${pid}"; } 2>/dev/null
@@ -506,8 +512,9 @@ maybe_keys_file() {
 
 # fnox runs from HOME, so it reads the global config and its imports: a
 # fnox.toml in a cloned repo could name its owner's keys, or send a vault
-# token to its owner's server.
-fnox_home() { cd "${HOME}" && fnox "$@"; }
+# token to its owner's server. It runs only as bounded's background job, and
+# exec makes that job fnox itself, so bash 3.2's kill on timeout reaches it.
+fnox_home() { cd "${HOME}" && exec fnox "$@"; }
 
 # Fills each search key still missing, and only those, from fnox. Each get decrypts, so only the names fnox lists are asked
 # for, unless its listing names none of them.

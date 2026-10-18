@@ -657,6 +657,15 @@ read_url() { run bash "$SCRIPT" "$@"; }
 }
 
 # bats test_tags=unit
+@test "a fnox that hangs is killed at its timeout, not left running" {
+    stub_bin fnox 'case "$1" in list) printf " TAVILY_API_KEY age\n" ;; get) exec sleep 31 ;; esac'
+    export FULL_SEARCH_FNOX=1
+    run bash "$SCRIPT" --status
+    sleep 1
+    [ "$(ps -eo args | awk '$1 == "sleep" && $2 == "31"' | wc -l)" -eq 0 ]
+}
+
+# bats test_tags=unit
 @test "fnox's output never stays in a temp file, after an answer or a timeout" {
     export TMPDIR="$BATS_TEST_TMPDIR/tmp" FULL_SEARCH_FNOX=1
     mkdir -p "$TMPDIR"
