@@ -237,6 +237,18 @@ stop_own() {
 }
 
 # bats test_tags=unit
+@test "a check stopped midway leaves no lock behind" {
+    own_hook
+    entry "${NAME}" hook ""
+    CLAUDE_REMOTE_TITLE_FOREGROUND= CLAUDE_REMOTE_TITLE_WAIT=20 fire
+    sleep 1
+    [ -d "${STATE}/${SID}.lock" ]
+    stop_own
+    sleep 1
+    [ ! -d "${STATE}/${SID}.lock" ]
+}
+
+# bats test_tags=unit
 @test "a live lock makes a later event return without sending" {
     mkdir -p "${STATE}/${SID}.lock"
     fire

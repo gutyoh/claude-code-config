@@ -14,11 +14,12 @@
 #
 # The check waits for the session's remote id in <config>/sessions/<pid>.json,
 # then sets the remote title to the session's name, once per remote session
-# and name, with one check per session at a time. Only names someone chose count: /rename, --name, a hook such as
-# session-name.sh, or another session; an unnamed session is left alone. It
-# never refreshes the login: with an expired token it does nothing. The token
-# reaches curl on stdin, never in the process list. Any error prints nothing
-# and exits 0, so a session always starts.
+# and name, with one check per session at a time. Only names someone chose
+# count: /rename, --name, a hook such as session-name.sh, or another session;
+# an unnamed session is left alone. It never refreshes the login: with an
+# expired token it does nothing. The token reaches curl on stdin, never in the
+# process list. Any error prints nothing and exits 0, so a session always
+# starts.
 #
 # The endpoint, PUT /v1/code/sessions/<id>, is not documented; if it changes,
 # this does nothing and Remote Control keeps its own title.
@@ -105,8 +106,11 @@ check() {
         rm -rf "${lock}"
         mkdir "${lock}" 2>/dev/null || return 0
     fi
+    # A global: an EXIT trap runs after this function's locals are gone, and
+    # a check killed midway must not hold the lock until it goes stale.
+    LOCK_DIR="${lock}"
+    trap 'rm -rf "${LOCK_DIR:-}"' EXIT
     sync_title "${session}" "${wait}"
-    rm -rf "${lock}"
 }
 
 sync_title() {
