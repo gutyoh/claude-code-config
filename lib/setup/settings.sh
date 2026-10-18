@@ -131,7 +131,8 @@ PYTHON_SCRIPT
 }
 
 # Session naming (hooks/session-name.sh) needs one entry on each of two events,
-# and hooks/session-account.sh one on every session start; an entry already
+# hooks/session-account.sh one on every session start, and
+# hooks/session-remote-title.sh one on every start and prompt; an entry already
 # naming a script is left as it is.
 configure_session_name_hooks() {
     python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
@@ -145,6 +146,8 @@ wanted = (
     ('SessionStart', {'matcher': 'startup'}, 'session-name.sh'),
     ('UserPromptSubmit', {'matcher': ''}, 'session-name.sh'),
     ('SessionStart', {'matcher': ''}, 'session-account.sh'),
+    ('SessionStart', {'matcher': ''}, 'session-remote-title.sh'),
+    ('UserPromptSubmit', {'matcher': ''}, 'session-remote-title.sh'),
 )
 
 try:

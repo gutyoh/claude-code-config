@@ -97,6 +97,7 @@ Dot-sourced by `setup.ps1`. PowerShell port of `lib/setup/` with arrow-key TUI, 
 | `refresh-usage-cache.sh` | PreToolUse + Stop | `.*` and `""` | Background Haiku API ping for usage data |
 | `session-name.sh` | SessionStart + UserPromptSubmit | `startup` | Names sessions `<provider>-<start time>`; swaps the prefix after a model switch |
 | `session-account.sh` | SessionStart | `""` | Records each session's account for `claude-as`; warns when a resume changes it |
+| `session-remote-title.sh` | SessionStart + UserPromptSubmit | `""` | Gives the session's Remote Control entry the session's name |
 
 ### .claude/scripts/
 
@@ -204,6 +205,7 @@ place and runs its [stop-nudge hook](hooks.md#stop-nudge).
 | `refresh-usage-cache.bats` | Usage cache refresh hook |
 | `session-name.bats` | Session name hook, statusline model record, installer entries |
 | `session-account.bats` | Session account record and the warning on a resume under another account |
+| `session-remote-title.bats` | Remote Control title: once per remote session and name, login kept off argv, never refreshed |
 | `cc-status.bats` | Claude Code service status |
 | `claude-config-dir.bats` | `CLAUDE_CONFIG_DIR`: install target, settings commands, symlinked rc files |
 | `managed-entries.bats` | Per-entry install, legacy link migration, profile chains |

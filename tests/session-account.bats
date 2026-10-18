@@ -104,5 +104,5 @@ start() {
 }
 
 @test "the repo settings run it on every session start" {
-    [ "$(jq -r '.hooks.SessionStart[] | select(.matcher == "") | .hooks[].command' "${REPO_DIR}/.claude/settings.json")" = "~/.claude/hooks/session-account.sh" ]
+    [ "$(jq -r '.hooks.SessionStart[] | select(.matcher == "") | .hooks[0].command' "${REPO_DIR}/.claude/settings.json")" = "~/.claude/hooks/session-account.sh" ]
 }

@@ -62,8 +62,9 @@ function Update-IdeHook {
 function Update-SessionNameHook {
     <#
     .SYNOPSIS
-    Add the session naming and account hooks to settings.json (merge mode); an
-    entry already naming hooks/session-name.sh or session-account.sh is left as it is.
+    Add the session naming, account and remote title hooks to settings.json
+    (merge mode); an entry already naming hooks/session-name.sh,
+    session-account.sh or session-remote-title.sh is left as it is.
     #>
     try {
         $settings = Read-Utf8Text $script:SettingsJson | ConvertFrom-Json
@@ -75,7 +76,9 @@ function Update-SessionNameHook {
         foreach ($wanted in @(
                 @{ Event = "SessionStart"; Matcher = "startup"; Script = "session-name.sh" },
                 @{ Event = "UserPromptSubmit"; Matcher = ""; Script = "session-name.sh" },
-                @{ Event = "SessionStart"; Matcher = ""; Script = "session-account.sh" }
+                @{ Event = "SessionStart"; Matcher = ""; Script = "session-account.sh" },
+                @{ Event = "SessionStart"; Matcher = ""; Script = "session-remote-title.sh" },
+                @{ Event = "UserPromptSubmit"; Matcher = ""; Script = "session-remote-title.sh" }
             )) {
             $entries = @($settings.hooks.($wanted.Event) | Where-Object { $_ })
             $present = $false

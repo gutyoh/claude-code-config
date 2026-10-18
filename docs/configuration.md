@@ -38,6 +38,7 @@ each one does.
 | `SessionStart` | `startup` | `session-name.sh` | Record when a session started (see [Session names](#session-names)) |
 | `UserPromptSubmit` | `""` | `session-name.sh` | Name the session once, at its first prompt |
 | `SessionStart` | `""` | `session-account.sh` | Record the session's account; warn when a resume changes it (see [Session accounts](hooks.md#session-accounts)) |
+| `SessionStart`, `UserPromptSubmit` | `""` | `session-remote-title.sh` | Give the session's Remote Control entry its name (see [Remote Control titles](hooks.md#remote-control-titles)) |
 
 #### Plugin hooks
 
@@ -198,6 +199,9 @@ All optional: without them the search servers stay off, `/web-search` uses the b
 | `CLAUDE_SESSION_NAME` | — | `off` disables [session names](#session-names) |
 | `CLAUDE_SESSION_NAME_TOPIC` | — | `off` names sessions without a topic |
 | `CLAUDE_SESSION_NAME_MODEL` | `haiku` | Model that names the topic |
+| `CLAUDE_REMOTE_TITLE` | — | `off` stops [Remote Control titles](hooks.md#remote-control-titles) |
+| `CLAUDE_REMOTE_TITLE_WAIT` | `90` | Seconds the remote title hook waits for the session's remote id |
+| `CLAUDE_REMOTE_TITLE_HTTPS_PROXY` | — | Proxy for the remote title request; empty means direct; unset, `STATUSLINE_HTTPS_PROXY` applies |
 | `MCP_KEYS_ENV_FILE` | `<config dir>/mcp-keys.env` | Where `mcp-env-inject` and `mcp-key-rotate` read MCP keys |
 
 ### A second profile

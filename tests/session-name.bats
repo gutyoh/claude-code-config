@@ -254,9 +254,12 @@ statusline_record() {
     [ "$status" -eq 0 ]
     [[ "${output}" == *"already configured"* ]]
 
-    [ "$(jq '.hooks.SessionStart | length' "${SETTINGS_JSON}")" -eq 3 ]
+    [ "$(jq '.hooks.SessionStart | length' "${SETTINGS_JSON}")" -eq 4 ]
     [ "$(jq -r '.hooks.SessionStart[2].matcher' "${SETTINGS_JSON}")" = "" ]
     [ "$(jq -r '.hooks.SessionStart[2].hooks[0].command' "${SETTINGS_JSON}")" = "~/.claude/hooks/session-account.sh" ]
+    [ "$(jq -r '.hooks.SessionStart[3].matcher' "${SETTINGS_JSON}")" = "" ]
+    [ "$(jq -r '.hooks.SessionStart[3].hooks[0].command' "${SETTINGS_JSON}")" = "~/.claude/hooks/session-remote-title.sh" ]
+    [ "$(jq -r '.hooks.UserPromptSubmit[1].hooks[0].command' "${SETTINGS_JSON}")" = "~/.claude/hooks/session-remote-title.sh" ]
     [ "$(jq -r '.hooks.SessionStart[1].matcher' "${SETTINGS_JSON}")" = "startup" ]
     [ "$(jq -r '.hooks.SessionStart[1].hooks[0].command' "${SETTINGS_JSON}")" = "~/.claude/hooks/session-name.sh" ]
     [ "$(jq -r '.hooks.UserPromptSubmit[0].hooks[0].command' "${SETTINGS_JSON}")" = "~/.claude/hooks/session-name.sh" ]
@@ -267,7 +270,14 @@ statusline_record() {
 @test "the repo settings wire both modes" {
     local settings="${REPO_DIR}/.claude/settings.json"
     [ "$(jq -r '.hooks.SessionStart[] | select(.matcher == "startup") | .hooks[].command' "${settings}")" = "~/.claude/hooks/session-name.sh" ]
-    [ "$(jq -r '.hooks.UserPromptSubmit[].hooks[].command' "${settings}")" = "~/.claude/hooks/session-name.sh" ]
+    [ "$(jq -r '.hooks.UserPromptSubmit[].hooks[0].command' "${settings}")" = "~/.claude/hooks/session-name.sh" ]
+}
+
+# bats test_tags=unit
+@test "the repo settings give every start and prompt the remote title hook" {
+    local settings="${REPO_DIR}/.claude/settings.json"
+    jq -e '[.hooks.SessionStart[] | select(.matcher == "") | .hooks[].command] | index("~/.claude/hooks/session-remote-title.sh")' "${settings}" >/dev/null
+    jq -e '[.hooks.UserPromptSubmit[] | select(.matcher == "") | .hooks[].command] | index("~/.claude/hooks/session-remote-title.sh")' "${settings}" >/dev/null
 }
 
 # --- topic ------------------------------------------------------------------
