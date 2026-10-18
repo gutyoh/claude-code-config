@@ -67,7 +67,7 @@ every repository gets it, and keep a value you set yourself.
 #### Session names
 
 Each session is named once, at its first prompt, for example
-`claude-lap-20261012T1412Z-btree-page-splits-0ed0b890`, and never renamed. The name is the
+`claude-lap-1012T1412-btree-page-splits-0ed0b890`, and never renamed. The name is the
 session's address: `claude --resume <name>`, `/resume`, the Remote Control list
 and messages between sessions all find it by that name, so it must not move.
 
@@ -80,9 +80,10 @@ and messages between sessions all find it by that name, so it must not move.
   `statusline.d/*.conf` or `statusline.local.conf` (the last one set wins,
   and a fleet tool can own a drop-in for it); else the hostname up to its
   first `.` or `-`. `CLAUDE_HOST_ALIAS=off` leaves it out.
-- **Time**: when the session started, to the minute. UTC by default, written
-  with a `Z`; set `CLAUDE_SESSION_NAME_TZ` to an IANA zone to use local time
-  with its offset, for example `claude-20261012T0430+0900-…` for `Asia/Tokyo`.
+- **Time**: when the session started, as month, day and time to the minute
+  (`1012T1412`), short enough that the topic stays visible in a session list.
+  UTC by default; set `CLAUDE_SESSION_NAME_TZ` to an IANA zone for local time.
+  The name carries no year and no zone; the id at the end keeps names apart.
 - **Topic**: a small model (`haiku`, `CLAUDE_SESSION_NAME_MODEL`) names the
   topic from the first prompt, so that prompt waits up to 8 seconds once. An
   answer longer than four words, or none in time, gives way to the prompt's

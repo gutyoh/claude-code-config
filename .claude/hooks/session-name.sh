@@ -3,8 +3,8 @@
 # Path: .claude/hooks/session-name.sh
 #
 # Names each session once, at its first prompt, as
-# <provider>-<host>-<YYYYMMDDTHHMM><zone>-<topic>-<id>, for example
-# claude-lap-20261012T1412Z-btree-page-splits-0ed0b890, and never renames it:
+# <provider>-<host>-<MMDDTHHMM>-<topic>-<id>, for example
+# claude-lap-1012T1412-btree-page-splits-0ed0b890, and never renames it:
 # the name is the session's address for --resume and for messages between
 # sessions. <host> is the machine's short name (host_alias below), so a list
 # of sessions from several machines says where each runs. <id> is the first
@@ -26,7 +26,8 @@
 # error prints nothing and exits 0, so a prompt is never blocked.
 #
 # Environment:
-#   CLAUDE_SESSION_NAME_TZ       IANA time zone for the timestamp (default UTC)
+#   CLAUDE_SESSION_NAME_TZ       IANA time zone of the start time (default UTC);
+#                                the name keeps month, day and time, no zone
 #   CLAUDE_SESSION_NAME          set to "off" to disable naming
 #   CLAUDE_SESSION_NAME_TOPIC    set to "off" to name sessions without a topic
 #   CLAUDE_SESSION_NAME_MODEL    model that writes the topic (default haiku)
@@ -67,11 +68,10 @@ timestamp() {
     if [[ -z "${tzdir}" && ! -d /usr/share/zoneinfo && -d /etc/zoneinfo ]]; then
         tzdir=/etc/zoneinfo
     fi
-    stamp=$(TZDIR="${tzdir}" TZ="${CLAUDE_SESSION_NAME_TZ:-UTC}" date +%Y%m%dT%H%M%z) || return 1
-    case "${stamp: -5}" in
-        +0000 | -0000) echo "${stamp:0:13}Z" ;;
-        *) echo "${stamp}" ;;
-    esac
+    # Month, day and time, short enough that the topic stays visible in a
+    # session list; the id at the end keeps two names apart.
+    stamp=$(TZDIR="${tzdir}" TZ="${CLAUDE_SESSION_NAME_TZ:-UTC}" date +%m%dT%H%M) || return 1
+    echo "${stamp}"
 }
 
 # Runs a command for at most <seconds>. macOS has no timeout(1) unless GNU

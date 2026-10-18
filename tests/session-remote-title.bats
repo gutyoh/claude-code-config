@@ -33,7 +33,6 @@ cfg=$(cat)
 { printf 'ARGS %s\n' "$*"; printf 'CFG %s\n' "$cfg"; } >>"$LOG"
 printf '%s' "${FAKE_STATUS:-200}"
 EOF
-    stub_bin secret-tool 'exit 1'
 }
 
 # login <expiresAt ms> [dir]: Claude Code's credentials file in <dir>.
@@ -52,7 +51,19 @@ entry() {
 fire() {
     local body
     body=$(jq -nc --arg id "${SID}" --arg e "${1:-SessionStart}" '{session_id: $id, hook_event_name: $e, source: "resume"}')
-    run bash -c 'printf "%s" "$2" | bash "$1"' _ "$HOOK" "${body}"
+    run bash -c 'printf "%s" "$2" | bash "$1"' _ "${RUN_HOOK:-$HOOK}" "${body}"
+}
+
+# own_hook: a private copy of the hook, so a test finds and stops only the
+# background checks it started.
+own_hook() {
+    RUN_HOOK="$BATS_TEST_TMPDIR/session-remote-title.sh"
+    cp "$HOOK" "$RUN_HOOK"
+}
+
+stop_own() {
+    pkill_list=$(pgrep -f "bash ${RUN_HOOK}" || true)
+    [ -z "${pkill_list}" ] || kill ${pkill_list} 2>/dev/null || true
 }
 
 # bats test_tags=unit
@@ -172,9 +183,11 @@ fire() {
 
 # bats test_tags=unit
 @test "in the background the hook returns at once and prints nothing" {
+    own_hook
     entry "${NAME}" hook ""
     start=$(date +%s)
     CLAUDE_REMOTE_TITLE_FOREGROUND= CLAUDE_REMOTE_TITLE_WAIT=30 fire
+    stop_own
     [ "$status" -eq 0 ]
     [ -z "$output" ]
     [ "$(($(date +%s) - start))" -lt 5 ]
@@ -190,6 +203,44 @@ fire() {
     rm -rf "${STATE}" "$LOG"
     STATUSLINE_HTTPS_PROXY= CLAUDE_REMOTE_TITLE_HTTPS_PROXY=http://proxy.example:3128 fire
     grep -q 'CFG proxy = "http://proxy.example:3128"' "$LOG"
+}
+
+# bats test_tags=unit
+@test "many events start one background check per session, not one each" {
+    own_hook
+    entry "${NAME}" hook ""
+    for _ in 1 2 3 4 5; do
+        CLAUDE_REMOTE_TITLE_FOREGROUND= CLAUDE_REMOTE_TITLE_WAIT=20 fire
+    done
+    sleep 1
+    count=$(pgrep -f "bash ${RUN_HOOK}" | grep -c . || true)
+    stop_own
+    [ "${count}" -eq 1 ]
+}
+
+# bats test_tags=unit
+@test "a name nobody chose ends the wait at once" {
+    entry "my-app-3f" auto ""
+    start=$(date +%s)
+    CLAUDE_REMOTE_TITLE_WAIT=20 fire
+    [ "$(($(date +%s) - start))" -lt 3 ]
+    [ ! -f "$LOG" ]
+}
+
+# bats test_tags=unit
+@test "a lock left by a check that died does not block the next one" {
+    mkdir -p "${STATE}/${SID}.lock"
+    touch -t 202001010000 "${STATE}/${SID}.lock"
+    fire
+    grep -q 'sessions/cse_01ABCdef' "$LOG"
+    [ ! -d "${STATE}/${SID}.lock" ]
+}
+
+# bats test_tags=unit
+@test "a live lock makes a later event return without sending" {
+    mkdir -p "${STATE}/${SID}.lock"
+    fire
+    [ ! -f "$LOG" ]
 }
 
 # bats test_tags=unit

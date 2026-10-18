@@ -681,7 +681,7 @@ rc_on() { jq -n "{remoteControlAtStartup: ${1:-true}}" >"${HOME}/.claude/setting
     check() {
         title=$(jq -nc '{hook_event_name: "UserPromptSubmit", session_id: "0ed0b890-9116-4571-8ae6-17a3d0013f8c"}' \
             | CLAUDE_CODE_ENTRYPOINT=cli CLAUDE_SESSION_NAME_TOPIC=off bash "${hook}" | jq -r .hookSpecificOutput.sessionTitle)
-        from_hook=$(sed -E 's/^claude-(.*)-[0-9]{8}T[0-9]{4}(Z|[+-][0-9]{4})-0ed0b890$/\1/; t; s/.*//' <<<"${title}")
+        from_hook=$(sed -E 's/^claude-(.*)-[0-9]{4}T[0-9]{4}-0ed0b890$/\1/; t; s/.*//' <<<"${title}")
         [ "$("$SCRIPT" --host-alias)" = "${from_hook}" ] || { echo "hook=${title} claude-as=$("$SCRIPT" --host-alias)"; false; }
     }
     HOSTNAME=devbox-dev-01 check

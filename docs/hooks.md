@@ -125,7 +125,7 @@ See [How to add an MCP server](how-to-add-mcp-server.md#set-up-key-rotation-opti
 
 Names each interactive session once, at its first prompt, as
 `<provider>-<start>-<topic>-<id>`, for example
-`claude-20261012T1412Z-btree-page-splits-0ed0b890`, and never renames it: the
+`claude-lap-1012T1412-btree-page-splits-0ed0b890`, and never renames it: the
 name is how `--resume` and other sessions find it. Details and switches in
 [Configuration: session names](configuration.md#session-names).
 

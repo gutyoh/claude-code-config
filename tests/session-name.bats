@@ -62,17 +62,24 @@ record_model() {
 # --- start ------------------------------------------------------------------
 
 # bats test_tags=unit
-@test "start records the start time in UTC and prints nothing" {
+@test "start records the start time in UTC, as month, day and time, and prints nothing" {
+    before=$(TZ=UTC date +%m%dT%H%M)
     hook start "$(input "" claude-opus-5-5)"
+    after=$(TZ=UTC date +%m%dT%H%M)
     [ "$status" -eq 0 ]
     [ -z "${output}" ]
-    [[ "$(cat "${STATE}/${SID}.start")" =~ ^[0-9]{8}T[0-9]{4}Z$ ]]
+    stamp=$(cat "${STATE}/${SID}.start")
+    [[ "${stamp}" =~ ^[0-9]{4}T[0-9]{4}$ ]]
+    [[ "${stamp}" == "${before}" || "${stamp}" == "${after}" ]]
 }
 
 # bats test_tags=unit
-@test "a time zone override records its offset instead of Z" {
+@test "a time zone override moves the clock, and the name carries no zone" {
+    before=$(TZ=Asia/Tokyo date +%m%dT%H%M)
     CLAUDE_SESSION_NAME_TZ=Asia/Tokyo hook start "$(input "" claude-opus-5-5)"
-    [[ "$(cat "${STATE}/${SID}.start")" =~ ^[0-9]{8}T[0-9]{4}\+0900$ ]]
+    after=$(TZ=Asia/Tokyo date +%m%dT%H%M)
+    stamp=$(cat "${STATE}/${SID}.start")
+    [[ "${stamp}" == "${before}" || "${stamp}" == "${after}" ]]
 }
 
 # bats test_tags=unit
@@ -131,12 +138,12 @@ record_model() {
     printf 'host_alias=wrong\n' >"${HOME}/.claude/statusline.conf"
     printf '# managed\nstyle.host=bold fg:#C74634\nhost_alias = lap \n' >"${HOME}/.claude/statusline.d/workstation.conf"
     hook prompt "$(input)"
-    [[ "${title}" =~ ^claude-lap-[0-9]{8}T[0-9]{4}Z-[0-9a-f]{8}$ ]]
+    [[ "${title}" =~ ^claude-lap-[0-9]{4}T[0-9]{4}-[0-9a-f]{8}$ ]]
     printf 'host_alias=lab\n' >"${HOME}/.claude/statusline.local.conf"
     hook prompt "$(input)"
-    [[ "${title}" =~ ^claude-lab-[0-9]{8}T ]]
+    [[ "${title}" =~ ^claude-lab-[0-9]{4}T ]]
     CLAUDE_CONFIG_DIR="${HOME}/.claude-other" HOSTNAME=box hook prompt "$(input)"
-    [[ "${title}" =~ ^claude-box-[0-9]{8}T ]]
+    [[ "${title}" =~ ^claude-box-[0-9]{4}T ]]
 }
 
 # bats test_tags=unit
@@ -144,7 +151,7 @@ record_model() {
     unset CLAUDE_HOST_ALIAS
     for pair in devbox-dev-01:devbox laptop-dev-01.local:laptop WorkPC:workpc; do
         HOSTNAME=${pair%%:*} hook prompt "$(input)"
-        [[ "${title}" =~ ^claude-${pair#*:}-[0-9]{8}T[0-9]{4}Z-[0-9a-f]{8}$ ]]
+        [[ "${title}" =~ ^claude-${pair#*:}-[0-9]{4}T[0-9]{4}-[0-9a-f]{8}$ ]]
     done
 }
 
@@ -163,16 +170,16 @@ record_model() {
     for pair in gpt-6.1-sol:gpt muse-spark-1.3:muse claude-haiku-5-5:claude opus:claude; do
         record_model "${pair%%:*}"
         hook prompt "$(input)"
-        [[ "${title}" =~ ^${pair#*:}-[0-9]{8}T[0-9]{4}Z-[0-9a-f]{8}$ ]]
+        [[ "${title}" =~ ^${pair#*:}-[0-9]{4}T[0-9]{4}-[0-9a-f]{8}$ ]]
     done
 }
 
 # bats test_tags=unit
 @test "an untitled prompt without state is named now, as claude" {
     hook prompt "$(input)"
-    [[ "${title}" =~ ^claude-[0-9]{8}T[0-9]{4}Z-[0-9a-f]{8}$ ]]
+    [[ "${title}" =~ ^claude-[0-9]{4}T[0-9]{4}-[0-9a-f]{8}$ ]]
     CLAUDE_SESSION_NAME_TZ=Asia/Tokyo hook prompt "$(input)"
-    [[ "${title}" =~ ^claude-[0-9]{8}T[0-9]{4}\+0900-[0-9a-f]{8}$ ]]
+    [[ "${title}" =~ ^claude-[0-9]{4}T[0-9]{4}-[0-9a-f]{8}$ ]]
 }
 
 # bats test_tags=unit
@@ -361,7 +368,7 @@ prompt_input() { # <title> <prompt> [transcript]
     stub_claude
     record_model claude-opus-5-5
     hook prompt "$(prompt_input "" "Explain how PostgreSQL B-tree indexes handle page splits")"
-    [[ "${title}" =~ ^claude-[0-9]{8}T[0-9]{4}Z-postgresql-btree-page-splits-[0-9a-f]{8}$ ]]
+    [[ "${title}" =~ ^claude-[0-9]{4}T[0-9]{4}-postgresql-btree-page-splits-[0-9a-f]{8}$ ]]
     grep -qx -- '--setting-sources' "${BATS_TEST_TMPDIR}/claude.args"
     grep -qx -- '--no-session-persistence' "${BATS_TEST_TMPDIR}/claude.args"
     grep -qx -- '--strict-mcp-config' "${BATS_TEST_TMPDIR}/claude.args"
@@ -411,9 +418,9 @@ prompt_input() { # <title> <prompt> [transcript]
 @test "topic: off, or an empty prompt, asks no model" {
     stub_claude
     CLAUDE_SESSION_NAME_TOPIC=off hook prompt "$(prompt_input "" "a real prompt")"
-    [[ "${title}" =~ ^claude-[0-9]{8}T[0-9]{4}Z-[0-9a-f]{8}$ ]]
+    [[ "${title}" =~ ^claude-[0-9]{4}T[0-9]{4}-[0-9a-f]{8}$ ]]
     hook prompt "$(prompt_input "" "   ")"
-    [[ "${title}" =~ ^claude-[0-9]{8}T[0-9]{4}Z-[0-9a-f]{8}$ ]]
+    [[ "${title}" =~ ^claude-[0-9]{4}T[0-9]{4}-[0-9a-f]{8}$ ]]
     [ ! -e "${BATS_TEST_TMPDIR}/claude.args" ]
 }
 

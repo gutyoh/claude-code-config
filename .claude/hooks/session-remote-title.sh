@@ -14,7 +14,7 @@
 #
 # The check waits for the session's remote id in <config>/sessions/<pid>.json,
 # then sets the remote title to the session's name, once per remote session
-# and name. Only names someone chose count: /rename, --name, a hook such as
+# and name, with one check per session at a time. Only names someone chose count: /rename, --name, a hook such as
 # session-name.sh, or another session; an unnamed session is left alone. It
 # never refreshes the login: with an expired token it does nothing. The token
 # reaches curl on stdin, never in the process list. Any error prints nothing
@@ -56,21 +56,16 @@ account_file() {
     fi
 }
 
-# Claude Code's login, as JSON. On macOS each CLAUDE_CONFIG_DIR has its own
-# Keychain entry, named after the variable exactly as set.
+# Claude Code's login, as JSON: on macOS the Keychain entry each
+# CLAUDE_CONFIG_DIR has, named after the variable exactly as set; elsewhere
+# <config>/.credentials.json.
 credentials() {
     local service="${KEYCHAIN_SERVICE}" sum creds=""
     if [[ -n "${CLAUDE_CONFIG_DIR:-}" ]]; then
         sum=$(printf '%s' "${CLAUDE_CONFIG_DIR}" | { shasum -a 256 2>/dev/null || sha256sum; } | cut -c1-8)
         service="${service}-${sum}"
     fi
-    case "$(uname -s)" in
-        Darwin) creds=$(security find-generic-password -s "${service}" -w 2>/dev/null) ;;
-        Linux)
-            command -v secret-tool >/dev/null 2>&1 \
-                && creds=$(secret-tool lookup service "${service}" 2>/dev/null)
-            ;;
-    esac
+    [[ "$(uname -s)" == Darwin ]] && creds=$(security find-generic-password -s "${service}" -w 2>/dev/null)
     [[ -n "${creds}" ]] || creds=$(cat "$1/.credentials.json" 2>/dev/null)
     printf '%s' "${creds}"
 }
@@ -97,17 +92,34 @@ registry_entry() {
     return 1
 }
 
+# One check per session at a time: a later event returns at once while one
+# runs, and a lock older than the wait is a check that died.
 check() {
-    local session="$1" home entry bridge name source wait creds token expires org account remote state status
-    home=$(home_dir)
+    local session="$1" wait lock
     wait="${CLAUDE_REMOTE_TITLE_WAIT:-90}"
     [[ "${wait}" =~ ^[0-9]+$ ]] || wait=90
+    mkdir -p "${STATE_DIR}" 2>/dev/null || return 0
+    lock="${STATE_DIR}/${session}.lock"
+    if ! mkdir "${lock}" 2>/dev/null; then
+        [[ -n "$(find "${lock}" -maxdepth 0 -mmin "+$(((wait + 59) / 60 + 1))" 2>/dev/null)" ]] || return 0
+        rm -rf "${lock}"
+        mkdir "${lock}" 2>/dev/null || return 0
+    fi
+    sync_title "${session}" "${wait}"
+    rm -rf "${lock}"
+}
+
+sync_title() {
+    local session="$1" wait="$2" home entry bridge name source creds token expires org account remote state status
+    home=$(home_dir)
     # The remote id appears once Remote Control has connected.
     while :; do
         entry=$(registry_entry "${home}" "${session}") || entry=""
-        bridge=$(jq -r '.bridgeSessionId // empty' <<<"${entry}" 2>/dev/null)
-        name=$(jq -r '.name // empty' <<<"${entry}" 2>/dev/null)
-        source=$(jq -r '.nameSource // empty' <<<"${entry}" 2>/dev/null)
+        bridge=$(printf '%s' "${entry}" | jq -r '.bridgeSessionId // empty' 2>/dev/null)
+        name=$(printf '%s' "${entry}" | jq -r '.name // empty' 2>/dev/null)
+        source=$(printf '%s' "${entry}" | jq -r '.nameSource // empty' 2>/dev/null)
+        # A name nobody chose will not become one while this waits.
+        case "${source}" in "" | user | hook | peer) ;; *) return 0 ;; esac
         [[ -n "${bridge}" && -n "${name}" ]] && break
         ((wait <= 0)) && return 0
         sleep 2
@@ -119,9 +131,11 @@ check() {
     state="${STATE_DIR}/${remote}"
     [[ "$(cat "${state}" 2>/dev/null)" == "${name}" ]] && return 0
 
+    # A pipe, not a here-string: bash before 5.1 writes those to a temp file.
     creds=$(credentials "${home}")
-    token=$(jq -r '.claudeAiOauth.accessToken // empty' <<<"${creds}" 2>/dev/null)
-    expires=$(jq -r '.claudeAiOauth.expiresAt // 0' <<<"${creds}" 2>/dev/null)
+    token=$(printf '%s' "${creds}" | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)
+    expires=$(printf '%s' "${creds}" | jq -r '.claudeAiOauth.expiresAt // 0' 2>/dev/null)
+    creds=
     [[ -n "${token}" && "${expires}" =~ ^[0-9]+$ ]] || return 0
     # Never refresh: an expired login is Claude Code's to renew.
     ((expires / 1000 > $(date +%s) + 60)) || return 0
@@ -141,7 +155,7 @@ check() {
         --data "$(jq -nc --arg t "${name}" '{title: $t}')" \
         "${API}/v1/code/sessions/${remote}" 2>/dev/null)
     [[ "${status}" =~ ^2 ]] || return 0
-    mkdir -p "${STATE_DIR}" 2>/dev/null && printf '%s' "${name}" >"${state}"
+    printf '%s' "${name}" >"${state}"
     return 0
 }
 
