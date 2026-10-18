@@ -37,10 +37,10 @@ if grep -qE '\.(sh|bash|bats|fish)$|^(bin|lib/setup|tests|\.claude/hooks|\.claud
     test_os=${all_os}
 fi
 
-# Windows runs the status line and /full-search under Git Bash: their scripts,
-# their tests and this workflow.
+# Windows runs the status line, /full-search and the remote title hook under
+# Git Bash: their scripts, their tests and this workflow.
 windows_bash=false
-if grep -qE '^\.claude/scripts/|^\.claude/skills/full-search/scripts/|^tests/(statusline|cc-status|full-search|helpers)|^\.github/' <<<"${changed}"; then
+if grep -qE '^\.claude/scripts/|^\.claude/skills/full-search/scripts/|^\.claude/hooks/session-remote-title\.sh$|^tests/(statusline|cc-status|full-search|session-remote-title|helpers)|^\.github/' <<<"${changed}"; then
     windows_bash=true
 fi
 
