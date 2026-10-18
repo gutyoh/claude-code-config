@@ -207,15 +207,22 @@ stop_own() {
 
 # bats test_tags=unit
 @test "many events start one background check per session, not one each" {
+    # Counted by what reaches the API, not by processes, which Git Bash on
+    # Windows lists differently.
     own_hook
     entry "${NAME}" hook ""
     for _ in 1 2 3 4 5; do
-        CLAUDE_REMOTE_TITLE_FOREGROUND= CLAUDE_REMOTE_TITLE_WAIT=20 fire
+        CLAUDE_REMOTE_TITLE_FOREGROUND= CLAUDE_REMOTE_TITLE_WAIT=30 fire
     done
     sleep 1
-    count=$(pgrep -f "bash ${RUN_HOOK}" | grep -c . || true)
+    entry "${NAME}" hook session_01ONEonly
+    for _ in $(seq 1 20); do
+        [ -f "$LOG" ] && break
+        sleep 1
+    done
+    sleep 3
     stop_own
-    [ "${count}" -eq 1 ]
+    [ "$(grep -c '^ARGS' "$LOG")" -eq 1 ]
 }
 
 # bats test_tags=unit
