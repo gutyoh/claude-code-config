@@ -20,7 +20,9 @@ setup() {
     dns_public
     stub_bin curl <<'EOF'
 url=""; for a in "$@"; do case "$a" in http*) url="$a" ;; esac; done
-cfg=$(cat)
+cfg=""
+# Only API calls pass headers on stdin; a plain fetch must not wait on it.
+[[ " $* " == *" --config - "* ]] && cfg=$(cat)
 { printf 'ARGS %s\n' "$*"; printf 'CFG %s\n' "$cfg"; } >>"$LOG"
 case "$url" in
     *firecrawl.dev/v2/scrape) r="${FAKE_FIRECRAWL:-500|}" ;;
@@ -48,6 +50,8 @@ if [[ "$cfg" != *Authorization* && "$cfg" != *Subscription* ]]; then
         *tavily.com/extract) r="${FAKE_TAVILY_KEYLESS:-$r}" ;;
     esac
 fi
+# Firecrawl's credit balance answers from FAKE_FIRECRAWL_USAGE, whatever the key.
+[[ "$url" == *firecrawl.dev/v2/team/credit-usage ]] && r="${FAKE_FIRECRAWL_USAGE:-500|}"
 printf '%s\n%s|%s|%s' "${r#*|}" "${r%%|*}" "${FAKE_RETRY_AFTER:-}" "${FAKE_RL_RESET:-}"
 EOF
 }
@@ -59,6 +63,8 @@ dns_public() { stub_bin getent 'echo "93.184.216.34 STREAM x"'; }
 fc_ok() { jq -nc --arg m "$1" '{success:true, data:{markdown:$m, metadata:{statusCode:200}}}'; }
 tv_ok() { jq -nc --arg m "$1" '{results:[{raw_content:$m}]}'; }
 read_url() { run bash "$SCRIPT" "$@"; }
+# Git for Windows' bash: chmod does not reach NTFS modes, and ln -s copies.
+on_windows() { case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac; return 1; }
 
 # bats test_tags=unit
 @test "Firecrawl answers first and the page lands in a file" {
@@ -277,11 +283,18 @@ read_url() { run bash "$SCRIPT" "$@"; }
 
 # bats test_tags=unit
 @test "without jq it stops with a usage error" {
+    # Each tool's own directory keeps the libraries beside it, which Git Bash's
+    # bash needs; where jq shares one of them, the tools are linked one by one.
+    local path="$STUB_DIR" dir t p
     mkdir -p "$BATS_TEST_TMPDIR/nojq"
     for t in bash curl sed tr wc od date mkdir awk grep cat head; do
-        p=$(command -v "$t") && ln -sf "$p" "$BATS_TEST_TMPDIR/nojq/$t"
+        p=$(command -v "$t") || continue
+        ln -sf "$p" "$BATS_TEST_TMPDIR/nojq/$t"
+        dir=$(dirname "$p")
+        [[ ":$path:" == *":$dir:"* ]] || path="$path:$dir"
     done
-    run env PATH="$STUB_DIR:$BATS_TEST_TMPDIR/nojq" bash "$SCRIPT" https://example.com/a
+    PATH="$path" command -v jq >/dev/null && path="$STUB_DIR:$BATS_TEST_TMPDIR/nojq"
+    run env PATH="$path" bash "$SCRIPT" https://example.com/a
     [ "$status" -eq 2 ]
     [[ "$output" == *"jq is required"* ]]
 }
@@ -329,13 +342,74 @@ read_url() { run bash "$SCRIPT" "$@"; }
 }
 
 # bats test_tags=unit
-@test "a Firecrawl 402 rests the key until next month" {
-    export FIRECRAWL_API_KEY=k1 FAKE_KEY_k1='402|{}' FAKE_FIRECRAWL_KEYLESS="200|$(fc_ok "$long")"
+@test "a Firecrawl 402 rests the key until its account renews, not the calendar month" {
+    renew=$(($(date +%s) + 12 * 86400))
+    usage=$(jq -nc --arg e "$(date -u -d "@$renew" +%Y-%m-%dT%H:%M:%S 2>/dev/null || date -u -r "$renew" +%Y-%m-%dT%H:%M:%S).677Z" \
+        '{success:true, data:{remainingCredits:0, planCredits:1000, billingPeriodEnd:$e}}')
+    export FIRECRAWL_API_KEY=k1 FAKE_KEY_k1='402|{}' FAKE_FIRECRAWL_USAGE="200|$usage" FAKE_FIRECRAWL_KEYLESS="200|$(fc_ok "$long")"
     read_url --via firecrawl https://example.com/a
     [[ "$output" == "ok    firecrawl"* ]]
     until=$(awk '$4 == "exhausted" {print $3}' "$COOL")
-    [ "$until" -gt "$(($(date +%s) + 3600))" ]
-    [ "$until" -le "$(($(date +%s) + 32 * 86400))" ]
+    [ "$until" -ge "$((renew - 5))" ]
+    [ "$until" -le "$((renew + 5))" ]
+    grep -q 'firecrawl.dev/v2/team/credit-usage' "$LOG"
+}
+
+# bats test_tags=unit
+@test "a renewal date written with a +00:00 offset is read like one ending in Z" {
+    renew=$(($(date +%s) + 9 * 86400))
+    stamp=$(date -u -d "@$renew" +%Y-%m-%dT%H:%M:%S 2>/dev/null || date -u -r "$renew" +%Y-%m-%dT%H:%M:%S)
+    export FIRECRAWL_API_KEY=k1 FAKE_KEY_k1='402|{}' FAKE_FIRECRAWL_KEYLESS="200|$(fc_ok "$long")"
+    export FAKE_FIRECRAWL_USAGE="200|{\"data\":{\"remainingCredits\":0,\"billingPeriodEnd\":\"${stamp}+00:00\"}}"
+    read_url --via firecrawl https://example.com/a
+    until=$(awk '$4 == "exhausted" {print $3}' "$COOL")
+    [ "$until" -ge "$((renew - 5))" ]
+    [ "$until" -le "$((renew + 5))" ]
+}
+
+# bats test_tags=unit
+@test "a Firecrawl 402 with credit left is the key's spend limit, so it rests an hour" {
+    export FIRECRAWL_API_KEY=k1 FIRECRAWL_API_KEY_POOL=k2 FAKE_KEY_k1='402|{}' FAKE_KEY_k2="200|$(fc_ok "$long")"
+    export FAKE_FIRECRAWL_USAGE='200|{"success":true,"data":{"remainingCredits":250,"billingPeriodEnd":"2099-01-01T00:00:00Z"}}'
+    read_url --via firecrawl https://example.com/a
+    [[ "$output" == "ok    firecrawl"* ]]
+    grep -q 'Bearer k2' "$LOG"
+    until=$(awk -v k="$(kid k1)" '$2 == k && $4 == "limited" {print $3}' "$COOL")
+    [ "$until" -ge "$(($(date +%s) + 3500))" ]
+    [ "$until" -le "$(($(date +%s) + 3600))" ]
+}
+
+# bats test_tags=unit
+@test "a Firecrawl 402 whose balance cannot be read rests a day, then asks again" {
+    for usage in '500|' '200|not json' '200|{"data":{"remainingCredits":0,"billingPeriodEnd":"2026-11-01"}}' '200|{"data":{"remainingCredits":0,"billingPeriodEnd":"garbage"}}' \
+        '200|{"data":{"remainingCredits":0,"billingPeriodEnd":"2001-01-01T00:00:00Z"}}' \
+        '200|{"data":{"remainingCredits":0,"billingPeriodEnd":"2199-01-01T00:00:00Z"}}'; do
+        rm -f "$COOL"
+        FIRECRAWL_API_KEY=k1 FAKE_KEY_k1='402|{}' FAKE_FIRECRAWL_USAGE="$usage" FAKE_FIRECRAWL_KEYLESS="200|$(fc_ok "$long")" \
+            read_url --via firecrawl https://example.com/a
+        [[ "$output" == "ok    firecrawl"* ]]
+        until=$(awk -v k="$(kid k1)" '$2 == k && $4 == "exhausted" {print $3}' "$COOL")
+        [ "$until" -ge "$(($(date +%s) + 86300))" ]
+        [ "$until" -le "$(($(date +%s) + 86400))" ]
+    done
+}
+
+# bats test_tags=unit
+@test "the balance lookup sends the key in the stdin config, never in the arguments" {
+    export FIRECRAWL_API_KEY=fc-SECRETVALUE FAKE_KEY_fc_SECRETVALUE='402|{}' FAKE_FIRECRAWL_USAGE='500|'
+    read_url --via firecrawl https://example.com/a
+    grep 'credit-usage' "$LOG" | grep -q '^ARGS'
+    ! grep '^ARGS' "$LOG" | grep -q SECRETVALUE
+    grep -q 'CFG header = "Authorization: Bearer fc-SECRETVALUE"' "$LOG"
+}
+
+# bats test_tags=unit
+@test "a Tavily 432 still rests until the 1st of next month, its documented reset" {
+    export TAVILY_API_KEY=k1 FAKE_KEY_k1='432|{}' FAKE_TAVILY_KEYLESS="200|$(tv_ok "$long")"
+    read_url --via tavily https://example.com/a
+    until=$(awk '$4 == "exhausted" {print $3}' "$COOL")
+    [ "$(date -u -d "@$until" +%d%H%M 2>/dev/null || date -u -r "$until" +%d%H%M)" = 010000 ]
+    ! grep -q credit-usage "$LOG"
 }
 
 # bats test_tags=unit
@@ -443,7 +517,7 @@ read_url() { run bash "$SCRIPT" "$@"; }
 }
 
 # bats test_tags=unit
-@test "with no key set, the search keys are read from mcp-keys.env, never sourced" {
+@test "the search keys are read from mcp-keys.env, never sourced, and fnox is not asked for them" {
     mkdir -p "$HOME/.claude"
     printf '%s\r\n' '# comment' 'export TAVILY_API_KEY="from-file"' 'OTHER_SECRET=nope' 'touch $HOME/sourced' >"$HOME/.claude/mcp-keys.env"
     stub_bin fnox 'echo "$*" >>"$BATS_TEST_TMPDIR/fnox.log"; exit 0'
@@ -452,7 +526,51 @@ read_url() { run bash "$SCRIPT" "$@"; }
     [[ "$output" == "ok    tavily"* ]]
     grep -q 'Bearer from-file"' "$LOG"
     [ ! -e "$HOME/sourced" ]
-    [ ! -f "$BATS_TEST_TMPDIR/fnox.log" ]
+    ! grep -q 'get TAVILY_API_KEY$' "$BATS_TEST_TMPDIR/fnox.log"
+}
+
+# bats test_tags=unit
+@test "each name comes from its own source: a file's Tavily key does not hide fnox's Firecrawl keys" {
+    mkdir -p "$HOME/.claude"
+    printf 'TAVILY_API_KEY=tv-file\n' >"$HOME/.claude/mcp-keys.env"
+    stub_bin fnox 'case "$1" in list) printf " Key Type\n FIRECRAWL_API_KEY age\n FIRECRAWL_API_KEY_POOL age\n" ;; get) case "$2" in FIRECRAWL_API_KEY) echo fc-one ;; FIRECRAWL_API_KEY_POOL) echo fc-two ;; *) exit 1 ;; esac ;; esac'
+    export FULL_SEARCH_FNOX=1
+    run bash "$SCRIPT" --status
+    [[ "$output" == *"firecrawl"*"...-one"*"...-two"*"tavily"*"...file"* ]]
+}
+
+# bats test_tags=unit
+@test "an environment key does not hide the pool fnox holds for the same provider" {
+    stub_bin fnox 'case "$1" in list) printf " FIRECRAWL_API_KEY_POOL age\n" ;; get) [ "$2" = FIRECRAWL_API_KEY_POOL ] && echo fc-pooled || exit 1 ;; esac'
+    export FULL_SEARCH_FNOX=1 FIRECRAWL_API_KEY=fc-fromenv
+    run bash "$SCRIPT" --status
+    [[ "$output" == *"...menv"*"...oled"* ]]
+}
+
+# bats test_tags=unit
+@test "for one name the environment wins over the file, and the file over fnox" {
+    mkdir -p "$HOME/.claude"
+    printf 'TAVILY_API_KEY=tv-file\nBRAVE_API_KEY=br-file\n' >"$HOME/.claude/mcp-keys.env"
+    stub_bin fnox 'echo "$*" >>"$BATS_TEST_TMPDIR/fnox.log"; case "$1" in list) printf " TAVILY_API_KEY age\n BRAVE_API_KEY age\n" ;; get) echo "$2-fnox" ;; esac'
+    export FULL_SEARCH_FNOX=1 TAVILY_API_KEY=tv-env
+    run bash "$SCRIPT" --status
+    [[ "$output" == *"...-env"* && "$output" == *"...file"* ]]
+    [[ "$output" != *"fnox"* ]]
+    [ ! -f "$BATS_TEST_TMPDIR/fnox.log" ] || ! grep -q '^get' "$BATS_TEST_TMPDIR/fnox.log"
+}
+
+# bats test_tags=unit
+@test "fnox is asked only for the names it lists, unless its listing names none of them" {
+    stub_bin fnox 'echo "$*" >>"$BATS_TEST_TMPDIR/fnox.log"; case "$1" in list) printf " Key Type\n TAVILY_API_KEY age\n" ;; get) echo from-fnox ;; esac'
+    export FULL_SEARCH_FNOX=1
+    run bash "$SCRIPT" --status
+    [ "$(grep -c '^get' "$BATS_TEST_TMPDIR/fnox.log")" -eq 1 ]
+    grep -q '^get TAVILY_API_KEY$' "$BATS_TEST_TMPDIR/fnox.log"
+    rm -f "$BATS_TEST_TMPDIR/fnox.log"
+    stub_bin fnox 'echo "$*" >>"$BATS_TEST_TMPDIR/fnox.log"; case "$1" in list) echo "a format this script does not know" ;; get) [ "$2" = TAVILY_API_KEY ] && echo from-fnox || exit 1 ;; esac'
+    run bash "$SCRIPT" --status
+    [ "$(grep -c '^get' "$BATS_TEST_TMPDIR/fnox.log")" -eq 8 ]
+    [[ "$output" == *"tavily"*"...fnox"* ]]
 }
 
 # bats test_tags=unit
@@ -477,18 +595,118 @@ read_url() { run bash "$SCRIPT" "$@"; }
 }
 
 # bats test_tags=unit
-@test "fnox is not asked when a key is set, when it cannot resolve, or when turned off" {
+@test "fnox is not asked when every name is set, when it cannot resolve, or when turned off" {
     stub_bin fnox 'echo "$*" >>"$BATS_TEST_TMPDIR/fnox.log"; case "$1" in list) exit 0 ;; get) echo from-fnox ;; esac'
-    export FULL_SEARCH_FNOX=1 TAVILY_API_KEY=k1 FAKE_TAVILY="200|$(tv_ok "$long")"
+    export FULL_SEARCH_FNOX=1 FAKE_TAVILY="200|$(tv_ok "$long")"
+    export FIRECRAWL_API_KEY=a FIRECRAWL_API_KEY_POOL=b TAVILY_API_KEY=k1 TAVILY_API_KEY_POOL=d BRAVE_API_KEY=e BRAVE_API_KEY_POOL=f BRIGHTDATA_API_TOKEN=g BRIGHTDATA_API_TOKEN_POOL=h
     read_url --via tavily https://example.com/a
     [ ! -f "$BATS_TEST_TMPDIR/fnox.log" ]
-    unset TAVILY_API_KEY
+    unset FIRECRAWL_API_KEY FIRECRAWL_API_KEY_POOL TAVILY_API_KEY TAVILY_API_KEY_POOL BRAVE_API_KEY BRAVE_API_KEY_POOL BRIGHTDATA_API_TOKEN BRIGHTDATA_API_TOKEN_POOL
     stub_bin fnox 'echo "$*" >>"$BATS_TEST_TMPDIR/fnox.log"; case "$1" in list) exit 1 ;; get) echo from-fnox ;; esac'
     read_url --via tavily https://example.com/a
     ! grep -q '^get' "$BATS_TEST_TMPDIR/fnox.log"
     rm -f "$BATS_TEST_TMPDIR/fnox.log"
     FULL_SEARCH_FNOX=0 read_url --via tavily https://example.com/a
     [ ! -f "$BATS_TEST_TMPDIR/fnox.log" ]
+}
+
+# bats test_tags=unit
+@test "mcp-keys.env reads as a shell would: comments after a value, quotes, and the last line wins" {
+    mkdir -p "$HOME/.claude"
+    printf '%s\n' 'TAVILY_API_KEY=tv-unquoted   # personal' 'BRAVE_API_KEY="br-quoted" # work' \
+        "FIRECRAWL_API_KEY='fc-single'  " 'BRIGHTDATA_API_TOKEN=bd-first' 'BRIGHTDATA_API_TOKEN=bd-second' \
+        'TAVILY_API_KEY_POOL=tv-hash#kept' 'BRAVE_API_KEY_POOL=br-old' 'BRAVE_API_KEY_POOL=' >"$HOME/.claude/mcp-keys.env"
+    run bash "$SCRIPT" --status
+    [[ "$output" == *"...oted"* && "$output" != *"sonal"* ]]
+    [[ "$output" == *"...ngle"* ]]
+    [[ "$output" == *"...cond"* && "$output" != *"...irst"* ]]
+    [[ "$output" == *"...kept"* ]]
+    [[ "$output" != *"...-old"* ]]
+    TAVILY_API_KEY=x FAKE_TAVILY="200|$(tv_ok "$long")" read_url --via tavily https://example.com/a
+    ! grep -q 'personal' "$LOG"
+}
+
+# bats test_tags=unit
+@test "--help and usage errors never wait on fnox" {
+    stub_bin fnox 'echo "$*" >>"$BATS_TEST_TMPDIR/fnox.log"; sleep 30'
+    export FULL_SEARCH_FNOX=1
+    start=$(date +%s)
+    run bash "$SCRIPT" --help
+    [ "$status" -eq 0 ]
+    run bash "$SCRIPT" --bogus
+    [ "$status" -eq 2 ]
+    run bash "$SCRIPT" -n abc https://example.com/a
+    [ "$status" -eq 2 ]
+    run bash "$SCRIPT"
+    [ "$status" -eq 2 ]
+    run bash "$SCRIPT" --via nope https://example.com/a
+    [ "$status" -eq 2 ]
+    [ "$(($(date +%s) - start))" -lt 5 ]
+    [ ! -f "$BATS_TEST_TMPDIR/fnox.log" ]
+}
+
+# bats test_tags=unit
+@test "fnox runs from HOME, so a fnox.toml in the current directory never supplies keys" {
+    stub_bin fnox 'pwd >>"$BATS_TEST_TMPDIR/fnox.pwd"; case "$1" in list) printf " TAVILY_API_KEY age\n" ;; get) echo tv-home ;; esac'
+    mkdir -p "$BATS_TEST_TMPDIR/cloned-repo"
+    printf '[secrets]\nTAVILY_API_KEY = { default = "attacker" }\n' >"$BATS_TEST_TMPDIR/cloned-repo/fnox.toml"
+    export FULL_SEARCH_FNOX=1
+    cd "$BATS_TEST_TMPDIR/cloned-repo"
+    run bash "$SCRIPT" --status
+    [ -s "$BATS_TEST_TMPDIR/fnox.pwd" ]
+    [ -z "$(grep -vxF "$HOME" "$BATS_TEST_TMPDIR/fnox.pwd")" ]
+}
+
+# bats test_tags=unit
+@test "after one fnox get runs out of time, the others are not asked" {
+    stub_bin fnox 'echo "$*" >>"$BATS_TEST_TMPDIR/fnox.log"; case "$1" in list) printf " FIRECRAWL_API_KEY age\n TAVILY_API_KEY age\n BRAVE_API_KEY age\n" ;; get) sleep 30 ;; esac'
+    export FULL_SEARCH_FNOX=1
+    start=$(date +%s)
+    run bash "$SCRIPT" --status
+    [ "$(($(date +%s) - start))" -lt 20 ]
+    [ "$(grep -c '^get' "$BATS_TEST_TMPDIR/fnox.log")" -eq 1 ]
+}
+
+# bats test_tags=unit
+@test "a store slow on every get stops being asked after about 15 seconds in all" {
+    stub_bin fnox 'echo "$*" >>"$BATS_TEST_TMPDIR/fnox.log"; case "$1" in list) printf " FIRECRAWL_API_KEY age\n TAVILY_API_KEY age\n BRAVE_API_KEY age\n" ;; get) sleep 9; echo slow-key ;; esac'
+    export FULL_SEARCH_FNOX=1
+    start=$(date +%s)
+    run bash "$SCRIPT" --status
+    [ "$(($(date +%s) - start))" -lt 19 ]
+    [ "$(grep -c '^get' "$BATS_TEST_TMPDIR/fnox.log")" -eq 2 ]
+}
+
+# bats test_tags=unit
+@test "a fnox that hangs is killed at its timeout, not left running" {
+    stub_bin fnox 'case "$1" in list) printf " TAVILY_API_KEY age\n" ;; get) exec sleep 31 ;; esac'
+    export FULL_SEARCH_FNOX=1
+    run bash "$SCRIPT" --status
+    sleep 1
+    [ "$(ps -eo args | awk '$1 == "sleep" && $2 == "31"' | wc -l)" -eq 0 ]
+}
+
+# bats test_tags=unit
+@test "a fnox that ignores TERM is killed two seconds after its timeout" {
+    stub_bin fnox 'case "$1" in list) printf " TAVILY_API_KEY age\n" ;; get) trap "" TERM; exec sleep 33 ;; esac'
+    export FULL_SEARCH_FNOX=1
+    start=$(date +%s)
+    run bash "$SCRIPT" --status
+    [ "$(($(date +%s) - start))" -lt 16 ]
+    sleep 1
+    [ "$(ps -eo args | awk '$1 == "sleep" && $2 == "33"' | wc -l)" -eq 0 ]
+}
+
+# bats test_tags=unit
+@test "fnox's output never stays in a temp file, after an answer or a timeout" {
+    export TMPDIR="$BATS_TEST_TMPDIR/tmp" FULL_SEARCH_FNOX=1
+    mkdir -p "$TMPDIR"
+    stub_bin fnox 'case "$1" in list) printf " TAVILY_API_KEY age\n" ;; get) echo tv-SECRET ;; esac'
+    run bash "$SCRIPT" --status
+    [[ "$output" == *"...CRET"* ]]
+    stub_bin fnox 'sleep 30'
+    run bash "$SCRIPT" --status
+    [ -z "$(ls -A "$TMPDIR" | grep '^full-search\.')" ]
 }
 
 # bats test_tags=unit
@@ -544,6 +762,8 @@ STUB
     run bash "$SCRIPT" https://example.com/a
     two=$(awk '{print $5}' <<<"$output")
     [ "${one%/*}" != "${two%/*}" ]
+    # On Windows the per-user temp directory's ACL keeps it private instead.
+    on_windows && return 0
     [ "$(file_mode "${one%/*}")" = 700 ]
     [ "$(file_mode "$one")" = 600 ]
 }
@@ -655,12 +875,16 @@ STUB
     # bats test_tags=slow
     source /dev/stdin <<<"$(sed -n '/^STATE_DIR=/,/^COOLDOWN_FILE=/p; /^now()/p; /^mtime()/,/^}/p; /^with_lock()/,/^}/p; /^_rest()/,/^}/p; /^rest()/p' "$SCRIPT")"
     STATE_DIR="$HOME/.local/state/full-search" COOLDOWN_FILE="$COOL"
-    sleep 30 & holder=$!
+    # The holder outlives the wait and keeps the lock fresh, however slow the
+    # host: on an emulated bash the hundred tries can take longer than 30 s.
+    sleep 300 & holder=$!
     mkdir -p "$STATE_DIR/.lock" && printf '%s' "$holder" >"$STATE_DIR/.lock/pid"
+    (while kill -0 "$holder" 2>/dev/null; do touch "$STATE_DIR/.lock"; sleep 1; done) &
+    toucher=$!
     run rest tavily id1 600 exhausted
+    kill "$holder" "$toucher" 2>/dev/null
     [ "$status" -ne 0 ]
     [ -d "$STATE_DIR/.lock" ]
-    kill "$holder"
 }
 
 # bats test_tags=unit
@@ -678,6 +902,7 @@ STUB
     export TMPDIR="$BATS_TEST_TMPDIR/tmp"
     mkdir -p "$TMPDIR" "$BATS_TEST_TMPDIR/elsewhere"
     ln -s "$BATS_TEST_TMPDIR/elsewhere" "$TMPDIR/full-search-$(id -u)"
+    [ -L "$TMPDIR/full-search-$(id -u)" ] || skip "ln -s made a copy here, not a symlink"
     run bash "$SCRIPT" https://example.com/a
     [ "$status" -eq 2 ]
     [[ "$output" == *"unsafe output directory"* ]]
