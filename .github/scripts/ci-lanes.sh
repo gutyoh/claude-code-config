@@ -33,14 +33,14 @@ fi
 # macOS differs from Linux in shell behavior only: sed, stat, date and the
 # system bash. Prose, skills and agents test the same on both.
 test_os='["ubuntu-24.04-arm"]'
-if grep -qE '\.(sh|bash|bats|fish)$|^(bin|lib/setup|tests|\.claude/hooks|\.claude/scripts)/|^(setup\.sh|justfile|mise\.(toml|lock))$|^\.github/' <<<"${changed}"; then
+if grep -qE '\.(sh|bash|bats|fish)$|^(bin|lib/setup|tests|\.claude/hooks|\.claude/scripts|\.claude/skills/full-search/scripts)/|^(setup\.sh|justfile|mise\.(toml|lock))$|^\.github/' <<<"${changed}"; then
     test_os=${all_os}
 fi
 
-# Windows runs the status line under Git Bash: its scripts, their tests and
-# this workflow.
+# Windows runs the status line and /full-search under Git Bash: their scripts,
+# their tests and this workflow.
 windows_bash=false
-if grep -qE '^\.claude/scripts/|^tests/(statusline|cc-status|helpers)|^\.github/' <<<"${changed}"; then
+if grep -qE '^\.claude/scripts/|^\.claude/skills/full-search/scripts/|^tests/(statusline|cc-status|full-search|helpers)|^\.github/' <<<"${changed}"; then
     windows_bash=true
 fi
 
