@@ -875,12 +875,16 @@ STUB
     # bats test_tags=slow
     source /dev/stdin <<<"$(sed -n '/^STATE_DIR=/,/^COOLDOWN_FILE=/p; /^now()/p; /^mtime()/,/^}/p; /^with_lock()/,/^}/p; /^_rest()/,/^}/p; /^rest()/p' "$SCRIPT")"
     STATE_DIR="$HOME/.local/state/full-search" COOLDOWN_FILE="$COOL"
-    sleep 30 & holder=$!
+    # The holder outlives the wait and keeps the lock fresh, however slow the
+    # host: on an emulated bash the hundred tries can take longer than 30 s.
+    sleep 300 & holder=$!
     mkdir -p "$STATE_DIR/.lock" && printf '%s' "$holder" >"$STATE_DIR/.lock/pid"
+    (while kill -0 "$holder" 2>/dev/null; do touch "$STATE_DIR/.lock"; sleep 1; done) &
+    toucher=$!
     run rest tavily id1 600 exhausted
+    kill "$holder" "$toucher" 2>/dev/null
     [ "$status" -ne 0 ]
     [ -d "$STATE_DIR/.lock" ]
-    kill "$holder"
 }
 
 # bats test_tags=unit
