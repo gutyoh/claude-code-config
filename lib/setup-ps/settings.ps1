@@ -430,14 +430,24 @@ function claude {
         return
     }
     $configDir = Get-ClaudeSessionHome $rest
-    if (-not $configDir) {
-        & $exe.Source $mode @rest
-        return
+    # In front: an option after a -- or a prompt would not be read as one.
+    $rcName = Get-ClaudeRemoteControlName $rest $configDir
+    if ($rcName) { $rest = @("--remote-control", $rcName) + $rest }
+    $prefix = $null
+    if (-not $env:CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX) {
+        $hostAlias = Get-ClaudeHostAlias $configDir
+        if ($hostAlias) { $prefix = "claude-$hostAlias" }
     }
-    [Console]::Error.WriteLine("claude: as the session last ran, in $configDir")
-    $env:CLAUDE_CONFIG_DIR = $configDir
+    if ($configDir) {
+        [Console]::Error.WriteLine("claude: as the session last ran, in $configDir")
+        $env:CLAUDE_CONFIG_DIR = $configDir
+    }
+    if ($prefix) { $env:CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX = $prefix }
     try { & $exe.Source $mode @rest }
-    finally { Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue }
+    finally {
+        if ($configDir) { Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue }
+        if ($prefix) { Remove-Item Env:CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX -ErrorAction SilentlyContinue }
+    }
 }
 
 # The home a resumed session last ran in, from the record
@@ -446,6 +456,24 @@ function claude {
 # CLAUDE_CONFIG_DIR is set, or the session last ran in ~/.claude.
 function Get-ClaudeSessionHome([object[]]$Arguments) {
     if ($env:CLAUDE_CONFIG_DIR) { return $null }
+    $id = Get-ClaudeResumedId $Arguments
+    $state = $env:XDG_STATE_HOME
+    if (-not $state) { $state = Join-Path $HOME ".local/state" }
+    $ledger = Join-Path $state "claude-as/sessions"
+    if (-not $id -or -not (Test-Path -LiteralPath $ledger)) { return $null }
+    $last = $null
+    foreach ($line in [System.IO.File]::ReadAllLines($ledger)) {
+        $fields = $line -split "`t"
+        if ($fields[0] -ceq $id) { $last = $fields[1] }
+    }
+    if (-not $last -or $last -eq (Join-Path $HOME ".claude")) { return $null }
+    if (-not (Test-Path -LiteralPath $last -PathType Container)) { return $null }
+    return $last
+}
+
+# The session id the arguments resume: --resume <id>, --resume=<id>, or
+# --continue's newest session in this folder; nothing otherwise.
+function Get-ClaudeResumedId([object[]]$Arguments) {
     $id = $null
     $continued = $false
     for ($i = 0; $i -lt $Arguments.Count; $i++) {
@@ -466,18 +494,113 @@ function Get-ClaudeSessionHome([object[]]$Arguments) {
             Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
         if ($newest) { $id = $newest.BaseName }
     }
-    $state = $env:XDG_STATE_HOME
-    if (-not $state) { $state = Join-Path $HOME ".local/state" }
-    $ledger = Join-Path $state "claude-as/sessions"
-    if (-not $id -or -not (Test-Path -LiteralPath $ledger)) { return $null }
-    $last = $null
-    foreach ($line in [System.IO.File]::ReadAllLines($ledger)) {
-        $fields = $line -split "`t"
-        if ($fields[0] -ceq $id) { $last = $fields[1] }
+    return $id
+}
+
+# The name Remote Control should keep for the session the arguments resume,
+# as claude-as --rc-name gives it: resumed, a session gets a made-up name
+# (anthropics/claude-code#59960) unless --remote-control names it. Nothing
+# for --print, a fork, a Remote Control choice already made, or when Remote
+# Control does not start on its own.
+function Get-ClaudeRemoteControlName([object[]]$Arguments, [string]$ConfigDir) {
+    $given = $null
+    for ($i = 0; $i -lt $Arguments.Count; $i++) {
+        $arg = [string]$Arguments[$i]
+        if (@("-p", "--print", "--fork-session", "--remote-control") -ccontains $arg -or
+            $arg.StartsWith("--remote-control=")) { return $null }
+        if ($arg.StartsWith("--name=")) { $given = $arg.Substring(7) }
+        elseif (($arg -ceq "-n" -or $arg -ceq "--name") -and $i + 1 -lt $Arguments.Count) { $given = [string]$Arguments[$i + 1] }
     }
-    if (-not $last -or $last -eq (Join-Path $HOME ".claude")) { return $null }
-    if (-not (Test-Path -LiteralPath $last -PathType Container)) { return $null }
-    return $last
+    $home_ = $ConfigDir
+    if (-not $home_) { $home_ = $env:CLAUDE_CONFIG_DIR }
+    if (-not $home_) { $home_ = Join-Path $HOME ".claude" }
+    if (-not (Test-ClaudeRemoteControlAtStartup $home_)) { return $null }
+    $id = Get-ClaudeResumedId $Arguments
+    if ($id -and $id -notmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') {
+        # A session name ends in its id's first 8 characters (session-name.sh).
+        $state = $env:XDG_STATE_HOME
+        if (-not $state) { $state = Join-Path $HOME ".local/state" }
+        $ledger = Join-Path $state "claude-as/sessions"
+        $full = @()
+        if ($id -match '-([0-9a-f]{8})$' -and (Test-Path -LiteralPath $ledger)) {
+            $short = $Matches[1]
+            $full = @([System.IO.File]::ReadAllLines($ledger) | ForEach-Object { ($_ -split "`t")[0] } |
+                Where-Object { $_.StartsWith($short) } | Sort-Object -Unique)
+        }
+        $id = if ($full.Count -eq 1) { $full[0] } else { $null }
+    }
+    if (-not $id) { return $null }
+    $title = $given
+    if (-not $title) {
+        $shared = $env:CLAUDE_AS_SHARED
+        if (-not $shared) { $shared = Join-Path $HOME ".claude" }
+        $files = Get-ChildItem -Path (Join-Path $shared "projects/*/$id.jsonl") -File -ErrorAction SilentlyContinue
+        foreach ($file in $files) {
+            $line = Select-String -LiteralPath $file.FullName -SimpleMatch '"type":"custom-title"' | Select-Object -Last 1
+            if ($line) {
+                try { $title = ($line.Line | ConvertFrom-Json).customTitle } catch { $title = $null }
+            }
+        }
+    }
+    if (-not $title -or $title.StartsWith("-") -or $title.Contains("`n")) { return $null }
+    return $title
+}
+
+# Whether a session started in the home connects Remote Control on its own:
+# managed settings win, a project's own settings may only turn it off.
+function Test-ClaudeRemoteControlAtStartup([string]$ConfigDir) {
+    function Read-RemoteControl([string]$Path) {
+        if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
+        try { return (Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json).remoteControlAtStartup } catch { return $null }
+    }
+    $on = (Read-RemoteControl (Join-Path $ConfigDir "settings.json")) -eq $true
+    foreach ($file in @(".claude/settings.json", ".claude/settings.local.json")) {
+        if ((Read-RemoteControl $file) -eq $false) { $on = $false }
+    }
+    $managed = @("/etc/claude-code/managed-settings.json", "/Library/Application Support/ClaudeCode/managed-settings.json")
+    if ($env:ProgramFiles) { $managed += Join-Path $env:ProgramFiles "ClaudeCode/managed-settings.json" }
+    foreach ($file in $managed) {
+        $value = Read-RemoteControl $file
+        if ($value -eq $true) { $on = $true }
+        elseif ($value -eq $false) { $on = $false }
+    }
+    return $on
+}
+
+# The machine's short name, as session-name.sh and claude-as --host-alias
+# read it: CLAUDE_HOST_ALIAS, else host_alias= in the statusline files (the
+# last one set wins), else the hostname up to its first "." or "-".
+function Get-ClaudeHostAlias([string]$ConfigDir) {
+    $dir = $ConfigDir
+    if (-not $dir) { $dir = $env:CLAUDE_CONFIG_DIR }
+    if (-not $dir) { $dir = Join-Path $HOME ".claude" }
+    if (Test-Path Env:CLAUDE_HOST_ALIAS) {
+        $alias = $env:CLAUDE_HOST_ALIAS
+    }
+    else {
+        $alias = $null
+        $files = @(Join-Path $dir "statusline.conf")
+        $files += @(Get-ChildItem -Path (Join-Path $dir "statusline.d/*.conf") -File -ErrorAction SilentlyContinue |
+            Sort-Object Name | ForEach-Object { $_.FullName })
+        $files += Join-Path $dir "statusline.local.conf"
+        foreach ($file in $files) {
+            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { continue }
+            foreach ($line in [System.IO.File]::ReadAllLines($file)) {
+                $key, $value = $line -split "=", 2
+                if (($key -replace '\s', '') -ceq "host_alias") { $alias = $value -replace '\s', '' }
+            }
+        }
+        if (-not $alias) {
+            $alias = ([System.Net.Dns]::GetHostName() -split '\.')[0]
+            $alias = ($alias -split '-')[0]
+        }
+    }
+    if ($alias -ceq "off") { return $null }
+    # As session-name.sh's slug: cut at a word boundary, then at 12.
+    $alias = ($alias.ToLowerInvariant() -replace '[^a-z0-9]+', '-').Trim('-')
+    while ($alias.Length -gt 12 -and $alias.Contains("-")) { $alias = $alias.Substring(0, $alias.LastIndexOf("-")) }
+    if ($alias.Length -gt 12) { $alias = $alias.Substring(0, 12) }
+    return $alias
 }
 
 # clp: the same through claude-proxy; CLAUDE_PROXY_MODEL picks the model.

@@ -153,7 +153,37 @@ fish_config_dir() {
     grep -Fxq 'after=[]' "$log"
     grep -Fxq 'claude:dir=unset:--dangerously-skip-permissions --resume other' "$log"
     grep -Fxq 'claude:dir=/mine:--allow-dangerously-skip-permissions --resume known' "$log"
-    [ "$(grep -c '^asked' "$log")" -eq 2 ]
+    [ "$(grep -c '^asked --where' "$log")" -eq 2 ]
+}
+
+# bats test_tags=unit,fish
+@test "generated fish claude function keeps a resumed session's name in Remote Control" {
+    require_cmd fish
+    run bash -c "
+        REPO_DIR='$REPO_DIR'
+        CLAUDE_CONFIG_SHELL="$FISH_SHELL"
+        source '$SETTINGS_SH'
+        configure_proxy_path
+    "
+    [ "$status" -eq 0 ]
+    local log="${BATS_TEST_TMPDIR}/calls.log"
+    stub_bin claude 'printf "claude:prefix=%s:%s\n" "${CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX-unset}" "$*" >>"$CALL_LOG"'
+    stub_bin claude-as 'case $1 in --rc-name) [ "$3" = known ] && echo "claude-dev-x 1"; ;; --host-alias) echo dev ;; esac; exit 0'
+    CALL_LOG="$log" run fish -c "
+        set -gx PATH '${STUB_DIR}' \$PATH
+        source '$(fish_config_dir)/functions/__claude_as_home.fish'
+        source '$(fish_config_dir)/functions/claude.fish'
+        claude -a --resume known -- hi
+        echo \"after=[\$CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX]\" >>\$CALL_LOG
+        claude -p hi
+        set -lx CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX mine
+        claude -p hi
+    "
+    [ "$status" -eq 0 ]
+    grep -Fxq 'claude:prefix=claude-dev:--dangerously-skip-permissions --remote-control claude-dev-x 1 --resume known -- hi' "$log"
+    grep -Fxq 'after=[]' "$log"
+    grep -Fxq 'claude:prefix=claude-dev:--allow-dangerously-skip-permissions -p hi' "$log"
+    grep -Fxq 'claude:prefix=mine:--allow-dangerously-skip-permissions -p hi' "$log"
 }
 
 # bats test_tags=integration,fish

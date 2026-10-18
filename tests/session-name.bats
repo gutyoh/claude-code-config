@@ -23,6 +23,8 @@ setup() {
     export CLAUDE_CODE_ENTRYPOINT=cli
     # Topics need a model run; the topic tests below turn them on with a stub.
     export CLAUDE_SESSION_NAME_TOPIC=off
+    # The machine's name is the runner's; the host tests below set their own.
+    export CLAUDE_HOST_ALIAS=off
     STATE="${HOME}/.local/state/claude-code/session-names"
 }
 
@@ -110,6 +112,40 @@ record_model() {
     hook prompt "$(input)"
     [ "${title}" = "claude-${stamp}-${SID:0:8}" ]
     [ "$(jq -r .hookSpecificOutput.hookEventName <<<"${output}")" = "UserPromptSubmit" ]
+}
+
+# bats test_tags=unit
+@test "the machine's short name follows the provider" {
+    hook start "$(input "" claude-opus-5-5)"
+    stamp=$(cat "${STATE}/${SID}.start")
+    CLAUDE_HOST_ALIAS=dev hook prompt "$(input)"
+    [ "${title}" = "claude-dev-${stamp}-${SID:0:8}" ]
+    CLAUDE_HOST_ALIAS="Mac Book!" hook prompt "$(input)"
+    [ "${title}" = "claude-mac-book-${stamp}-${SID:0:8}" ]
+}
+
+# bats test_tags=unit
+@test "the short name comes from the statusline files, the last one set winning" {
+    unset CLAUDE_HOST_ALIAS
+    mkdir -p "${HOME}/.claude/statusline.d"
+    printf 'host_alias=wrong\n' >"${HOME}/.claude/statusline.conf"
+    printf '# managed\nstyle.host=bold fg:#C74634\nhost_alias = lap \n' >"${HOME}/.claude/statusline.d/workstation.conf"
+    hook prompt "$(input)"
+    [[ "${title}" =~ ^claude-lap-[0-9]{8}T[0-9]{4}Z-[0-9a-f]{8}$ ]]
+    printf 'host_alias=lab\n' >"${HOME}/.claude/statusline.local.conf"
+    hook prompt "$(input)"
+    [[ "${title}" =~ ^claude-lab-[0-9]{8}T ]]
+    CLAUDE_CONFIG_DIR="${HOME}/.claude-other" HOSTNAME=box hook prompt "$(input)"
+    [[ "${title}" =~ ^claude-box-[0-9]{8}T ]]
+}
+
+# bats test_tags=unit
+@test "without a short name the hostname's first part is the machine's" {
+    unset CLAUDE_HOST_ALIAS
+    for pair in devbox-dev-01:devbox laptop-dev-01.local:laptop WorkPC:workpc; do
+        HOSTNAME=${pair%%:*} hook prompt "$(input)"
+        [[ "${title}" =~ ^claude-${pair#*:}-[0-9]{8}T[0-9]{4}Z-[0-9a-f]{8}$ ]]
+    done
 }
 
 # bats test_tags=unit

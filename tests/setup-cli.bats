@@ -210,8 +210,9 @@ setup() {
     configure_claude_shortcuts "$profile"
 
     grep -Fq 'claude-code-config: claude launch shortcuts' "$profile"
-    grep -Fq 'command claude --allow-dangerously-skip-permissions "$@"' "$profile"
-    grep -Fq 'command claude --dangerously-skip-permissions "$@"' "$profile"
+    grep -Fq 'mode=--allow-dangerously-skip-permissions' "$profile"
+    grep -Fq 'mode=--dangerously-skip-permissions' "$profile"
+    grep -Fq 'command claude "${mode}" "$@"' "$profile"
     # The model is expanded inline rather than held in a `local` variable:
     # this block lands in ~/.profile for non-bash/zsh shells, and `local` is
     # not POSIX. tests/shell-snippet-posix.bats covers that end of it.

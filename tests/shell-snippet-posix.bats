@@ -184,7 +184,22 @@ stub_proxy() {
         : >"$ASK_LOG"
         out="$(CLAUDE_CONFIG_DIR=/mine "$p" -c ". '$PROFILE'; claude --resume known" 2>&1)"
         [[ "$out" == "claude:dir=/mine:--allow-dangerously-skip-permissions --resume known" ]] || { echo "$p: $out"; false; }
-        [ ! -s "$ASK_LOG" ] || { echo "$p asked claude-as despite CLAUDE_CONFIG_DIR"; false; }
+        ! grep -q '^asked --where' "$ASK_LOG" || { echo "$p asked claude-as despite CLAUDE_CONFIG_DIR"; false; }
+    done < <(available_shells)
+}
+
+# bats test_tags=integration,portability
+@test "claude keeps a resumed session's name in Remote Control under every installed shell" {
+    stub_bin claude 'printf "claude:prefix=%s:" "${CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX-unset}"; for a in "$@"; do printf "[%s]" "$a"; done; echo'
+    stub_bin claude-as 'case $1 in --rc-name) [ "$3" = known ] && echo "claude-dev-x 1" ;; --host-alias) echo dev ;; esac; exit 0'
+    local p out
+    while read -r p; do
+        [[ -n "$p" ]] || continue
+        out="$("$p" -c ". '$PROFILE'; claude -a --resume known -- hi; echo \"after=[\${CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX-unset}]\"" 2>&1)"
+        [[ "$out" == *"claude:prefix=claude-dev:[--dangerously-skip-permissions][--remote-control][claude-dev-x 1][--resume][known][--][hi]"* ]] || { echo "$p: $out"; false; }
+        [[ "$out" == *"after=[unset]"* ]] || { echo "$p leaked: $out"; false; }
+        out="$(CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX=mine "$p" -c ". '$PROFILE'; claude --resume other" 2>&1)"
+        [[ "$out" == "claude:prefix=mine:[--allow-dangerously-skip-permissions][--resume][other]" ]] || { echo "$p: $out"; false; }
     done < <(available_shells)
 }
 

@@ -67,13 +67,19 @@ every repository gets it, and keep a value you set yourself.
 #### Session names
 
 Each session is named once, at its first prompt, for example
-`claude-20261012T1412Z-btree-page-splits-0ed0b890`, and never renamed. The name is the
+`claude-lap-20261012T1412Z-btree-page-splits-0ed0b890`, and never renamed. The name is the
 session's address: `claude --resume <name>`, `/resume`, the Remote Control list
 and messages between sessions all find it by that name, so it must not move.
 
 - **Provider**: the first part of the model id at the first prompt
   (`claude-opus-5-5` gives `claude`, `gpt-6.1-sol` gives `gpt`). A later
   `/model` switch keeps the name.
+- **Machine**: the machine's short name, so a list of sessions from several
+  machines, such as Remote Control's on a phone, says where each runs.
+  `CLAUDE_HOST_ALIAS` sets it; else `host_alias=` in `statusline.conf`,
+  `statusline.d/*.conf` or `statusline.local.conf` (the last one set wins,
+  and a fleet tool can own a drop-in for it); else the hostname up to its
+  first `.` or `-`. `CLAUDE_HOST_ALIAS=off` leaves it out.
 - **Time**: when the session started, to the minute. UTC by default, written
   with a `Z`; set `CLAUDE_SESSION_NAME_TZ` to an IANA zone to use local time
   with its offset, for example `claude-20261012T0430+0900-…` for `Asia/Tokyo`.
@@ -95,6 +101,19 @@ and messages between sessions all find it by that name, so it must not move.
 - **Interactive sessions only**: `claude -p` and SDK runs keep no name, so
   an agent that starts one inside a session never renames that session.
 - **Opt out**: `CLAUDE_SESSION_NAME=off`.
+
+Remote Control registers a session under a made-up name and keeps it when the
+session is resumed, or moves to another account, even though the session has
+its own ([anthropics/claude-code#59960](https://github.com/anthropics/claude-code/issues/59960));
+renaming it later does not reach the phone. Only a name given with
+`--remote-control` is kept, so the `claude` shell function and `claude-as`
+pass the session's own when they resume one (`claude-as --rc-name`):
+`-n`/`--name` when given, else its newest title, which includes a rename from
+the Claude app. Nothing is added for `-p`, `--fork-session`, a
+`--remote-control` already given, or when Remote Control does not start on
+its own (`remoteControlAtStartup`). The made-up names, for a session not yet
+named, start with the machine: `claude-lap-graceful-unicorn`
+(`CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX`, unless already set).
 
 ### statusLine
 
@@ -140,6 +159,7 @@ files another tool owns, the second for that profile alone. `claude-as` shares
 | `compact` | `true`, `false` | `true` | No labels, merged tokens |
 | `color_scope` | `percentage`, `full` | `percentage` | Color usage only or entire line |
 | `icon` | Unicode string or empty | `""` | Prefix icon |
+| `host_alias` | 2–12 of `a-z`, `0-9`, `-` | the hostname up to its first `.` or `-` | The machine's short name in session names and Remote Control's list ([Session names](#session-names)). Set it per machine in `statusline.d/` |
 | `host_icon` | Unicode string or empty | `""` | Printed before the `host` component, with one space, in the host's style: for example U+F179 (`nf-fa-apple`), U+F315 (`nf-linux-raspberry_pi`) or U+F313 (`nf-linux-nixos`), which need a Nerd Font. Set it per machine in `statusline.d/` |
 | `icon_claude`, `icon_openai`, `icon_muse` | Unicode string or empty | `""` (use `icon`) | Prefix icon while the session's model is on that plan, for example `A\` for Claude, U+EC81 (`nf-cod-openai`) for OpenAI and U+F06E4 (`nf-md-infinity`) for Muse. Those two need a Nerd Font in the terminal; `֍` and `∞` do not |
 | `icon_style` | `plain`, `bold`, `bracketed`, `rounded`, `reverse`, `bold-color`, `angle`, `double-bracket` | `plain` | Icon styling |
