@@ -163,6 +163,8 @@ stop_own() {
 
 # bats test_tags=unit
 @test "the entry of a running process wins over a newer one left by a dead one" {
+    # Claude Code's pids there are Windows pids, which kill -0 cannot test.
+    [[ "$(detect_test_platform)" != windows ]] || skip "the newest entry decides on Windows"
     sleep 30 &
     live=$!
     jq -n --arg id "${SID}" --arg n "${NAME}" \
