@@ -111,6 +111,44 @@ stop_own() {
 }
 
 # bats test_tags=unit
+@test "a name that changes while the check watches is set too, each name once" {
+    (sleep 3 && entry "claude-lap-1018T1716-delta-3f2a9c1e" hook session_01ABCdef) &
+    CLAUDE_REMOTE_TITLE_WAIT=8 fire UserPromptSubmit
+    wait
+    [ "$(grep -c '^ARGS' "$LOG")" -eq 2 ]
+    grep -q "\"title\":\"${NAME}\"" "$LOG"
+    grep -q '"title":"claude-lap-1018T1716-delta-3f2a9c1e"' "$LOG"
+    [ "$(cat "${STATE}/cse_01ABCdef")" = "claude-lap-1018T1716-delta-3f2a9c1e" ]
+}
+
+# bats test_tags=unit
+@test "a refused name is not sent again while the check watches" {
+    FAKE_STATUS=404 CLAUDE_REMOTE_TITLE_WAIT=6 fire
+    [ "$(grep -c '^ARGS' "$LOG")" -eq 1 ]
+}
+
+# bats test_tags=unit
+@test "a crashed process's leftover entry for the same session is passed over" {
+    jq -n --arg id "${SID}" --arg n "${NAME}" \
+        '{pid: 1111, sessionId: $id, name: $n, nameSource: "hook", bridgeSessionId: "session_01OLDgone"}' \
+        >"${HOME}/.claude/sessions/1111.json"
+    touch -t 202601010000 "${HOME}/.claude/sessions/1111.json"
+    fire
+    grep -q 'sessions/cse_01ABCdef' "$LOG"
+    ! grep -q 'cse_01OLDgone' "$LOG"
+}
+
+# bats test_tags=unit
+@test "another session's entry is never read as this one's" {
+    jq -n --arg n "other-name" \
+        '{pid: 9999, sessionId: "aaaaaaaa-0000-4000-8000-000000000000", name: $n, nameSource: "user", bridgeSessionId: "session_01OTHER"}' \
+        >"${HOME}/.claude/sessions/9999.json"
+    fire
+    [ "$(grep -c '^ARGS' "$LOG")" -eq 1 ]
+    ! grep -q 'cse_01OTHER\|other-name' "$LOG"
+}
+
+# bats test_tags=unit
 @test "a session without a chosen name is left alone" {
     for source in "" auto default; do
         entry "my-app-3f" "${source}" session_01ABCdef

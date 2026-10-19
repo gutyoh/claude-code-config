@@ -49,6 +49,7 @@ if [[ $1 == auth && $2 == login ]]; then
     exit 0
 fi
 if [[ $1 == -p && $2 == --resume ]]; then
+    printf 'probe pane=%s\n' "${HERDR_ENV-}${HERDR_PANE_ID-}${HERDR_TAB_ID-}${HERDR_WORKSPACE_ID-}${HERDR_SOCKET_PATH-}" >>"$HOME/probes"
     if compgen -G "$home/projects/*/$3.jsonl" >/dev/null; then
         echo "Error: No deferred tool marker found in the resumed session."
     else
@@ -63,6 +64,7 @@ fi
 printf 'RAN set=%s home=%s args=%s\n' "${CLAUDE_CONFIG_DIR+1}" "${CLAUDE_CONFIG_DIR:-}" "$*"
 printf 'ENV oauth=%s key=%s store=%s\n' "${CLAUDE_CODE_OAUTH_TOKEN-unset}" "${ANTHROPIC_API_KEY-unset}" "${CLAUDE_SECURESTORAGE_CONFIG_DIR-unset}"
 printf 'RC prefix=%s\n' "${CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX-unset}"
+printf 'PANE env=%s pane=%s\n' "${HERDR_ENV-unset}" "${HERDR_PANE_ID-unset}"
 EOF
 }
 
@@ -331,6 +333,21 @@ two_accounts() {
     # The canary session is gone again: the history holds only real sessions.
     [ -z "$(find "${HOME}/.claude/projects" -name '*.jsonl')" ]
     [ ! -e "${XDG_STATE_HOME}/claude-as/canary" ]
+}
+
+@test "--check probes each home outside the herdr pane it runs in" {
+    two_accounts
+    HERDR_ENV=1 HERDR_PANE_ID=w1:p3 HERDR_TAB_ID=w1:t3 HERDR_WORKSPACE_ID=w1 \
+        HERDR_SOCKET_PATH="${HOME}/herdr.sock" run "$SCRIPT" --check
+    [ "$status" -eq 0 ]
+    [ "$(grep -c '^probe pane=$' "${HOME}/probes")" -eq 2 ]
+}
+
+@test "a session claude-as starts keeps its herdr pane" {
+    two_accounts
+    HERDR_ENV=1 HERDR_PANE_ID=w1:p3 run "$SCRIPT" me@home.example
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"PANE env=1 pane=w1:p3"* ]]
 }
 
 @test "--check fails a home with its own history, a missing link or no login" {

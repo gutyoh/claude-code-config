@@ -139,7 +139,8 @@ claude-as --relink   # link what a home is missing; anything else is left alone
 
 `--check` makes no model request. It writes a small canary session to the
 shared history and asks each home to find it, so a Claude Code release that
-stops reading linked history shows up as a failure.
+stops reading linked history shows up as a failure. The probes run outside the
+herdr pane `--check` runs in, so the pane keeps its own session.
 
 ## Notes
 

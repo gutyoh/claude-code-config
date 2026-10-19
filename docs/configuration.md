@@ -98,7 +98,12 @@ and messages between sessions all find it by that name, so it must not move.
   `statusline.conf` (Nerd Font icons work), else the provider's name. Only a
   numbered tab, holding one pane, is renamed.
 - **Your names win**: a session that already has a name, from `/rename`,
-  `claude --name`, the Claude app or this hook, is never renamed.
+  `claude --name`, the Claude app or this hook, is never renamed. The one
+  exception is a name in this hook's earlier form,
+  `<provider>-<YYYYMMDDTHHMM><zone>-<topic>-<id>` ending in that session's own
+  id: resumed, the session gets the current form at its next prompt, with the
+  same start time and topic (`claude-20261011T0848-0500-btree-0ed0b890` becomes
+  `claude-lap-1011T0848-btree-0ed0b890`).
 - **Interactive sessions only**: `claude -p` and SDK runs keep no name, so
   an agent that starts one inside a session never renames that session.
 - **Opt out**: `CLAUDE_SESSION_NAME=off`.

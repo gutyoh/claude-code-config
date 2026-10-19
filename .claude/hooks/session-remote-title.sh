@@ -12,9 +12,10 @@
 #   SessionStart, UserPromptSubmit  start a background check of this session
 #                                   and return at once.
 #
-# The check waits for the session's remote id in <config>/sessions/<pid>.json,
-# then sets the remote title to the session's name, once per remote session
-# and name, with one check per session at a time. Only names someone chose
+# The check watches <config>/sessions/<pid>.json for the wait: once the
+# session's remote id is there, it sets the remote title to the session's
+# name, and again when the name changes, once per remote session and name,
+# with one check per session at a time. Only names someone chose
 # count: /rename, --name, a hook such as session-name.sh, or another session;
 # an unnamed session is left alone. It never refreshes the login: with an
 # expired token it does nothing. The token reaches curl on stdin, never in the
@@ -81,16 +82,17 @@ proxy_config() {
 }
 
 # The session's registry entry: <config>/sessions/<pid>.json naming its id.
+# A process that crashed leaves its file behind, and a resume of the same
+# session writes a new one; the newest is the running process.
 registry_entry() {
-    local file
+    local file newest=""
     for file in "$1"/sessions/*.json; do
         [[ -f "${file}" ]] || continue
-        jq -e --arg id "$2" '.sessionId == $id' "${file}" >/dev/null 2>&1 && {
-            cat "${file}"
-            return 0
-        }
+        grep -qF "\"$2\"" "${file}" 2>/dev/null || continue
+        jq -e --arg id "$2" '.sessionId == $id' "${file}" >/dev/null 2>&1 || continue
+        [[ -z "${newest}" || "${file}" -nt "${newest}" ]] && newest="${file}"
     done
-    return 1
+    [[ -n "${newest}" ]] && cat "${newest}"
 }
 
 # One check per session at a time: a later event returns at once while one
@@ -121,10 +123,13 @@ check() {
     sync_title "${session}" "${wait}"
 }
 
+# Watches the session's registry entry for the wait: its remote id appears
+# once Remote Control has connected, and a name can still change after the
+# event that started the check, when a hook renames the session at the same
+# prompt. Each name is tried once.
 sync_title() {
-    local session="$1" wait="$2" home entry bridge name source creds token expires org account remote state status
+    local session="$1" wait="$2" home entry bridge name source tried=""
     home=$(home_dir)
-    # The remote id appears once Remote Control has connected.
     while :; do
         entry=$(registry_entry "${home}" "${session}") || entry=""
         bridge=$(printf '%s' "${entry}" | jq -r '.bridgeSessionId // empty' 2>/dev/null)
@@ -132,12 +137,20 @@ sync_title() {
         source=$(printf '%s' "${entry}" | jq -r '.nameSource // empty' 2>/dev/null)
         # A name nobody chose will not become one while this waits.
         case "${source}" in "" | user | hook | peer) ;; *) return 0 ;; esac
-        [[ -n "${bridge}" && -n "${name}" ]] && break
+        if [[ -n "${source}" && -n "${bridge}" && -n "${name}" && "${bridge}:${name}" != "${tried}" ]]; then
+            tried="${bridge}:${name}"
+            set_title "${home}" "${bridge}" "${name}"
+        fi
         ((wait <= 0)) && return 0
         sleep 2
         wait=$((wait - 2))
     done
-    case "${source}" in user | hook | peer) ;; *) return 0 ;; esac
+}
+
+# set_title <home> <bridge id> <name>: sets the remote title unless it was
+# already set to that name.
+set_title() {
+    local home="$1" bridge="$2" name="$3" creds token expires org account remote state status
     [[ "${bridge}" =~ ^(session|cse)_[A-Za-z0-9]+$ ]] || return 0
     remote="cse_${bridge#*_}"
     state="${STATE_DIR}/${remote}"

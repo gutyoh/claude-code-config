@@ -480,12 +480,18 @@ warn_overrides() {
     [[ -z ${set} ]] || printf 'claude-as: warning:%s set; Claude Code uses it instead of the chosen login\n' "${set}" >&2
 }
 
-# Run claude in <home>. ~/.claude runs with CLAUDE_CONFIG_DIR unset: set to
-# any value, even that path, it names a different macOS Keychain entry.
+# The terminal multiplexer's pane: a probe run inside herdr would report its
+# own session to the pane (herdr's Claude hook reads these), and the pane
+# would then resume the probe's session, not the one it shows.
+PANE_VARS="HERDR_ENV HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID HERDR_SOCKET_PATH"
+
+# Run claude in <home> for a check or a login, never as the pane's session.
+# ~/.claude runs with CLAUDE_CONFIG_DIR unset: set to any value, even that
+# path, it names a different macOS Keychain entry.
 in_home() {
     local home=$1 name
     shift
-    for name in ${DROPPED}; do unset "${name}"; done
+    for name in ${DROPPED} ${PANE_VARS}; do unset "${name}"; done
     if [[ ${home} == "${HOME}/.claude" ]]; then
         env -u CLAUDE_CONFIG_DIR "${claude_bin}" "$@"
     else
