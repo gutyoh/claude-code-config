@@ -159,13 +159,15 @@ own name as soon as the remote id is there, and again if the name changes in
 that time, as when [session-name.sh](#session-names) renames at the same prompt:
 
 - **Which names**: only a name someone chose (`/rename`, `--name`, a hook such as
-  [session-name.sh](#session-names), or another session). An unnamed session is
-  left alone.
+  [session-name.sh](#session-names), or another session). A name Remote Control
+  made up is never sent, and one chosen during the watch replaces it.
 - **How often**: once per remote session and name, recorded in
   `${XDG_STATE_HOME:-~/.local/state}/claude-code/remote-titles`, with one
-  watch per session at a time; a failed request is tried again at the next
-  event. A registry file left by a crashed process is passed over: the newest
-  entry for the session is the running one.
+  watch per session at a time. A refusal is not repeated; a server error, a
+  rate limit or a login Claude Code has not renewed yet is tried up to 3 times
+  in the watch, then again at the next event. A registry file left by a
+  crashed process is passed over: the entry of the running process wins, else
+  the newest.
 - **Login**: the session's own (the home's macOS Keychain entry, else
   `<config>/.credentials.json`). The hook never refreshes it, so with an expired
   token it does nothing, and the token reaches curl on stdin, not in the process

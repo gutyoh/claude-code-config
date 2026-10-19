@@ -222,6 +222,8 @@ record_model() {
     [ "${title}" = "gpt-lap-1011T1930-0ed0b890" ]
     CLAUDE_HOST_ALIAS=off hook prompt "$(input claude-20261011T0848+0530-btree-0ed0b890)"
     [ "${title}" = "claude-1011T0848-btree-0ed0b890" ]
+    hook prompt "$(input claude-20261011T084812-0500-btree-0ed0b890)"
+    [ "${title}" = "claude-lap-1011T0848-btree-0ed0b890" ]
 }
 
 # bats test_tags=unit

@@ -7,7 +7,7 @@
 # claude-lap-1012T1412-btree-page-splits-0ed0b890, and never renames it:
 # the name is the session's address for --resume and for messages between
 # sessions. The one exception is a name in this hook's earlier form,
-# <provider>-<YYYYMMDDTHHMM><zone>-<rest>-<id>: a resumed session carrying
+# <provider>-<YYYYMMDDTHHMM[SS]><zone>-<rest>-<id>: a resumed session carrying
 # one gets the current form at its next prompt, with the same start time
 # and topic. <host> is the machine's short name (host_alias below), so a list
 # of sessions from several machines says where each runs. <id> is the first
@@ -229,9 +229,9 @@ topic_of() {
 # never matches by chance.
 current_form() {
     local title="$1" session="$2" host
-    [[ "${title}" =~ ^([a-z0-9]+)-[0-9]{4}([0-9]{4}T[0-9]{4})(Z|[+-][0-9]{4})-(.*-)?${session:0:8}$ ]] || return 0
+    [[ "${title}" =~ ^([a-z0-9]+)-[0-9]{4}([0-9]{4}T[0-9]{4})([0-9]{2})?(Z|[+-][0-9]{4})-(.*-)?${session:0:8}$ ]] || return 0
     host=$(host_alias)
-    printf '%s' "${BASH_REMATCH[1]}${host:+-${host}}-${BASH_REMATCH[2]}-${BASH_REMATCH[4]}${session:0:8}"
+    printf '%s' "${BASH_REMATCH[1]}${host:+-${host}}-${BASH_REMATCH[2]}-${BASH_REMATCH[5]}${session:0:8}"
 }
 
 on_prompt() {
