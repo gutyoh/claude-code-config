@@ -99,16 +99,21 @@ account_file() {
 
 # Every home, the shared one first. Another tool's ~/.claude-something is
 # not a home: a home has an account file.
+# A reader may stop at the home it wants. Started with SIGPIPE ignored, as
+# from herdr or Claude Code, a write after that fails instead of ending this
+# quietly, so a failed write ends it here, without a message.
 homes() {
     local h
     if [[ -n ${CLAUDE_AS_HOMES:-} ]]; then
-        tr ':' '\n' <<<"${CLAUDE_AS_HOMES}" | sed -e 's:/*$::' -e '/^$/d'
-        return
+        tr ':' '\n' <<<"${CLAUDE_AS_HOMES}" | sed -e 's:/*$::' -e '/^$/d' 2>/dev/null
+        return 0
     fi
-    [[ -d ${shared} ]] && printf '%s\n' "${shared}"
+    if [[ -d ${shared} ]]; then
+        printf '%s\n' "${shared}" 2>/dev/null || return 0
+    fi
     for h in "${HOME}"/.claude-*; do
-        [[ -d ${h} && ! -L ${h} && ${h} != "${shared}" && -f $(account_file "${h}") ]] \
-            && printf '%s\n' "${h}"
+        [[ -d ${h} && ! -L ${h} && ${h} != "${shared}" && -f $(account_file "${h}") ]] || continue
+        printf '%s\n' "${h}" 2>/dev/null || return 0
     done
     return 0
 }
@@ -129,9 +134,10 @@ accounts() {
                      | sub("^default_(claude_)?"; "")
                      | if . == "" or . == "ai" or test("^raven") then "" else "/" + . end)),
                 .organizationUuid // ""] | join("\u001f")' "${file}" 2>/dev/null \
-                || printf '%s\037\037\037\037\n' "${home}"
+                || printf '%s\037\037\037\037\n' "${home}" 2>/dev/null || return 0
         else
-            printf '%s\037\037\037\037\n' "${home}"
+            # As in homes: a reader that stopped ends this quietly.
+            printf '%s\037\037\037\037\n' "${home}" 2>/dev/null || return 0
         fi
     done < <(homes)
 }

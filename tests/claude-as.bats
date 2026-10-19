@@ -551,6 +551,17 @@ on_terminal() {
     [ -z "$output" ]
 }
 
+@test "started with SIGPIPE ignored, as from herdr or Claude Code, it prints no pipe errors" {
+    two_accounts
+    ran "${SID}" "${HOME}/.claude"
+    run bash -c 'trap "" PIPE; exec "$1" --where --resume "$2"' _ "$SCRIPT" "${SID}"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+    ran "${SID}" "${HOME}/.claude-home"
+    run bash -c 'trap "" PIPE; exec "$1" --where -r "$2"' _ "$SCRIPT" "${SID}"
+    [ "$output" = "${HOME}/.claude-home" ]
+}
+
 @test "--continue resumes this folder's newest session as the account it last ran as" {
     two_accounts
     local work="${BATS_TEST_TMPDIR}/my_repo.v2" key old=11111111-2222-4333-8444-555555555555
