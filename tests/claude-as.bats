@@ -16,7 +16,9 @@ setup() {
     source "$BATS_TEST_DIRNAME/helpers.bash"
     require_cmd jq
     isolate_home
-    unset CLAUDE_AS CLAUDE_AS_HOMES CLAUDE_AS_SHARED CLAUDE_AS_SHARE
+    unset CLAUDE_AS CLAUDE_AS_HOMES CLAUDE_AS_SHARED CLAUDE_AS_SHARE CLAUDE_CONFIG_DIR CLAUDE_ENV_FILE
+    # A session started by claude-as passes these on to the tests run in it.
+    unset CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX CLAUDE_HOST_ALIAS ${!HERDR_@}
     unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_PROFILE
     export XDG_STATE_HOME="${HOME}/.local/state"
     mkdir -p "${HOME}/.claude/projects" "${HOME}/.claude/skills" "${HOME}/.claude/hooks"

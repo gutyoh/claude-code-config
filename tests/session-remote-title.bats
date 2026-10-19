@@ -128,13 +128,27 @@ stop_own() {
 }
 
 # bats test_tags=unit
-@test "a server error or rate limit is tried again during the watch, at most 3 times" {
-    for code in 503 429 000; do
+@test "a server error, rate limit or renewed login is tried 3 times, then the watch ends" {
+    for code in 503 429 401 000; do
         rm -f "$LOG"
-        FAKE_STATUS=${code} CLAUDE_REMOTE_TITLE_WAIT=10 fire
+        start=$(date +%s)
+        FAKE_STATUS=${code} CLAUDE_REMOTE_TITLE_WAIT=60 fire
         [ "$(grep -c '^ARGS' "$LOG")" -eq 3 ]
+        # Spaced 4 and 8 seconds, and over well before the wait.
+        elapsed=$(($(date +%s) - start))
+        [ "${elapsed}" -ge 10 ] && [ "${elapsed}" -lt 40 ]
     done
     [ ! -f "${STATE}/cse_01ABCdef" ]
+}
+
+# bats test_tags=unit
+@test "a new name gets its own 3 tries after the old one failed" {
+    (sleep 5 && entry "claude-renamed" user session_01ABCdef) &
+    FAKE_STATUS=503 CLAUDE_REMOTE_TITLE_WAIT=40 fire
+    wait
+    # The old name's count depends on timing; the new one's never does.
+    grep -q "\"title\":\"${NAME}\"" "$LOG"
+    [ "$(grep -c '"title":"claude-renamed"' "$LOG")" -eq 3 ]
 }
 
 # bats test_tags=unit

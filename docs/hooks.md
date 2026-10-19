@@ -163,9 +163,9 @@ that time, as when [session-name.sh](#session-names) renames at the same prompt:
   made up is never sent, and one chosen during the watch replaces it.
 - **How often**: once per remote session and name, recorded in
   `${XDG_STATE_HOME:-~/.local/state}/claude-code/remote-titles`, with one
-  watch per session at a time. A refusal is not repeated; a server error, a
-  rate limit or a login Claude Code has not renewed yet is tried up to 3 times
-  in the watch, then again at the next event. A registry file left by a
+  watch per session at a time. A refusal is not repeated. A server error, a
+  rate limit, or a login Claude Code has not renewed yet is tried again after 4,
+  then 8 seconds. After the third failure the watch ends, so the next event tries again. A registry file left by a
   crashed process is passed over: the entry of the running process wins, else
   the newest.
 - **Login**: the session's own (the home's macOS Keychain entry, else

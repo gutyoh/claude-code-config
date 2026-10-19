@@ -86,14 +86,15 @@ proxy_config() {
 # session writes a new one: the entry whose process runs wins, else the
 # newest. Windows pids are not the shell's, so there the newest decides.
 registry_entry() {
-    local file pid newest="" running=""
+    local file pid newest="" running="" native=1
+    case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) native="" ;; esac
     for file in "$1"/sessions/*.json; do
         [[ -f "${file}" ]] || continue
         grep -qF "\"$2\"" "${file}" 2>/dev/null || continue
         jq -e --arg id "$2" '.sessionId == $id' "${file}" >/dev/null 2>&1 || continue
         [[ -z "${newest}" || "${file}" -nt "${newest}" ]] && newest="${file}"
         pid=$(basename "${file}" .json)
-        [[ "${pid}" =~ ^[0-9]+$ ]] && kill -0 "${pid}" 2>/dev/null \
+        [[ -n "${native}" && "${pid}" =~ ^[0-9]+$ ]] && kill -0 "${pid}" 2>/dev/null \
             && [[ -z "${running}" || "${file}" -nt "${running}" ]] && running="${file}"
     done
     newest="${running:-${newest}}"
@@ -137,11 +138,13 @@ check() {
 # Watches the session's registry entry for the wait: its remote id appears
 # once Remote Control has connected, and a name can still change after the
 # event that started the check, as when a hook replaces Remote Control's
-# made-up name at the same prompt. A name is done once it is set or refused;
-# a failure that may pass is tried at most 3 times.
+# made-up name at the same prompt. A name is done once it is set or refused.
+# A failure that may pass is tried again after 4, then 8 seconds; after the
+# third the watch ends, so the next event starts over.
 sync_title() {
-    local session="$1" wait="$2" home entry bridge name source key settled="" failures=0
+    local session="$1" wait="$2" home entry bridge name source key settled="" failed="" failures=0 retry_at
     home=$(home_dir)
+    retry_at="${wait}"
     while :; do
         entry=$(registry_entry "${home}" "${session}") || entry=""
         bridge=$(printf '%s' "${entry}" | jq -r '.bridgeSessionId // empty' 2>/dev/null)
@@ -150,13 +153,16 @@ sync_title() {
         key="${bridge}:${name}"
         # Only a name someone chose is sent.
         case "${source}" in user | hook | peer)
-            if [[ -n "${bridge}" && -n "${name}" && "${key}" != "${settled}" ]]; then
+            [[ "${key}" == "${failed}" ]] || failures=0
+            if [[ -n "${bridge}" && -n "${name}" && "${key}" != "${settled}" ]] \
+                && { ((failures == 0)) || ((wait <= retry_at)); }; then
                 if set_title "${home}" "${bridge}" "${name}"; then
                     settled="${key}"
-                    failures=0
                 else
+                    failed="${key}"
                     failures=$((failures + 1))
-                    ((failures < 3)) || settled="${key}"
+                    ((failures < 3)) || return 0
+                    retry_at=$((wait - 4 * failures))
                 fi
             fi
             ;;
@@ -169,7 +175,7 @@ sync_title() {
 
 # set_title <home> <bridge id> <name>: sets the remote title unless it was
 # already set to that name. Fails when trying again may help: no fresh login
-# yet, a server error, no answer.
+# yet, one renewed while the request ran, a server error, no answer.
 set_title() {
     local home="$1" bridge="$2" name="$3" creds token expires org account remote state status
     [[ "${bridge}" =~ ^(session|cse)_[A-Za-z0-9]+$ ]] || return 0
@@ -200,8 +206,9 @@ set_title() {
     } | curl -sS --connect-timeout 10 --max-time 30 --config - -X PUT -o /dev/null -w '%{http_code}' \
         --data "$(jq -nc --arg t "${name}" '{title: $t}')" \
         "${API}/v1/code/sessions/${remote}" 2>/dev/null)
-    # A refusal stays one: only a server error or a rate limit may pass.
-    [[ "${status}" =~ ^(5|429|000) ]] && return 1
+    # A refusal stays one: only a server error, a rate limit or a login
+    # renewed in the meantime may pass.
+    [[ "${status}" =~ ^(5|401|429|000) ]] && return 1
     [[ "${status}" =~ ^2 ]] || return 0
     printf '%s' "${name}" >"${state}"
     return 0
