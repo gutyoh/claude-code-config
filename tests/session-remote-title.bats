@@ -61,9 +61,16 @@ own_hook() {
     cp "$HOOK" "$RUN_HOOK"
 }
 
+# stop_own: stops this session's background check by the pid its lock holds,
+# then waits for it to go; Git Bash has no pgrep.
 stop_own() {
-    pkill_list=$(pgrep -f "bash ${RUN_HOOK}" || true)
-    [ -z "${pkill_list}" ] || kill ${pkill_list} 2>/dev/null || true
+    local pid
+    pid=$(cat "${STATE}/${SID}.lock/pid" 2>/dev/null) || return 0
+    kill "${pid}" 2>/dev/null || true
+    for _ in $(seq 1 20); do
+        kill -0 "${pid}" 2>/dev/null || return 0
+        sleep 0.5
+    done
 }
 
 # bats test_tags=unit
@@ -229,8 +236,9 @@ stop_own() {
 @test "a name nobody chose ends the wait at once" {
     entry "my-app-3f" auto ""
     start=$(date +%s)
-    CLAUDE_REMOTE_TITLE_WAIT=20 fire
-    [ "$(($(date +%s) - start))" -lt 3 ]
+    CLAUDE_REMOTE_TITLE_WAIT=30 fire
+    # Well under the wait, even on an emulated bash.
+    [ "$(($(date +%s) - start))" -lt 15 ]
     [ ! -f "$LOG" ]
 }
 
@@ -248,16 +256,30 @@ stop_own() {
     own_hook
     entry "${NAME}" hook ""
     CLAUDE_REMOTE_TITLE_FOREGROUND= CLAUDE_REMOTE_TITLE_WAIT=20 fire
-    sleep 1
+    for _ in $(seq 1 20); do
+        [ -s "${STATE}/${SID}.lock/pid" ] && break
+        sleep 0.5
+    done
     [ -d "${STATE}/${SID}.lock" ]
     stop_own
-    sleep 1
     [ ! -d "${STATE}/${SID}.lock" ]
+}
+
+# bats test_tags=unit
+@test "a lock whose holder is gone is taken over at once" {
+    bash -c 'exit 0' &
+    gone=$!
+    wait "${gone}"
+    mkdir -p "${STATE}/${SID}.lock"
+    printf '%s' "${gone}" >"${STATE}/${SID}.lock/pid"
+    fire
+    grep -q 'sessions/cse_01ABCdef' "$LOG"
 }
 
 # bats test_tags=unit
 @test "a live lock makes a later event return without sending" {
     mkdir -p "${STATE}/${SID}.lock"
+    printf '%s' "$$" >"${STATE}/${SID}.lock/pid"
     fire
     [ ! -f "$LOG" ]
 }

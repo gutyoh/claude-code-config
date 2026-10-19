@@ -94,18 +94,26 @@ registry_entry() {
 }
 
 # One check per session at a time: a later event returns at once while one
-# runs, and a lock older than the wait is a check that died.
+# runs. A lock whose holder is gone, or older than the wait, is a check that
+# died, and is taken over.
 check() {
-    local session="$1" wait lock
+    local session="$1" wait lock holder
     wait="${CLAUDE_REMOTE_TITLE_WAIT:-90}"
     [[ "${wait}" =~ ^[0-9]+$ ]] || wait=90
     mkdir -p "${STATE_DIR}" 2>/dev/null || return 0
     lock="${STATE_DIR}/${session}.lock"
     if ! mkdir "${lock}" 2>/dev/null; then
-        [[ -n "$(find "${lock}" -maxdepth 0 -mmin "+$(((wait + 59) / 60 + 1))" 2>/dev/null)" ]] || return 0
+        holder=$(cat "${lock}/pid" 2>/dev/null) || holder=""
+        if ! { [[ "${holder}" =~ ^[0-9]+$ ]] && ! kill -0 "${holder}" 2>/dev/null; } \
+            && [[ -z "$(find "${lock}" -maxdepth 0 -mmin "+$(((wait + 59) / 60 + 1))" 2>/dev/null)" ]]; then
+            return 0
+        fi
         rm -rf "${lock}"
         mkdir "${lock}" 2>/dev/null || return 0
     fi
+    # This process's own pid: $$ names the parent shell in a subshell, and
+    # bash 3.2 has no BASHPID.
+    sh -c 'echo "${PPID}"' >"${lock}/pid" 2>/dev/null
     # A global: an EXIT trap runs after this function's locals are gone, and
     # a check killed midway must not hold the lock until it goes stale.
     LOCK_DIR="${lock}"
