@@ -111,6 +111,110 @@ stop_own() {
 }
 
 # bats test_tags=unit
+@test "a name that changes while the check watches is set too, each name once" {
+    (sleep 3 && entry "claude-lap-1018T1716-delta-3f2a9c1e" hook session_01ABCdef) &
+    CLAUDE_REMOTE_TITLE_WAIT=8 fire UserPromptSubmit
+    wait
+    [ "$(grep -c '^ARGS' "$LOG")" -eq 2 ]
+    grep -q "\"title\":\"${NAME}\"" "$LOG"
+    grep -q '"title":"claude-lap-1018T1716-delta-3f2a9c1e"' "$LOG"
+    [ "$(cat "${STATE}/cse_01ABCdef")" = "claude-lap-1018T1716-delta-3f2a9c1e" ]
+}
+
+# bats test_tags=unit
+@test "a refused name is not sent again while the check watches" {
+    FAKE_STATUS=404 CLAUDE_REMOTE_TITLE_WAIT=6 fire
+    [ "$(grep -c '^ARGS' "$LOG")" -eq 1 ]
+}
+
+# bats test_tags=unit
+@test "a server error, rate limit or renewed login is tried 3 times, then the watch ends" {
+    for code in 503 429 401 000; do
+        rm -f "$LOG"
+        start=$(date +%s)
+        FAKE_STATUS=${code} CLAUDE_REMOTE_TITLE_WAIT=60 fire
+        [ "$(grep -c '^ARGS' "$LOG")" -eq 3 ]
+        # Spaced 4 and 8 seconds, and over well before the wait.
+        elapsed=$(($(date +%s) - start))
+        [ "${elapsed}" -ge 10 ] && [ "${elapsed}" -lt 40 ]
+    done
+    [ ! -f "${STATE}/cse_01ABCdef" ]
+}
+
+# bats test_tags=unit
+@test "a new name gets its own 3 tries after the old one failed" {
+    (sleep 5 && entry "claude-renamed" user session_01ABCdef) &
+    FAKE_STATUS=503 CLAUDE_REMOTE_TITLE_WAIT=40 fire
+    wait
+    # The old name's count depends on timing; the new one's never does.
+    grep -q "\"title\":\"${NAME}\"" "$LOG"
+    [ "$(grep -c '"title":"claude-renamed"' "$LOG")" -eq 3 ]
+}
+
+# bats test_tags=unit
+@test "a login that turns fresh during the watch is used" {
+    login "$(($(date +%s) - 10))000"
+    (sleep 3 && login "$(($(date +%s) + 3600))000") &
+    CLAUDE_REMOTE_TITLE_WAIT=8 fire
+    wait
+    [ "$(grep -c '^ARGS' "$LOG")" -eq 1 ]
+    [ "$(cat "${STATE}/cse_01ABCdef")" = "${NAME}" ]
+}
+
+# bats test_tags=unit
+@test "the entry of a running process wins over a newer one left by a dead one" {
+    # Claude Code's pids there are Windows pids, which kill -0 cannot test.
+    [[ "$(detect_test_platform)" != windows ]] || skip "the newest entry decides on Windows"
+    sleep 30 &
+    live=$!
+    jq -n --arg id "${SID}" --arg n "${NAME}" \
+        '{sessionId: $id, name: $n, nameSource: "hook", bridgeSessionId: "session_01LIVEone"}' \
+        >"${HOME}/.claude/sessions/${live}.json"
+    touch -t 202601010000 "${HOME}/.claude/sessions/${live}.json"
+    mv "${HOME}/.claude/sessions/4242.json" "${HOME}/.claude/sessions/999999.json"
+    fire
+    kill "${live}"
+    grep -q 'sessions/cse_01LIVEone' "$LOG"
+    ! grep -q 'cse_01ABCdef' "$LOG"
+}
+
+# bats test_tags=unit
+@test "a check leaves a lock another check took over in place" {
+    own_hook
+    CLAUDE_REMOTE_TITLE_FOREGROUND=0 CLAUDE_REMOTE_TITLE_WAIT=6 fire
+    for _ in $(seq 1 20); do [ -s "${STATE}/${SID}.lock/pid" ] && break; sleep 0.25; done
+    first=$(cat "${STATE}/${SID}.lock/pid")
+    sleep 30 &
+    other=$!
+    echo "${other}" >"${STATE}/${SID}.lock/pid"
+    for _ in $(seq 1 40); do kill -0 "${first}" 2>/dev/null || break; sleep 0.5; done
+    ! kill -0 "${first}" 2>/dev/null
+    [ "$(cat "${STATE}/${SID}.lock/pid")" = "${other}" ]
+    kill "${other}"
+}
+
+# bats test_tags=unit
+@test "a crashed process's leftover entry for the same session is passed over" {
+    jq -n --arg id "${SID}" --arg n "${NAME}" \
+        '{pid: 1111, sessionId: $id, name: $n, nameSource: "hook", bridgeSessionId: "session_01OLDgone"}' \
+        >"${HOME}/.claude/sessions/1111.json"
+    touch -t 202601010000 "${HOME}/.claude/sessions/1111.json"
+    fire
+    grep -q 'sessions/cse_01ABCdef' "$LOG"
+    ! grep -q 'cse_01OLDgone' "$LOG"
+}
+
+# bats test_tags=unit
+@test "another session's entry is never read as this one's" {
+    jq -n --arg n "other-name" \
+        '{pid: 9999, sessionId: "aaaaaaaa-0000-4000-8000-000000000000", name: $n, nameSource: "user", bridgeSessionId: "session_01OTHER"}' \
+        >"${HOME}/.claude/sessions/9999.json"
+    fire
+    [ "$(grep -c '^ARGS' "$LOG")" -eq 1 ]
+    ! grep -q 'cse_01OTHER\|other-name' "$LOG"
+}
+
+# bats test_tags=unit
 @test "a session without a chosen name is left alone" {
     for source in "" auto default; do
         entry "my-app-3f" "${source}" session_01ABCdef
@@ -233,13 +337,14 @@ stop_own() {
 }
 
 # bats test_tags=unit
-@test "a name nobody chose ends the wait at once" {
-    entry "my-app-3f" auto ""
-    start=$(date +%s)
-    CLAUDE_REMOTE_TITLE_WAIT=30 fire
-    # Well under the wait, even on an emulated bash.
-    [ "$(($(date +%s) - start))" -lt 15 ]
-    [ ! -f "$LOG" ]
+@test "a made-up name is never sent, and a name chosen during the watch is" {
+    entry "myhost-graceful-unicorn" auto session_01ABCdef
+    (sleep 3 && entry "${NAME}" hook session_01ABCdef) &
+    CLAUDE_REMOTE_TITLE_WAIT=8 fire UserPromptSubmit
+    wait
+    [ "$(grep -c '^ARGS' "$LOG")" -eq 1 ]
+    grep -q "\"title\":\"${NAME}\"" "$LOG"
+    ! grep -q unicorn "$LOG"
 }
 
 # bats test_tags=unit

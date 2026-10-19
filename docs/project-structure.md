@@ -205,7 +205,7 @@ place and runs its [stop-nudge hook](hooks.md#stop-nudge).
 | `refresh-usage-cache.bats` | Usage cache refresh hook |
 | `session-name.bats` | Session name hook, statusline model record, installer entries |
 | `session-account.bats` | Session account record and the warning on a resume under another account |
-| `session-remote-title.bats` | Remote Control title: once per remote session and name, login kept off argv, never refreshed |
+| `session-remote-title.bats` | Remote Control title: once per remote session and name, a rename during the watch, a crashed process's leftover entry, login kept off argv, never refreshed |
 | `cc-status.bats` | Claude Code service status |
 | `claude-config-dir.bats` | `CLAUDE_CONFIG_DIR`: install target, settings commands, symlinked rc files |
 | `managed-entries.bats` | Per-entry install, legacy link migration, profile chains |

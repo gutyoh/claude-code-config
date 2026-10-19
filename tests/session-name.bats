@@ -213,6 +213,31 @@ record_model() {
 }
 
 # bats test_tags=unit
+@test "a name in the hook's earlier form gets the current form, same time and topic" {
+    export CLAUDE_HOST_ALIAS=lap
+    hook prompt "$(input claude-20261011T0848-0500-probe-file-git-commit-0ed0b890)"
+    [ "$status" -eq 0 ]
+    [ "${title}" = "claude-lap-1011T0848-probe-file-git-commit-0ed0b890" ]
+    hook prompt "$(input gpt-20261011T1930Z-0ed0b890)"
+    [ "${title}" = "gpt-lap-1011T1930-0ed0b890" ]
+    CLAUDE_HOST_ALIAS=off hook prompt "$(input claude-20261011T0848+0530-btree-0ed0b890)"
+    [ "${title}" = "claude-1011T0848-btree-0ed0b890" ]
+    hook prompt "$(input claude-20261011T084812-0500-btree-0ed0b890)"
+    [ "${title}" = "claude-lap-1011T0848-btree-0ed0b890" ]
+}
+
+# bats test_tags=unit
+@test "the current form, another session's name and a hand-made one stay as they are" {
+    export CLAUDE_HOST_ALIAS=lap
+    for name in claude-lap-1011T0848-probe-file-0ed0b890 claude-20261011T0848-0500-probe-file-aaaaaaaa \
+        claude-20261011T0848-0500-probe-file-0ed0b89 my-20261011-notes-0ed0b890 claude-20261011T084-0500-0ed0b890; do
+        hook prompt "$(input "${name}")"
+        [ "$status" -eq 0 ]
+        [ -z "${output}" ]
+    done
+}
+
+# bats test_tags=unit
 @test "prompt without a recorded model leaves a name alone" {
     hook prompt "$(input claude-20261011T193012Z)"
     [ "$status" -eq 0 ]

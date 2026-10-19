@@ -124,9 +124,10 @@ See [How to add an MCP server](how-to-add-mcp-server.md#set-up-key-rotation-opti
 ## Session names
 
 Names each interactive session once, at its first prompt, as
-`<provider>-<start>-<topic>-<id>`, for example
+`<provider>-<host>-<start>-<topic>-<id>`, for example
 `claude-lap-1012T1412-btree-page-splits-0ed0b890`, and never renames it: the
-name is how `--resume` and other sessions find it. Details and switches in
+name is how `--resume` and other sessions find it. A resumed session named in
+the hook's earlier form gets the current one at its next prompt. Details and switches in
 [Configuration: session names](configuration.md#session-names).
 
 ## Session accounts
@@ -152,16 +153,22 @@ With Remote Control on at startup (`remoteControlAtStartup`), resuming a session
 above all as another account, can register a new remote session under an
 auto-generated name such as `myhost-graceful-unicorn` or a title Claude writes
 from the next prompt. `--name` and `/rename` do not reach that entry. This hook
-waits in the background for the session's remote id, then gives its entry in
-claude.ai/code and the Claude app the session's own name:
+watches the session in the background, for 90 seconds after each start and
+prompt, and gives its entry in claude.ai/code and the Claude app the session's
+own name as soon as the remote id is there, and again if the name changes in
+that time, as when [session-name.sh](#session-names) renames at the same prompt:
 
 - **Which names**: only a name someone chose (`/rename`, `--name`, a hook such as
-  [session-name.sh](#session-names), or another session). An unnamed session is
-  left alone.
+  [session-name.sh](#session-names), or another session). A name Remote Control
+  made up is never sent, and one chosen during the watch replaces it.
 - **How often**: once per remote session and name, recorded in
-  `${XDG_STATE_HOME:-~/.local/state}/claude-code/remote-titles`; a failed
-  request is tried again at the next event.
-- **Login**: the session's own (macOS Keychain, the Linux keyring, else
+  `${XDG_STATE_HOME:-~/.local/state}/claude-code/remote-titles`, with one
+  watch per session at a time. A refusal is not repeated. A server error, a
+  rate limit, or a login Claude Code has not renewed yet is tried again after 4,
+  then 8 seconds. After the third failure the watch ends, so the next event tries again. A registry file left by a
+  crashed process is passed over: the entry of the running process wins, else
+  the newest.
+- **Login**: the session's own (the home's macOS Keychain entry, else
   `<config>/.credentials.json`). The hook never refreshes it, so with an expired
   token it does nothing, and the token reaches curl on stdin, not in the process
   list.

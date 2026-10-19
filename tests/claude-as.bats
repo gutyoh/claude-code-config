@@ -16,7 +16,9 @@ setup() {
     source "$BATS_TEST_DIRNAME/helpers.bash"
     require_cmd jq
     isolate_home
-    unset CLAUDE_AS CLAUDE_AS_HOMES CLAUDE_AS_SHARED CLAUDE_AS_SHARE
+    unset CLAUDE_AS CLAUDE_AS_HOMES CLAUDE_AS_SHARED CLAUDE_AS_SHARE CLAUDE_CONFIG_DIR CLAUDE_ENV_FILE
+    # A session started by claude-as passes these on to the tests run in it.
+    unset CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX CLAUDE_HOST_ALIAS ${!HERDR_@}
     unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_PROFILE
     export XDG_STATE_HOME="${HOME}/.local/state"
     mkdir -p "${HOME}/.claude/projects" "${HOME}/.claude/skills" "${HOME}/.claude/hooks"
@@ -49,6 +51,7 @@ if [[ $1 == auth && $2 == login ]]; then
     exit 0
 fi
 if [[ $1 == -p && $2 == --resume ]]; then
+    printf 'probe pane=%s\n' "${HERDR_ENV-}${HERDR_PANE_ID-}${HERDR_TAB_ID-}${HERDR_WORKSPACE_ID-}${HERDR_SOCKET_PATH-}" >>"$HOME/probes"
     if compgen -G "$home/projects/*/$3.jsonl" >/dev/null; then
         echo "Error: No deferred tool marker found in the resumed session."
     else
@@ -63,6 +66,7 @@ fi
 printf 'RAN set=%s home=%s args=%s\n' "${CLAUDE_CONFIG_DIR+1}" "${CLAUDE_CONFIG_DIR:-}" "$*"
 printf 'ENV oauth=%s key=%s store=%s\n' "${CLAUDE_CODE_OAUTH_TOKEN-unset}" "${ANTHROPIC_API_KEY-unset}" "${CLAUDE_SECURESTORAGE_CONFIG_DIR-unset}"
 printf 'RC prefix=%s\n' "${CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX-unset}"
+printf 'PANE env=%s pane=%s\n' "${HERDR_ENV-unset}" "${HERDR_PANE_ID-unset}"
 EOF
 }
 
@@ -333,6 +337,21 @@ two_accounts() {
     [ ! -e "${XDG_STATE_HOME}/claude-as/canary" ]
 }
 
+@test "--check probes each home outside the herdr pane it runs in" {
+    two_accounts
+    HERDR_ENV=1 HERDR_PANE_ID=w1:p3 HERDR_TAB_ID=w1:t3 HERDR_WORKSPACE_ID=w1 \
+        HERDR_SOCKET_PATH="${HOME}/herdr.sock" run "$SCRIPT" --check
+    [ "$status" -eq 0 ]
+    [ "$(grep -c '^probe pane=$' "${HOME}/probes")" -eq 2 ]
+}
+
+@test "a session claude-as starts keeps its herdr pane" {
+    two_accounts
+    HERDR_ENV=1 HERDR_PANE_ID=w1:p3 run "$SCRIPT" me@home.example
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"PANE env=1 pane=w1:p3"* ]]
+}
+
 @test "--check fails a home with its own history, a missing link or no login" {
     two_accounts
     rm "${HOME}/.claude-home/projects"
@@ -530,6 +549,17 @@ on_terminal() {
     [ -z "$output" ]
     run "$SCRIPT" --where --resume
     [ -z "$output" ]
+}
+
+@test "started with SIGPIPE ignored, as from herdr or Claude Code, it prints no pipe errors" {
+    two_accounts
+    ran "${SID}" "${HOME}/.claude"
+    run bash -c 'trap "" PIPE; exec "$1" --where --resume "$2"' _ "$SCRIPT" "${SID}"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+    ran "${SID}" "${HOME}/.claude-home"
+    run bash -c 'trap "" PIPE; exec "$1" --where -r "$2"' _ "$SCRIPT" "${SID}"
+    [ "$output" = "${HOME}/.claude-home" ]
 }
 
 @test "--continue resumes this folder's newest session as the account it last ran as" {

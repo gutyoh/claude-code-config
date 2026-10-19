@@ -173,6 +173,9 @@ calls() {
 
 # bats test_tags=unit,statusline
 @test "a missing ccusage binary is not an error" {
-    PATH="/usr/bin:/bin" run _refresh_ccusage_cache
+    # An empty folder, not /usr/bin: on NixOS envfs serves every program on
+    # the caller's PATH there, so a missing ccusage would still be found.
+    mkdir -p "$BATS_TEST_TMPDIR/empty"
+    PATH="$BATS_TEST_TMPDIR/empty" run _refresh_ccusage_cache
     [ "$status" -ne 0 ]
 }
