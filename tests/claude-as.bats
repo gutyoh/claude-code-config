@@ -62,6 +62,7 @@ if [[ $1 == --version ]]; then
 fi
 printf 'RAN set=%s home=%s args=%s\n' "${CLAUDE_CONFIG_DIR+1}" "${CLAUDE_CONFIG_DIR:-}" "$*"
 printf 'ENV oauth=%s key=%s store=%s\n' "${CLAUDE_CODE_OAUTH_TOKEN-unset}" "${ANTHROPIC_API_KEY-unset}" "${CLAUDE_SECURESTORAGE_CONFIG_DIR-unset}"
+printf 'RC prefix=%s\n' "${CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX-unset}"
 EOF
 }
 
@@ -227,7 +228,9 @@ two_accounts() {
     run "$SCRIPT" me@home.example --continue -a
     [[ ${output} == *"args=--allow-dangerously-skip-permissions --continue -a"* ]]
     # The shell functions setup.sh writes hold the same defaults.
-    grep -q 'command claude --allow-dangerously-skip-permissions' "$BATS_TEST_DIRNAME/../lib/setup/settings.sh"
+    grep -q 'mode=--allow-dangerously-skip-permissions' "$BATS_TEST_DIRNAME/../lib/setup/settings.sh"
+    grep -q 'mode=--dangerously-skip-permissions' "$BATS_TEST_DIRNAME/../lib/setup/settings.sh"
+    grep -q 'set -l mode --allow-dangerously-skip-permissions' "$BATS_TEST_DIRNAME/../lib/setup/settings.sh"
 }
 
 @test "another account's credentials are dropped; a gateway's is named, never shown" {
@@ -574,4 +577,141 @@ on_terminal() {
     [ "$status" -eq 2 ]
     run "$SCRIPT" --where -c
     [ -z "$output" ]
+}
+
+# --- Remote Control keeps a resumed session's own name ----------------------
+
+# titled <id> <title>...: a transcript whose custom titles are, in order, these.
+titled() {
+    local id=$1 t
+    shift
+    mkdir -p "${HOME}/.claude/projects/-work"
+    for t in "$@"; do
+        jq -nc --arg t "${t}" --arg id "${id}" '{type: "custom-title", customTitle: $t, sessionId: $id}'
+    done >>"${HOME}/.claude/projects/-work/${id}.jsonl"
+}
+
+rc_on() { jq -n "{remoteControlAtStartup: ${1:-true}}" >"${HOME}/.claude/settings.json"; }
+
+@test "--rc-name gives a resumed session's newest title, only when Remote Control starts on its own" {
+    two_accounts
+    titled "${SID}" claude-dev-20261018T0100Z-first-3f2a9c1e claude-dev-20261018T0100Z-renamed-3f2a9c1e
+    run "$SCRIPT" --rc-name --resume "${SID}"
+    [ -z "$output" ]
+    rc_on false
+    run "$SCRIPT" --rc-name --resume "${SID}"
+    [ -z "$output" ]
+    rc_on
+    run "$SCRIPT" --rc-name --resume "${SID}"
+    [ "$output" = "claude-dev-20261018T0100Z-renamed-3f2a9c1e" ]
+    run "$SCRIPT" --rc-name -r "${SID}" --name mine
+    [ "$output" = "mine" ]
+    run "$SCRIPT" --rc-name "--resume=${SID}" --name=also-mine
+    [ "$output" = "also-mine" ]
+}
+
+@test "--rc-name stays out of a print run, a fork, a Remote Control choice, a new session and an unknown one" {
+    two_accounts
+    rc_on
+    titled "${SID}" claude-dev-20261018T0100Z-x-3f2a9c1e
+    for args in "-p --resume ${SID}" "--print --resume ${SID}" "--resume ${SID} --fork-session" \
+        "--resume ${SID} --remote-control" "--resume ${SID} --remote-control=other" \
+        "--resume" "-p hi" "" "--resume 00000000-0000-4000-8000-000000000000"; do
+        # shellcheck disable=SC2086
+        run "$SCRIPT" --rc-name ${args}
+        [ -z "$output" ] || { echo "args: ${args} -> ${output}"; false; }
+    done
+}
+
+@test "--rc-name leaves a title out that would read as an option, and a project that turns Remote Control off" {
+    two_accounts
+    rc_on
+    titled "${SID}" -looks-like-an-option
+    run "$SCRIPT" --rc-name --resume "${SID}"
+    [ -z "$output" ]
+    titled "${SID}" fine-name
+    mkdir -p "${HOME}/repo/.claude"
+    echo '{"remoteControlAtStartup": false}' >"${HOME}/repo/.claude/settings.local.json"
+    run bash -c 'cd "$1" && "$2" --rc-name --resume "$3"' _ "${HOME}/repo" "$SCRIPT" "${SID}"
+    [ -z "$output" ]
+    run "$SCRIPT" --rc-name --resume "${SID}"
+    [ "$output" = "fine-name" ]
+}
+
+@test "--rc-name finds the session a hook name or --continue resumes" {
+    two_accounts
+    rc_on
+    ran "${SID}" "${HOME}/.claude-home"
+    titled "${SID}" claude-lap-20261018T0100Z-btree-3f2a9c1e
+    run "$SCRIPT" --rc-name --resume claude-lap-20261018T0100Z-btree-3f2a9c1e
+    [ "$output" = "claude-lap-20261018T0100Z-btree-3f2a9c1e" ]
+    mkdir -p "${HOME}/work"
+    mv "${HOME}/.claude/projects/-work" "${HOME}/.claude/projects/$(printf '%s' "$(cd "${HOME}/work" && pwd -P)" | sed 's/[^A-Za-z0-9]/-/g')"
+    run bash -c 'cd "$1" && "$2" --rc-name -c' _ "${HOME}/work" "$SCRIPT"
+    [ "$output" = "claude-lap-20261018T0100Z-btree-3f2a9c1e" ]
+}
+
+@test "a resume through claude-as, also to another account, passes the name in front of the arguments" {
+    two_accounts
+    rc_on
+    ran "${SID}" "${HOME}/.claude"
+    titled "${SID}" claude-dev-20261018T0100Z-x-3f2a9c1e
+    run "$SCRIPT" -r "${SID}" -- hi
+    [[ ${output} == *"args=--allow-dangerously-skip-permissions --remote-control claude-dev-20261018T0100Z-x-3f2a9c1e -r ${SID} -- hi"* ]]
+    run "$SCRIPT" me@home.example -a --resume "${SID}"
+    [[ ${output} == *"home=${HOME}/.claude-home args=--dangerously-skip-permissions --remote-control claude-dev-20261018T0100Z-x-3f2a9c1e --resume ${SID}"* ]]
+    run "$SCRIPT" me@home.example -p hi
+    [[ ${output} == *"args=--allow-dangerously-skip-permissions -p hi"* ]]
+}
+
+@test "a launch names Remote Control's made-up names after the machine, unless the prefix is set" {
+    two_accounts
+    printf 'host_alias=dev\n' >"${HOME}/.claude/statusline.local.conf"
+    run "$SCRIPT" me@work.example -p hi
+    [[ ${output} == *"RC prefix=claude-dev"* ]]
+    CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX=mine run "$SCRIPT" me@work.example -p hi
+    [[ ${output} == *"RC prefix=mine"* ]]
+    CLAUDE_HOST_ALIAS=off run "$SCRIPT" me@work.example -p hi
+    [[ ${output} == *"RC prefix=unset"* ]]
+}
+
+@test "--host-alias reads the machine's short name as the session-name hook does" {
+    local hook="$BATS_TEST_DIRNAME/../.claude/hooks/session-name.sh" title from_hook
+    mkdir -p "${HOME}/.claude/statusline.d"
+    check() {
+        title=$(jq -nc '{hook_event_name: "UserPromptSubmit", session_id: "0ed0b890-9116-4571-8ae6-17a3d0013f8c"}' \
+            | CLAUDE_CODE_ENTRYPOINT=cli CLAUDE_SESSION_NAME_TOPIC=off bash "${hook}" | jq -r .hookSpecificOutput.sessionTitle)
+        from_hook=$(sed -E 's/^claude-(.*)-[0-9]{4}T[0-9]{4}-0ed0b890$/\1/; t; s/.*//' <<<"${title}")
+        [ "$("$SCRIPT" --host-alias)" = "${from_hook}" ] || { echo "hook=${title} claude-as=$("$SCRIPT" --host-alias)"; false; }
+    }
+    HOSTNAME=devbox-dev-01 check
+    HOSTNAME=Laptop-Dev-01.local check
+    printf 'host_alias=wrong\n' >"${HOME}/.claude/statusline.conf"
+    printf '# x\nhost_alias = lap\n' >"${HOME}/.claude/statusline.d/workstation.conf"
+    check
+    [ "$("$SCRIPT" --host-alias)" = "lap" ]
+    printf 'host_alias=lab01\n' >"${HOME}/.claude/statusline.local.conf"
+    check
+    CLAUDE_HOST_ALIAS="A Very Long Machine Name" check
+    [ -z "$(CLAUDE_HOST_ALIAS=off "$SCRIPT" --host-alias)" ]
+}
+
+@test "--rc-name reads the newest copy of a transcript a moved folder left twice, and its end first" {
+    two_accounts
+    rc_on
+    titled "${SID}" from-the-old-folder
+    mkdir -p "${HOME}/.claude/projects/-zz-moved"
+    touch -t 202601010000 "${HOME}/.claude/projects/-work/${SID}.jsonl"
+    {
+        jq -nc --arg id "${SID}" '{type: "custom-title", customTitle: "early", sessionId: $id}'
+        # Past the 4 MB the end is read from: the title is found again in full.
+        head -c 4200000 /dev/zero | tr '\0' 'x'
+        echo
+    } >"${HOME}/.claude/projects/-zz-moved/${SID}.jsonl"
+    run "$SCRIPT" --rc-name --resume "${SID}"
+    [ "$output" = "early" ]
+    jq -nc --arg id "${SID}" '{type: "custom-title", customTitle: "latest", sessionId: $id}' \
+        >>"${HOME}/.claude/projects/-zz-moved/${SID}.jsonl"
+    run "$SCRIPT" --rc-name --resume "${SID}"
+    [ "$output" = "latest" ]
 }

@@ -3,13 +3,15 @@
 # Path: .claude/hooks/session-name.sh
 #
 # Names each session once, at its first prompt, as
-# <provider>-<YYYYMMDDTHHMM><zone>-<topic>-<id>, for example
-# claude-20261012T1412Z-btree-page-splits-0ed0b890, and never renames it: the
-# name is the session's address for --resume and for messages between
-# sessions. <id> is the first 8 characters of the session id, which name its
-# transcript (projects/*/<id>*.jsonl) and keep two names apart. A small model
-# writes the topic from the first prompt; when it does not answer with a
-# topic in time, the prompt's first words are the topic.
+# <provider>-<host>-<MMDDTHHMM>-<topic>-<id>, for example
+# claude-lap-1012T1412-btree-page-splits-0ed0b890, and never renames it:
+# the name is the session's address for --resume and for messages between
+# sessions. <host> is the machine's short name (host_alias below), so a list
+# of sessions from several machines says where each runs. <id> is the first
+# 8 characters of the session id, which name its transcript
+# (projects/*/<id>*.jsonl) and keep two names apart. A small model writes the
+# topic from the first prompt; when it does not answer with a topic in time,
+# the prompt's first words are the topic.
 #
 # In herdr, the session's tab gets the same topic after the plan's icon, the
 # icon_claude, icon_openai or icon_muse of statusline.conf, else its name.
@@ -24,10 +26,16 @@
 # error prints nothing and exits 0, so a prompt is never blocked.
 #
 # Environment:
-#   CLAUDE_SESSION_NAME_TZ       IANA time zone for the timestamp (default UTC)
+#   CLAUDE_SESSION_NAME_TZ       IANA time zone of the start time (default UTC);
+#                                the name keeps month, day and time, no zone
 #   CLAUDE_SESSION_NAME          set to "off" to disable naming
 #   CLAUDE_SESSION_NAME_TOPIC    set to "off" to name sessions without a topic
 #   CLAUDE_SESSION_NAME_MODEL    model that writes the topic (default haiku)
+#   CLAUDE_HOST_ALIAS            the machine's short name; "off" leaves it out.
+#                                Default: host_alias= in statusline.conf,
+#                                statusline.d/*.conf or statusline.local.conf
+#                                (the last one set wins), else the hostname up
+#                                to its first "." or "-"
 #
 # Usage:     Configured in .claude/settings.json (SessionStart, UserPromptSubmit)
 # Platforms: macOS, Linux, Windows Git Bash
@@ -60,11 +68,10 @@ timestamp() {
     if [[ -z "${tzdir}" && ! -d /usr/share/zoneinfo && -d /etc/zoneinfo ]]; then
         tzdir=/etc/zoneinfo
     fi
-    stamp=$(TZDIR="${tzdir}" TZ="${CLAUDE_SESSION_NAME_TZ:-UTC}" date +%Y%m%dT%H%M%z) || return 1
-    case "${stamp: -5}" in
-        +0000 | -0000) echo "${stamp:0:13}Z" ;;
-        *) echo "${stamp}" ;;
-    esac
+    # Month, day and time, short enough that the topic stays visible in a
+    # session list; the id at the end keeps two names apart.
+    stamp=$(TZDIR="${tzdir}" TZ="${CLAUDE_SESSION_NAME_TZ:-UTC}" date +%m%dT%H%M) || return 1
+    echo "${stamp}"
 }
 
 # Runs a command for at most <seconds>. macOS has no timeout(1) unless GNU
@@ -114,6 +121,31 @@ slug() {
         ascii="${ascii%-*}"
     done
     printf '%s' "${ascii:0:max}"
+}
+
+# The machine's short name, read like the statusline reads its keys. A fleet
+# tool sets host_alias in a statusline.d drop-in; bin/claude-as keeps the
+# same function for Remote Control's names, and tests hold the two equal.
+host_alias() {
+    local conf_dir="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}" alias="" file key value
+    if [[ -n "${CLAUDE_HOST_ALIAS+set}" ]]; then
+        alias="${CLAUDE_HOST_ALIAS}"
+    else
+        for file in "${conf_dir}/statusline.conf" "${conf_dir}/statusline.d"/*.conf \
+            "${conf_dir}/statusline.local.conf"; do
+            [[ -f "${file}" ]] || continue
+            while IFS='=' read -r key value || [[ -n "${key}" ]]; do
+                [[ "${key//[[:space:]]/}" == host_alias ]] && alias="${value//[[:space:]]/}"
+            done <"${file}"
+        done
+        if [[ -z "${alias}" ]]; then
+            alias="${HOSTNAME:-$(uname -n 2>/dev/null)}"
+            alias="${alias%%.*}"
+            alias="${alias%%-*}"
+        fi
+    fi
+    [[ "${alias}" == off ]] && return 0
+    slug "${alias}" 12
 }
 
 # The plan's icon from statusline.conf, else the provider's name. Claude falls
@@ -190,7 +222,7 @@ topic_of() {
 }
 
 on_prompt() {
-    local title="$1" session="$2" prompt="$3" model provider stamp topic
+    local title="$1" session="$2" prompt="$3" model provider host stamp topic
     # Named once; a later prompt never renames, so the address stays valid.
     [[ -z "${title}" ]] || return 0
     mkdir -p "${STATE_DIR}" 2>/dev/null || return 0
@@ -198,9 +230,10 @@ on_prompt() {
     stamp=$(head -n 1 "${STATE_DIR}/${session}.start" 2>/dev/null)
     [[ -n "${stamp}" ]] || stamp=$(timestamp) || return 0
     provider=$(provider_of "${model}")
+    host=$(host_alias)
     topic=""
     [[ -n "${prompt// /}" ]] && topic=$(topic_of "${prompt}")
-    emit UserPromptSubmit "${provider}-${stamp}${topic:+-${topic}}-${session:0:8}"
+    emit UserPromptSubmit "${provider}${host:+-${host}}-${stamp}${topic:+-${topic}}-${session:0:8}"
     # Detached from the hook's output, which Claude Code reads to the end.
     sync_tab "${session}" "${provider}" "${topic}" </dev/null >/dev/null 2>&1 &
     disown 2>/dev/null || true

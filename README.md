@@ -113,7 +113,7 @@ claude-as -r <session id>                # as the account it last ran as
 ```
 
 **Session names.** Each session is named once, at its first prompt, as
-`claude-20261012T1412Z-btree-page-splits-0ed0b890`: the name `--resume` and
+`claude-lap-1012T1412-btree-page-splits-0ed0b890`: the name `--resume` and
 Remote Control find it by. [Details](docs/configuration.md#session-names).
 
 **Database guardrail.** The `sql-expert`, `databricks-expert` and

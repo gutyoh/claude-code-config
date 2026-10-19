@@ -96,6 +96,11 @@ test -n "$home"; and set -lx CLAUDE_CONFIG_DIR $home
 `setup.sh` installs `__claude_as_home` beside it, in
 `$XDG_CONFIG_HOME/fish/functions/`.
 
+Remote Control's list belongs to each account, so a session resumed as
+another account is registered there anew. The resume passes the session's
+own name with `--remote-control`, which keeps the phone showing the name the
+session has everywhere else ([Session names](configuration.md#session-names)).
+
 ## Continue a session as another account
 
 When one account reaches its usage limit:

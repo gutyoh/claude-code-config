@@ -22,6 +22,7 @@ change it. The scripts live in `.claude/hooks/` and are linked into
 | [`guard-public-text.sh`](#public-text-guard) | `PreToolUse` (`Bash`) | User | Blocks text bound for a public repository that your scanner flags |
 | [`session-name.sh`](#session-names) | `SessionStart` (`startup`), `UserPromptSubmit` | User | Names each session once, at its first prompt |
 | [`session-account.sh`](#session-accounts) | `SessionStart` (every source) | User | Records each session's account; warns when a resume changes it |
+| [`session-remote-title.sh`](#remote-control-titles) | `SessionStart` (every source), `UserPromptSubmit` | User | Gives the session's Remote Control entry the session's name |
 | [`stop-nudge.sh`](#stop-nudge) | `Stop` | Plugin | Nudges a routed model that announces a step and stops |
 | [`sql-guardrail.sh`](#database-guardrail) | `PreToolUse` (`Bash`) | Agent | Blocks destructive database commands |
 
@@ -124,7 +125,7 @@ See [How to add an MCP server](how-to-add-mcp-server.md#set-up-key-rotation-opti
 
 Names each interactive session once, at its first prompt, as
 `<provider>-<start>-<topic>-<id>`, for example
-`claude-20261012T1412Z-btree-page-splits-0ed0b890`, and never renames it: the
+`claude-lap-1012T1412-btree-page-splits-0ed0b890`, and never renames it: the
 name is how `--resume` and other sessions find it. Details and switches in
 [Configuration: session names](configuration.md#session-names).
 
@@ -144,6 +145,37 @@ To go back: /exit, then claude-as you@work.example -r <id>
 `claude-as -r <id>` and `claude --resume <id>` read the record to resume as the
 same account, also when herdr resumes its panes after a restart. Bad input never
 blocks a session, and the record keeps its newest 4000 lines past 1 MB.
+
+## Remote Control titles
+
+With Remote Control on at startup (`remoteControlAtStartup`), resuming a session,
+above all as another account, can register a new remote session under an
+auto-generated name such as `myhost-graceful-unicorn` or a title Claude writes
+from the next prompt. `--name` and `/rename` do not reach that entry. This hook
+waits in the background for the session's remote id, then gives its entry in
+claude.ai/code and the Claude app the session's own name:
+
+- **Which names**: only a name someone chose (`/rename`, `--name`, a hook such as
+  [session-name.sh](#session-names), or another session). An unnamed session is
+  left alone.
+- **How often**: once per remote session and name, recorded in
+  `${XDG_STATE_HOME:-~/.local/state}/claude-code/remote-titles`; a failed
+  request is tried again at the next event.
+- **Login**: the session's own (macOS Keychain, the Linux keyring, else
+  `<config>/.credentials.json`). The hook never refreshes it, so with an expired
+  token it does nothing, and the token reaches curl on stdin, not in the process
+  list.
+- **Endpoint**: `PUT /v1/code/sessions/<id>`, the one the claude.ai rename uses.
+  It is not documented; if it changes, nothing happens and Remote Control keeps
+  its own title.
+- **Proxy**: `CLAUDE_REMOTE_TITLE_HTTPS_PROXY`, else `STATUSLINE_HTTPS_PROXY`,
+  when set; empty means direct. A router that intercepts the session's traffic
+  (its CA trusted by Node only) would otherwise fail the request's TLS.
+- **Skipped**: a `claude -p` or SDK run, and a session whose `ANTHROPIC_BASE_URL`
+  points elsewhere, since neither has a Remote Control entry.
+- **Opt out**: `CLAUDE_REMOTE_TITLE=off`. `CLAUDE_REMOTE_TITLE_WAIT` (default 90)
+  is how long it waits for the remote id; `CLAUDE_REMOTE_TITLE_FOREGROUND=1` runs
+  it in the foreground, to debug it.
 
 ## Stop nudge
 

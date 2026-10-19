@@ -131,7 +131,8 @@ PYTHON_SCRIPT
 }
 
 # Session naming (hooks/session-name.sh) needs one entry on each of two events,
-# and hooks/session-account.sh one on every session start; an entry already
+# hooks/session-account.sh one on every session start, and
+# hooks/session-remote-title.sh one on every start and prompt; an entry already
 # naming a script is left as it is.
 configure_session_name_hooks() {
     python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
@@ -145,6 +146,8 @@ wanted = (
     ('SessionStart', {'matcher': 'startup'}, 'session-name.sh'),
     ('UserPromptSubmit', {'matcher': ''}, 'session-name.sh'),
     ('SessionStart', {'matcher': ''}, 'session-account.sh'),
+    ('SessionStart', {'matcher': ''}, 'session-remote-title.sh'),
+    ('UserPromptSubmit', {'matcher': ''}, 'session-remote-title.sh'),
 )
 
 try:
@@ -624,8 +627,9 @@ configure_claude_shortcuts() {
 
 # claude-code-config: claude launch shortcuts
 # A resumed session runs as the account it last ran as (claude-as --where),
-# also when herdr resumes it after a restart. A subshell keeps the variable
-# out of the caller's shell.
+# also when herdr resumes it after a restart, and keeps its own name in
+# Remote Control (claude-as --rc-name). A subshell keeps the variables out of
+# the caller's shell.
 claude() (
   if [ -z "${CLAUDE_CONFIG_DIR:-}" ] && command -v claude-as >/dev/null 2>&1; then
     CLAUDE_CONFIG_DIR=$(claude-as --where "$@" 2>/dev/null) || {
@@ -639,15 +643,27 @@ claude() (
       unset CLAUDE_CONFIG_DIR
     fi
   fi
+  mode=--allow-dangerously-skip-permissions
   case "${1:-}" in
     -a|--unsafe|--bypass|-adskp)
       shift
-      command claude --dangerously-skip-permissions "$@"
-      ;;
-    *)
-      command claude --allow-dangerously-skip-permissions "$@"
+      mode=--dangerously-skip-permissions
       ;;
   esac
+  if command -v claude-as >/dev/null 2>&1; then
+    # In front: an option after a `--` or a prompt would not be read as one.
+    rc_name=$(claude-as --rc-name "$@" 2>/dev/null) || rc_name=
+    if [ -n "${rc_name}" ]; then
+      set -- --remote-control "${rc_name}" "$@"
+    fi
+    if [ -z "${CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX:-}" ]; then
+      host_alias=$(claude-as --host-alias 2>/dev/null) || host_alias=
+      if [ -n "${host_alias}" ]; then
+        export CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX="claude-${host_alias}"
+      fi
+    fi
+  fi
+  command claude "${mode}" "$@"
 )
 
 # No `local`: this block is written to ~/.profile for any shell that is not
@@ -794,23 +810,32 @@ function claude --description 'Claude Code with proxy launcher defaults'
     # Defaults to --allow-dangerously-skip-permissions; opt in to
     # --dangerously-skip-permissions via -a / --unsafe / --bypass / -adskp.
     # A resumed session runs as the account it last ran as (__claude_as_home),
-    # also when herdr resumes it after a restart.
+    # also when herdr resumes it after a restart, and keeps its own name in
+    # Remote Control (claude-as --rc-name).
 
     set -l home (__claude_as_home $argv)
     # Outside any block: a variable set in one ends with it.
     test -n "$home"; and set -lx CLAUDE_CONFIG_DIR $home
 
-    set -l first ""
-    test (count $argv) -gt 0; and set first $argv[1]
-
-    switch $first
-        case -a --unsafe --bypass -adskp
-            set -l rest
-            test (count $argv) -gt 1; and set rest $argv[2..-1]
-            command claude --dangerously-skip-permissions $rest
-        case '*'
-            command claude --allow-dangerously-skip-permissions $argv
+    set -l mode --allow-dangerously-skip-permissions
+    set -l rest $argv
+    if contains -- "$argv[1]" -a --unsafe --bypass -adskp
+        set mode --dangerously-skip-permissions
+        set -e rest[1]
     end
+
+    set -l rc_name
+    set -l host_alias
+    if command -q claude-as
+        set rc_name (command claude-as --rc-name $rest 2>/dev/null)
+        set host_alias (command claude-as --host-alias 2>/dev/null)
+    end
+    # In front: an option after a `--` or a prompt would not be read as one.
+    test -n "$rc_name"; and set rest --remote-control $rc_name $rest
+    # Outside any block, as CLAUDE_CONFIG_DIR above.
+    test -z "$CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX"; and test -n "$host_alias"
+    and set -lx CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX claude-$host_alias
+    command claude $mode $rest
 end
 EOF
 

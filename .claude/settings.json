@@ -94,6 +94,11 @@
             "type": "command",
             "command": "~/.claude/hooks/session-account.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/session-remote-title.sh",
+            "timeout": 5
           }
         ]
       }
@@ -106,6 +111,11 @@
             "type": "command",
             "command": "~/.claude/hooks/session-name.sh",
             "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/session-remote-title.sh",
+            "timeout": 5
           }
         ]
       }

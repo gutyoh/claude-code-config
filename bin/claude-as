@@ -18,6 +18,10 @@
 #   claude-as -c [args]               continue this folder's newest session the same way
 #   claude-as --where [claude args]   that account's home, when the args resume a
 #                                     session that last ran outside ~/.claude
+#   claude-as --rc-name [claude args] the name to pass to --remote-control when
+#                                     the args resume a session, so Remote
+#                                     Control shows the session's own name
+#   claude-as --host-alias            the machine's short name in session names
 #   claude-as --add <email> [args]    new home for an account, then sign it in
 #   claude-as --check                 every home: login, links, shared history
 #   claude-as --relink                link shared items a home is missing
@@ -38,6 +42,7 @@
 #   CLAUDE_AS_SHARED   the home the others link to (default: ~/.claude)
 #   CLAUDE_AS_SHARE    names linked into each home (default: SHARE below)
 #   CLAUDE_AS_CLAUDE   the claude to run (default: claude on PATH)
+#   CLAUDE_HOST_ALIAS  the machine's short name; "off" leaves it out
 #   XDG_STATE_HOME     where the session record is (default: ~/.local/state)
 
 set -euo pipefail
@@ -364,6 +369,108 @@ confirm_switch() {
     fi
 }
 
+# Lowercase ASCII words joined by hyphens, at most <max> characters, as
+# hooks/session-name.sh's slug.
+slug() {
+    local ascii
+    ascii=$(printf '%s' "$1" | LC_ALL=C tr '[:upper:]' '[:lower:]' | LC_ALL=C tr -c 'a-z0-9' '-' | tr -s '-')
+    ascii=${ascii#-}
+    ascii=${ascii%-}
+    while ((${#ascii} > $2)) && [[ ${ascii} == *-* ]]; do
+        ascii=${ascii%-*}
+    done
+    printf '%s' "${ascii:0:$2}"
+}
+
+# The machine's short name, as hooks/session-name.sh's host_alias reads it
+# for session names (tests/claude-as.bats holds the two equal): CLAUDE_HOST_ALIAS,
+# else host_alias= in <home>'s statusline files, the last one set winning,
+# else the hostname up to its first "." or "-". "off" is none.
+host_alias() {
+    local conf_dir=$1 alias="" file key value
+    if [[ -n ${CLAUDE_HOST_ALIAS+set} ]]; then
+        alias=${CLAUDE_HOST_ALIAS}
+    else
+        for file in "${conf_dir}/statusline.conf" "${conf_dir}/statusline.d"/*.conf \
+            "${conf_dir}/statusline.local.conf"; do
+            [[ -f ${file} ]] || continue
+            while IFS='=' read -r key value || [[ -n ${key} ]]; do
+                [[ ${key//[[:space:]]/} == host_alias ]] && alias=${value//[[:space:]]/}
+            done <"${file}"
+        done
+        if [[ -z ${alias} ]]; then
+            alias=${HOSTNAME:-$(uname -n 2>/dev/null)}
+            alias=${alias%%.*}
+            alias=${alias%%-*}
+        fi
+    fi
+    [[ ${alias} == off ]] && return 0
+    slug "${alias}" 12
+}
+
+# Whether a session started in <home> here connects Remote Control on its
+# own, as Claude Code decides it: managed settings win, a project's own
+# settings may only turn it off, the user's turn it on.
+remote_control_on() {
+    local home=$1 on="" file value
+    value=$(jq -r '.remoteControlAtStartup' "${home}/settings.json" 2>/dev/null || true)
+    [[ ${value} == true ]] && on=1
+    for file in .claude/settings.json .claude/settings.local.json; do
+        value=$(jq -r '.remoteControlAtStartup' "${file}" 2>/dev/null || true)
+        [[ ${value} == false ]] && on=""
+    done
+    for file in /etc/claude-code/managed-settings.json \
+        "/Library/Application Support/ClaudeCode/managed-settings.json"; do
+        value=$(jq -r '.remoteControlAtStartup' "${file}" 2>/dev/null || true)
+        [[ ${value} == true ]] && on=1
+        [[ ${value} == false ]] && on=""
+    done
+    [[ -n ${on} ]]
+}
+
+# The name Remote Control should keep for the session these claude arguments
+# resume in <home>, or nothing. Resumed, a session gets a made-up name
+# instead of its own (anthropics/claude-code#59960), and one moving to
+# another account is registered anew. Only a name given with
+# --remote-control survives that, so a resume passes the session's own:
+# -n/--name when given, else its newest title. Nothing for --print, a fork
+# (a new session), a Remote Control choice already made, or a name the
+# command line would read as an option.
+rc_name() {
+    local home=$1 arg prev="" given="" id file newest title=""
+    shift
+    for arg in "$@"; do
+        case ${arg} in
+            -p | --print | --fork-session | --remote-control | --remote-control=*) return 0 ;;
+            --name=*) given=${arg#--name=} ;;
+            *) [[ ${prev} == -n || ${prev} == --name ]] && given=${arg} ;;
+        esac
+        prev=${arg}
+    done
+    remote_control_on "${home}" || return 0
+    id=$(full_id "$(resumed_id "$@")")
+    [[ -n ${id} ]] || return 0
+    title=${given}
+    if [[ -z ${title} ]]; then
+        # A folder moved or renamed keeps an older copy under its old name:
+        # the newest transcript is the one Claude Code continues.
+        newest=""
+        for file in "${shared}"/projects/*/"${id}.jsonl"; do
+            [[ -f ${file} && (-z ${newest} || ${file} -nt ${newest}) ]] && newest=${file}
+        done
+        if [[ -n ${newest} ]]; then
+            # Claude Code writes the title again as the session goes on, so
+            # its end holds the newest; the whole file only when it does not.
+            title=$(tail -c 4000000 "${newest}" | grep -F '"type":"custom-title"' | tail -n 1 \
+                | jq -r '.customTitle // empty' 2>/dev/null || true)
+            [[ -n ${title} ]] || title=$(grep -F '"type":"custom-title"' "${newest}" | tail -n 1 \
+                | jq -r '.customTitle // empty' 2>/dev/null || true)
+        fi
+    fi
+    [[ -n ${title} && ${title} != -* && ${title} != *$'\n'* ]] || return 0
+    printf '%s\n' "${title}"
+}
+
 # Credentials in the environment outrank every home's login.
 warn_overrides() {
     local name set=""
@@ -390,15 +497,22 @@ in_home() {
 # account starts as plain claude does: bypass permissions on Shift+Tab, or on
 # from the start with -a, --unsafe, --bypass or -adskp first.
 run_in() {
-    local home=$1 name
+    local home=$1 name mode=--allow-dangerously-skip-permissions rc alias
     shift
     case ${1:-} in
         -a | --unsafe | --bypass | -adskp)
             shift
-            set -- --dangerously-skip-permissions "$@"
+            mode=--dangerously-skip-permissions
             ;;
-        *) set -- --allow-dangerously-skip-permissions "$@" ;;
     esac
+    rc=$(rc_name "${home}" "$@")
+    [[ -z ${rc} ]] || set -- --remote-control "${rc}" "$@"
+    set -- "${mode}" "$@"
+    # Remote Control's made-up names start with the machine's short name.
+    if [[ -z ${CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX:-} ]]; then
+        alias=$(host_alias "${home}")
+        [[ -z ${alias} ]] || export CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX="claude-${alias}"
+    fi
     warn_overrides
     for name in ${DROPPED}; do unset "${name}"; done
     if [[ ${home} == "${HOME}/.claude" ]]; then
@@ -576,6 +690,15 @@ case ${1:-} in
         shift
         home=$(last_home "$(resumed_id "$@")")
         [[ -z ${home} || ${home} == "${HOME}/.claude" ]] || printf '%s\n' "${home}"
+        ;;
+    --rc-name)
+        shift
+        home=${CLAUDE_CONFIG_DIR:-}
+        [[ -n ${home} ]] || home=$(last_home "$(resumed_id "$@")")
+        rc_name "${home:-${HOME}/.claude}" "$@"
+        ;;
+    --host-alias)
+        host_alias "${CLAUDE_CONFIG_DIR:-${shared}}"
         ;;
     --relink)
         while IFS= read -r home; do link_shared "${home}"; done < <(homes)

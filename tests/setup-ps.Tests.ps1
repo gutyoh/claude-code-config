@@ -951,6 +951,64 @@ Describe "Update-ClaudeShortcut" {
             }
         }
 
+        It "claude keeps a resumed session's name in Remote Control, in front of the arguments" {
+            $dir = Join-Path $TestDrive "fake-claude-rc"
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            if (Test-WindowsHost) {
+                Write-Utf8Text -Path (Join-Path $dir "claude.cmd") -Content "@echo prefix=%CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX% %*`r`n"
+            }
+            else {
+                $fake = Join-Path $dir "claude"
+                Write-Utf8Text -Path $fake -Content "#!/bin/sh`necho `"prefix=`${CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX-unset} `$*`"`n"
+                & chmod +x $fake
+            }
+            $shared = Join-Path $TestDrive "shared-rc"
+            $id = "3f2a9c1e-7b4d-4e8a-9c6f-1a2b3c4d5e6f"
+            $projects = Join-Path $shared "projects/-work"
+            New-Item -ItemType Directory -Path $projects -Force | Out-Null
+            [System.IO.File]::WriteAllText((Join-Path $projects "$id.jsonl"),
+                "{`"type`":`"custom-title`",`"customTitle`":`"claude-dev-old-3f2a9c1e`"}`n{`"type`":`"custom-title`",`"customTitle`":`"claude-dev-new-3f2a9c1e`"}`n")
+            $state = Join-Path $TestDrive "state-rc"
+            New-Item -ItemType Directory -Path (Join-Path $state "claude-as") -Force | Out-Null
+            [System.IO.File]::WriteAllText((Join-Path $state "claude-as/sessions"), "$id`t$(Join-Path $HOME '.claude')`t1`n")
+            $cfg = Join-Path $TestDrive "cfg-rc"
+            New-Item -ItemType Directory -Path $cfg -Force | Out-Null
+            $saved = @{ PATH = $env:PATH; XDG = $env:XDG_STATE_HOME; SHARED = $env:CLAUDE_AS_SHARED; DIR = $env:CLAUDE_CONFIG_DIR; ALIAS = $env:CLAUDE_HOST_ALIAS; PREFIX = $env:CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX }
+            try {
+                $env:PATH = $dir + [System.IO.Path]::PathSeparator + $env:PATH
+                $env:XDG_STATE_HOME = $state
+                $env:CLAUDE_AS_SHARED = $shared
+                $env:CLAUDE_CONFIG_DIR = $cfg
+                $env:CLAUDE_HOST_ALIAS = "dev"
+                Remove-Item Env:CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX -ErrorAction SilentlyContinue
+                . ([scriptblock]::Create((Get-ClaudeShortcutBlock)))
+
+                "$(claude --resume $id 2>$null)" | Should -BeLike "prefix=claude-dev --allow-dangerously-skip-permissions --resume $id*"
+                [System.IO.File]::WriteAllText((Join-Path $cfg "settings.json"), '{"remoteControlAtStartup": true}')
+                "$(claude -a --resume $id 2>$null)" | Should -BeLike "prefix=claude-dev --dangerously-skip-permissions --remote-control claude-dev-new-3f2a9c1e --resume $id*"
+                "$(claude --resume claude-dev-new-3f2a9c1e 2>$null)" | Should -BeLike "*--remote-control claude-dev-new-3f2a9c1e --resume claude-dev-new-3f2a9c1e*"
+                "$(claude --resume $id --name mine 2>$null)" | Should -BeLike "*--remote-control mine --resume $id --name mine*"
+                "$(claude -p --resume $id 2>$null)" | Should -Not -BeLike "*--remote-control*"
+                "$(claude --resume $id --fork-session 2>$null)" | Should -Not -BeLike "*--remote-control*"
+                "$(claude 2>$null)" | Should -Not -BeLike "*--remote-control*"
+                $env:CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX = "mine"
+                "$(claude -p hi 2>$null)" | Should -BeLike "prefix=mine *"
+                Remove-Item Env:CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX
+                "$(claude -p hi 2>$null)" | Out-Null
+                $env:CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX | Should -BeNullOrEmpty
+                $env:CLAUDE_HOST_ALIAS = "off"
+                "$(claude -p hi 2>$null)" | Should -Not -BeLike "prefix=claude-*"
+            }
+            finally {
+                $env:PATH = $saved.PATH
+                $env:XDG_STATE_HOME = $saved.XDG
+                $env:CLAUDE_AS_SHARED = $saved.SHARED
+                foreach ($pair in @(@("CLAUDE_CONFIG_DIR", $saved.DIR), @("CLAUDE_HOST_ALIAS", $saved.ALIAS), @("CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX", $saved.PREFIX))) {
+                    if ($pair[1]) { Set-Item -Path "Env:$($pair[0])" -Value $pair[1] } else { Remove-Item -Path "Env:$($pair[0])" -ErrorAction SilentlyContinue }
+                }
+            }
+        }
+
         # A profile runs at global scope in a fresh session, where Windows
         # PowerShell 5.1 keeps clp as an AllScope alias; dot-sourcing the block
         # inside an It block would test a child scope instead.

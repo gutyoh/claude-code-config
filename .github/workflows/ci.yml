@@ -137,9 +137,9 @@ jobs:
       - name: PSScriptAnalyzer and Pester
         run: ./tests/powershell-checks.ps1
 
-  # Claude Code runs the status line and /full-search through Git Bash on
-  # Windows, where each process is an MSYS2 fork: their tests there, on x64
-  # and arm64, when either moves.
+  # Claude Code runs the status line, /full-search and the session hooks
+  # through Git Bash on Windows, where each process is an MSYS2 fork: their
+  # tests there, on x64 and arm64, when one of them moves.
   windows-bash:
     name: git bash (${{ matrix.os }})
     needs: plan
@@ -185,6 +185,10 @@ jobs:
       - name: full-search tests
         if: ${{ !cancelled() }}
         run: bats tests/full-search.bats </dev/null
+
+      - name: Remote title hook tests
+        if: ${{ !cancelled() }}
+        run: bats tests/session-remote-title.bats </dev/null
 
   # Linux on every change; macOS (ten times the minutes) when shell code moves.
   test:
