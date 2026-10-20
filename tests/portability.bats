@@ -227,6 +227,25 @@ tracked_text_files() {
     }
 }
 
+# A theme file holds colors only; any other key would leak into whatever
+# config loads the theme.
+# bats test_tags=unit,portability
+@test "ghostty themes set only colors, as #RRGGBB" {
+    local f bad
+    for f in "$REPO_ROOT"/docs/ghostty/themes/*; do
+        bad="$(grep -vnE '^(#.*|)$|^(background|foreground|cursor-color|cursor-text|selection-background|selection-foreground) = #[0-9A-Fa-f]{6}$|^palette = ([0-9]|1[0-5])=#[0-9A-Fa-f]{6}$' "$f" || true)"
+        [ -z "$bad" ] || {
+            echo "Not a color line in $f:"
+            echo "$bad"
+            false
+        }
+        [ "$(grep -c '^palette = ' "$f")" -eq 16 ] || {
+            echo "$f must set all 16 palette colors"
+            false
+        }
+    done
+}
+
 # --- XDG Base Directory -----------------------------------------------------
 
 # bats test_tags=unit,portability

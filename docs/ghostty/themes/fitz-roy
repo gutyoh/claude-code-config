@@ -1,0 +1,24 @@
+# Fitz Roy: matches the tide prompt palette (navy, orange, peach, sky, lavender)
+background = #0F1F2E
+foreground = #E6E1D6
+cursor-color = #FB6526
+cursor-text = #0F1F2E
+selection-background = #1F3A52
+selection-foreground = #E6E1D6
+
+palette = 0=#1A2B3C
+palette = 1=#E5484D
+palette = 2=#7FB77E
+palette = 3=#F4D54F
+palette = 4=#4C9AD6
+palette = 5=#A68DEB
+palette = 6=#6CC4C4
+palette = 7=#C9CED6
+palette = 8=#4A5D70
+palette = 9=#FF6B6E
+palette = 10=#9FD49A
+palette = 11=#F9E27A
+palette = 12=#84BCEC
+palette = 13=#C3B1F5
+palette = 14=#9EE0DC
+palette = 15=#F2F2F2

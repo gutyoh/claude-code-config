@@ -280,6 +280,15 @@ palette = 15=#a6adc8
 
 Create custom themes at `~/.config/ghostty/themes/<theme-name>` and reference by name.
 
+This repository ships one, [`docs/ghostty/themes/fitz-roy`](./ghostty/themes/fitz-roy): a navy background with the orange, peach, sky and lavender of the Fitz Roy Tide prompt (`docs/fish/config-power-user/setup-tide-fitz-roy.fish`).
+
+```bash
+mkdir -p ~/.config/ghostty/themes
+cp docs/ghostty/themes/fitz-roy ~/.config/ghostty/themes/
+# then in ~/.config/ghostty/config:
+#   theme = fitz-roy
+```
+
 ### Theme Discovery
 
 ```bash

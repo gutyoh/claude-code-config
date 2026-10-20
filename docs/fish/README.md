@@ -43,14 +43,15 @@ login shell is fish; the files here are the reference for a manual/copy install.
 
 ## Available Color Themes
 
-`config-power-user/` ships with two pre-built theme installers. Pick one — they each set both Tide prompt colors AND fish syntax-highlighting colors as universal variables.
+`config-power-user/` ships with three theme installers. Pick one; each sets the Tide prompt colors as universal variables. Catppuccin and Rose Pine also set fish syntax-highlighting colors; Fitz Roy clears them so fish's default theme follows the Ghostty palette.
 
 | Theme | Script | Pairs with Ghostty theme |
 |---|---|---|
 | **Catppuccin Mocha** | `setup-tide-catppuccin-rainbow.fish` | `theme = Catppuccin Mocha` |
 | **Rose Pine Moon**   | `setup-tide-rose-pine-moon.fish`     | `theme = rose-pine-moon` |
+| **Fitz Roy**         | `setup-tide-fitz-roy.fish`           | `theme = fitz-roy`, from [`docs/ghostty/themes/fitz-roy`](../ghostty/themes/fitz-roy) |
 
-Both use the same Tide layout (Rainbow style, Slanted separators, Sharp powerline heads, 2-line, sparse, Many icons, transient prompt). Only the colors differ.
+All three use the same Tide layout (Rainbow style, Slanted separators, Sharp powerline heads, 2-line, sparse, Many icons, transient prompt). Fitz Roy adds the OS badge and the time.
 
 ## Deployment
 
@@ -94,6 +95,8 @@ Pick one:
 fish docs/fish/config-power-user/setup-tide-catppuccin-rainbow.fish   # Catppuccin Mocha
 # or
 fish docs/fish/config-power-user/setup-tide-rose-pine-moon.fish       # Rose Pine Moon
+# or
+fish docs/fish/config-power-user/setup-tide-fitz-roy.fish             # Fitz Roy
 ```
 
 Open a new terminal tab — done.
