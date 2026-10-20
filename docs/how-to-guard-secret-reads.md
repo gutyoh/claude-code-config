@@ -23,7 +23,9 @@ It edits `${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json` and nothing else.
 `on` adds only the rules that are missing, and `off` removes only these rules,
 so your own allow and deny rules, `defaultMode` and every other key stay as
 they were. When `off` leaves an empty `permissions` block, it removes it, so
-`on` then `off` returns the file to exactly what it was. Before each change it
+`on` then `off` returns the file to what it was, except that a `permissions`
+block that was already empty is gone too. Without a settings file, `off` and
+`status` write nothing. Before each change it
 copies the file to `~/.claude/backups/permissions/<UTC-time>/` (mode `600`). A
 symlinked `settings.json` is updated at its target. Start a new session for the
 change to apply.

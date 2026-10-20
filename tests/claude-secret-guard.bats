@@ -32,6 +32,14 @@ rule_count() { "${SCRIPT}" list | wc -l | tr -d ' '; }
     [ ! -e "${SETTINGS}" ]
 }
 
+@test "off with no settings file writes nothing" {
+    run "${SCRIPT}" off
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"secret guard: off"* ]]
+    [ ! -e "${SETTINGS}" ]
+    [ ! -d "${HOME}/.claude/backups" ]
+}
+
 @test "status is the default subcommand" {
     run "${SCRIPT}"
     [ "$status" -eq 0 ]
