@@ -28,6 +28,12 @@ copies the file to `~/.claude/backups/permissions/<UTC-time>/` (mode `600`). A
 symlinked `settings.json` is updated at its target. Start a new session for the
 change to apply.
 
+Each Claude home has its own settings, so run it once per home you use, for
+example `CLAUDE_CONFIG_DIR=~/.claude-personal claude-secret-guard on`. `status`
+in one home says nothing about another. `setup.sh --overwrite-settings`
+replaces `settings.json` with the repository's defaults, which drops the rules;
+run `claude-secret-guard on` again afterwards.
+
 ## What the rules cover
 
 The rules name private keys under `~/.ssh` (`id_*`, `*.pem*` and a few known
