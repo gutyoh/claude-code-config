@@ -205,6 +205,14 @@ main() {
         echo "    Run: chmod +x ${REPO_DIR}/bin/claude-permissions-audit"
     fi
 
+    if [[ -x "${REPO_DIR}/bin/claude-secret-guard" ]]; then
+        ln -sf "${REPO_DIR}/bin/claude-secret-guard" "${bin_dir}/claude-secret-guard"
+        echo "  ✓ ~/.local/bin/claude-secret-guard -> ${REPO_DIR}/bin/claude-secret-guard"
+    else
+        echo "  ⚠ bin/claude-secret-guard not found or not executable (skipping)"
+        echo "    Run: chmod +x ${REPO_DIR}/bin/claude-secret-guard"
+    fi
+
     if [[ -x "${REPO_DIR}/bin/claude-proxy" ]]; then
         ln -sf "${REPO_DIR}/bin/claude-proxy" "${bin_dir}/claude-proxy"
         echo "  ✓ ~/.local/bin/claude-proxy -> ${REPO_DIR}/bin/claude-proxy"

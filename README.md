@@ -24,7 +24,7 @@ opus-5.5 | 32%/72% (39h12m) | 2h13m | 1.6k/68.1k/72.3M | $19.51 | user@example.c
 | **[Status line](docs/how-to-configure-statusline.md)** | Model, 5-hour and weekly usage, reset times, tokens, cost and service status, sized to the terminal |
 | **[MCP search](docs/how-to-add-mcp-server.md)** | Brave Search and Tavily, with key pools that rotate when one runs out of quota |
 | **[Full-page reading](docs/how-to-read-full-pages.md)** | `/full-search` reads JavaScript pages and PDFs through Firecrawl, Tavily or Bright Data, keys and fnox optional |
-| **Command-line tools** | [`claude-as`](docs/how-to-use-multiple-accounts.md) for several accounts, [`claude-permissions-audit`](docs/how-to-audit-permissions.md), [`claude-proxy`](docs/how-to-use-the-proxy-launcher.md), `mcp-key-rotate` and `mcp-env-inject` |
+| **Command-line tools** | [`claude-as`](docs/how-to-use-multiple-accounts.md) for several accounts, [`claude-permissions-audit`](docs/how-to-audit-permissions.md), [`claude-secret-guard`](docs/how-to-guard-secret-reads.md), [`claude-proxy`](docs/how-to-use-the-proxy-launcher.md), `mcp-key-rotate` and `mcp-env-inject` |
 | **Shell and terminal presets** | Optional [fish](docs/how-to-configure-fish.md) and [Ghostty](docs/how-to-configure-ghostty.md) configurations |
 
 When [OpenCode](https://opencode.ai) is on your PATH, setup installs the same
@@ -124,6 +124,11 @@ Remote Control find it by. [Details](docs/configuration.md#session-names).
 more than they look like they do, or that saved a password in plain text;
 `--fix` backs the file up and removes them. [How to](docs/how-to-audit-permissions.md).
 
+**Secret guard.** `claude-secret-guard on` adds deny rules that keep Claude's
+file tools away from credential files (`~/.ssh` private keys, `~/.oci`,
+`~/.azure`, the fnox key…); `off` removes exactly those. Off by default.
+[How to](docs/how-to-guard-secret-reads.md).
+
 **Other models.** `claude-proxy` (shortcut `clp`) starts a local proxy and runs
 Claude Code against OpenAI Codex or Antigravity models.
 [How to](docs/how-to-use-the-proxy-launcher.md).
@@ -185,7 +190,7 @@ Claude Code against OpenAI Codex or Antigravity models.
 | | |
 |---|---|
 | **Tutorial** | [Getting started](docs/getting-started.md) |
-| **How-to guides** | [Configure the status line](docs/how-to-configure-statusline.md) · [Use multiple accounts](docs/how-to-use-multiple-accounts.md) · [Sync across machines](docs/how-to-sync-across-machines.md) · [Audit permission rules](docs/how-to-audit-permissions.md) · [Use the proxy launcher](docs/how-to-use-the-proxy-launcher.md) · [Add an MCP server](docs/how-to-add-mcp-server.md) · [Read full pages](docs/how-to-read-full-pages.md) · [Add an agent](docs/how-to-add-agent.md) · [Add a skill](docs/how-to-add-skill.md) · [Run skill evals](docs/how-to-run-evals.md) · [Configure fish](docs/how-to-configure-fish.md) · [Configure Ghostty](docs/how-to-configure-ghostty.md) |
+| **How-to guides** | [Configure the status line](docs/how-to-configure-statusline.md) · [Use multiple accounts](docs/how-to-use-multiple-accounts.md) · [Sync across machines](docs/how-to-sync-across-machines.md) · [Audit permission rules](docs/how-to-audit-permissions.md) · [Guard secret reads](docs/how-to-guard-secret-reads.md) · [Use the proxy launcher](docs/how-to-use-the-proxy-launcher.md) · [Add an MCP server](docs/how-to-add-mcp-server.md) · [Read full pages](docs/how-to-read-full-pages.md) · [Add an agent](docs/how-to-add-agent.md) · [Add a skill](docs/how-to-add-skill.md) · [Run skill evals](docs/how-to-run-evals.md) · [Configure fish](docs/how-to-configure-fish.md) · [Configure Ghostty](docs/how-to-configure-ghostty.md) |
 | **Reference** | [Configuration](docs/configuration.md) · [Hooks](docs/hooks.md) · [Project structure](docs/project-structure.md) |
 | **Explanation** | [Architecture](docs/architecture.md) · [Design decisions](docs/design-decisions.md) · [Testing and portability](docs/testing.md) · [Branching strategies](docs/branching-strategies.md) |
 
