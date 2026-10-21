@@ -26,6 +26,10 @@ fi
 # session history. Call first in setup().
 isolate_home() {
     unset CLAUDE_CONFIG_DIR CLAUDE_DIR_REF MCP_KEYS_ENV_FILE
+    # Nothing of the session running the suite reaches the shells it starts:
+    # mise's fish hook rebuilds PATH from __MISE_ORIG_PATH, dropping the stubs,
+    # and that session's Remote Control prefix outranks the one under test.
+    unset __MISE_ORIG_PATH __MISE_DIFF __MISE_SESSION CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX CLAUDE_HOST_ALIAS
     # mise shims (jq, curl, ...) refuse to run once HOME moves away from the
     # trust records they keep under the real HOME.
     export MISE_STATE_DIR="${MISE_STATE_DIR:-${XDG_STATE_HOME:-${HOME}/.local/state}/mise}"
