@@ -8,14 +8,6 @@
 #   - OAuth API:  /api/oauth/usage, cached and shared, with stale-while-error
 # and, only when the account has no reading at all, the hook cache (5-hour).
 
-# Prints a file with bash's own read, not a cat process.
-_print_file() {
-    local text=""
-    IFS= read -r -d '' text <"$1" || true
-    printf '%s' "${text}"
-}
-
-
 calculate_time_remaining() {
     local resets_at="$1"
     [[ -z "${resets_at}" ]] && echo "--" && return

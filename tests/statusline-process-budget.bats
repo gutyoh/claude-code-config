@@ -27,7 +27,7 @@ setup() {
     local now
     now=$(date +%s)
     INPUT=$(printf '{"model":{"id":"claude-opus-5-5","display_name":"Opus 5.5"},"session_id":"s1","transcript_path":"%s","rate_limits":{"five_hour":{"used_percentage":32.4,"resets_at":%d},"seven_day":{"used_percentage":71.6,"resets_at":%d}}}' \
-        "$BATS_TEST_TMPDIR/transcript.jsonl" "$((now + 480))" "$((now + 141120))")
+        "$BATS_TEST_TMPDIR/transcript.jsonl" "$((now + 480))" "$((now + 141090))")
 }
 
 # The first executable named $1 on PATH that is not a mise shim, which would
