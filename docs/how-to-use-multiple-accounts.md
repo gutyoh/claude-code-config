@@ -148,8 +148,9 @@ claude-as --move other@example.com --pane w1:p3 --force
   behind: a wrapper that adds them per account adds the new account's again.
   One already on that account stays.
 - The session is the one Claude Code itself records for the pane's process.
-  When herdr names another, as after a `claude -p` run from that pane, or the
-  session has no transcript to resume, it is left alone.
+  When herdr names another, as after a `claude -p` run from that pane, when
+  there is no such record, or when the session has no transcript to resume,
+  it is left alone.
 - It waits for an agent to go idle, at most `--wait` seconds (default 600), and
   leaves a busy one alone.
 - A session whose Bash tool still runs background jobs, such as a dev server,

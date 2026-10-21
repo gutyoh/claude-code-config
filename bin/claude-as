@@ -861,6 +861,11 @@ move_pane() {
     # would end that session and resume another.
     real=""
     [[ -z ${pid} ]] || real=$(session_of_pid "${pid}")
+    if [[ -n ${pid} && -z ${real} ]] && ((!move_force)); then
+        printf '%s: %s left alone: its claude (pid %s) keeps no record of its session to check herdr against\n' "${pane}" "${id}" "${pid}"
+        printf '      move it anyway with --pane %s --force\n' "${pane}"
+        return 0
+    fi
     if [[ -n ${real} && ${real} != "${id}" ]]; then
         printf '%s: left alone: herdr names session %s, but its claude (pid %s) runs %s\n' "${pane}" "${id}" "${pid}" "${real}"
         return 0
@@ -925,10 +930,17 @@ move_pane() {
     # once the session runs again, or never exited.
     printf '%s\t%s\t%s\n' "${pane}" "${id}" "${cmd}" >>"${move_recover}"
     # Through the agent, not the raw pane: herdr refuses an agent at a dialog.
+    # It can also fail after delivering it, so the process has the last word.
     if ! herdr agent prompt "${pane}" /exit >/dev/null 2>&1; then
-        recovered "${id}"
-        printf '%s: %s did not take /exit (a dialog open?); left as it was\n' "${pane}" "${id}"
-        return 1
+        for ((i = 0; i < 10; i++)); do
+            exited "${pane}" "${pid}" && break
+            sleep 1
+        done
+        if ! exited "${pane}" "${pid}"; then
+            recovered "${id}"
+            printf '%s: %s did not take /exit (a dialog open?); left as it was\n' "${pane}" "${id}"
+            return 1
+        fi
     fi
     # A prompt that lands first runs before the queued /exit. The process is
     # the proof: a herdr that fails to answer looks like an exited agent, and

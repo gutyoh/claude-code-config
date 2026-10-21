@@ -777,6 +777,12 @@ case "$1 $2" in
         | select(.[2] != "" and .[3] != "-") | {pid: (.[4] | tonumber), argv: (.[3] | split(" "))}]}}}' ;;
 "agent prompt")
     [ -e "$HOME/dialog-$3" ] && exit 1
+    # herdr timing out after delivering the prompt.
+    if [ -e "$HOME/late-$3" ]; then
+        kill "$(row "$3" | cut -f5)" 2>/dev/null
+        set_row "$3" "" ""
+        exit 1
+    fi
     cat "$XDG_STATE_HOME"/claude-as/*.resume >"$HOME/at-exit" 2>/dev/null
     if [ "$4" = /exit ]; then
         kill "$(row "$3" | cut -f5)" 2>/dev/null
@@ -795,12 +801,15 @@ EOF
 }
 
 # pane <pane> <status> <session id> [claude argv | -]: a pane whose claude is
-# a process of its own, with a transcript to resume unless the test wrote one.
+# a process of its own, recorded under ~/.claude/sessions as Claude Code does,
+# with a transcript to resume unless the test wrote one.
 pane() {
     # Off bats' own descriptors, or bats would wait for it to end.
     sleep 600 </dev/null >/dev/null 2>&1 3>&- &
     echo "$!" >>"${HOME}/pids"
     printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "${4:-claude --allow-dangerously-skip-permissions --resume $3}" "$!" >>"${HOME}/panes"
+    mkdir -p "${HOME}/.claude/sessions"
+    printf '{"pid":%s,"sessionId":"%s"}\n' "$!" "$3" >"${HOME}/.claude/sessions/$!.json"
     [[ -e ${HOME}/.claude/projects/-p/$3.jsonl ]] || transcript "$3" '{"type":"user"}'
 }
 
@@ -891,6 +900,29 @@ move_setup() {
     # When they agree, it moves.
     printf '{"pid":%s,"sessionId":"%s"}\n' "${pid}" "${SID}" >"${HOME}/.claude/sessions/${pid}.json"
     run "$SCRIPT" --move me@home.example
+    [[ ${output} == *"w1:p1: ${SID} moved to me@home.example"* ]]
+}
+
+@test "--move leaves a session whose claude keeps no process record alone, unless --force" {
+    move_setup
+    ran "${SID}" "${HOME}/.claude"
+    pane w1:p1 idle "${SID}"
+    rm "${HOME}"/.claude/sessions/*.json
+    run "$SCRIPT" --move me@home.example
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"keeps no record of its session to check herdr against"* ]]
+    ! grep -q "agent prompt" "${HOME}/herdr.log"
+    run "$SCRIPT" --move me@home.example --pane w1:p1 --force
+    [[ ${output} == *"w1:p1: ${SID} moved to me@home.example"* ]]
+}
+
+@test "--move resumes a session that exited although herdr reported /exit failed" {
+    move_setup
+    ran "${SID}" "${HOME}/.claude"
+    pane w1:p1 idle "${SID}"
+    touch "${HOME}/late-w1:p1"
+    run "$SCRIPT" --move me@home.example
+    [ "$status" -eq 0 ]
     [[ ${output} == *"w1:p1: ${SID} moved to me@home.example"* ]]
 }
 
