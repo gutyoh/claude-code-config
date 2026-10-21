@@ -21,7 +21,8 @@
 #   - fisher (https://github.com/jorgebucaran/fisher)
 #   - tide v6  (fisher install IlanCosman/tide@v6)
 #   - a Nerd Font in your terminal
-#   - functions/_tide_item_os_badge.fish from this preset
+#   - functions/_tide_item_os_badge.fish from this preset, for the OS badge;
+#     without it the prompt uses Tide's own os item
 # ──────────────────────────────────────────────────────────────────────
 
 set -l navy     0F1F2E
@@ -61,7 +62,12 @@ tide configure --auto \
 #    and time on the right.
 # ──────────────────────────────────────────────────────────────────────
 echo "▸ Setting prompt items..."
-set -U tide_left_prompt_items os_badge pwd git newline character
+set -l badge os_badge
+if not functions -q _tide_item_os_badge
+    echo "  functions/_tide_item_os_badge.fish is not installed; using Tide's os item"
+    set badge os
+end
+set -U tide_left_prompt_items $badge pwd git newline character
 set -U tide_right_prompt_items status cmd_duration time
 
 # ──────────────────────────────────────────────────────────────────────
@@ -69,9 +75,11 @@ set -U tide_right_prompt_items status cmd_duration time
 # ──────────────────────────────────────────────────────────────────────
 echo "▸ Applying Fitz Roy colors to Tide..."
 
-# OS badge (yellow glyph on navy)
+# OS badge, or Tide's os item without it (yellow glyph on navy)
 set -U tide_os_badge_bg_color $navy
 set -U tide_os_badge_color $yellow
+set -U tide_os_bg_color $navy
+set -U tide_os_color $yellow
 
 # pwd (orange background, navy text)
 set -U tide_pwd_bg_color $orange
