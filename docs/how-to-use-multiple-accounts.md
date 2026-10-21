@@ -143,7 +143,13 @@ claude-as --move other@example.com --pane w1:p3 --force
 
 - Each session resumes in its own pane, from the folder it was launched in,
   under its own Remote Control name, and in the permission mode it is in now
-  (`Shift+Tab` changes it after launch). One already on that account stays.
+  (`Shift+Tab` changes it after launch), with the `--model`, `--fallback-model`
+  and `--add-dir` it was started with. `--settings` and `--mcp-config` stay
+  behind: a wrapper that adds them per account adds the new account's again.
+  One already on that account stays.
+- The session is the one Claude Code itself records for the pane's process.
+  When herdr names another, as after a `claude -p` run from that pane, or the
+  session has no transcript to resume, it is left alone.
 - It waits for an agent to go idle, at most `--wait` seconds (default 600), and
   leaves a busy one alone.
 - A session whose Bash tool still runs background jobs, such as a dev server,
@@ -151,9 +157,10 @@ claude-as --move other@example.com --pane w1:p3 --force
   them, or move it anyway with `--pane <id> --force`. So is one whose claude
   process herdr cannot show, since its jobs cannot be checked.
 - The pane is resumed by this `claude-as` itself, by its full path, so an older
-  copy on `PATH` never answers. Each resume command is written to
-  `~/.local/state/claude-as/move-resume.tsv` before `/exit`; a session a run
-  leaves exited comes back by running its line in its pane.
+  copy on `PATH` never answers. Each run writes a session's resume command to
+  `~/.local/state/claude-as/move-<time>-<pid>.resume` before `/exit` and
+  drops it once the session runs again. A session the run leaves exited is
+  listed at the end with its command: run that in its pane.
 - Run from inside a herdr pane, the whole run goes on in the background and
   that pane's session moves last, once its agent finishes the turn. It prints
   where its log is and the `kill` that stops it.

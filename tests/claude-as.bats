@@ -751,11 +751,14 @@ rc_on() { jq -n "{remoteControlAtStartup: ${1:-true}}" >"${HOME}/.claude/setting
 # --- --move: every session in herdr to one account --------------------------
 
 # The stub herdr keeps one line per pane in $HOME/panes:
-# <pane>\t<status>\t<session id or empty>\t<claude argv, or "-" for none>.
-# /exit through the agent empties the session, as Claude Code exiting does,
+# <pane>\t<status>\t<session id or empty>\t<claude argv, or "-" for none>\t<pid>
+# where <pid> is a real process standing in for that claude.
+# /exit through the agent ends it and empties the session, as Claude Code does,
 # unless $HOME/dialog-<pane> stands for a dialog herdr refuses to type into.
-# `pane run` with --resume <id> brings that id back idle and records the start
-# in $STUB_MOVED_HOME, as session-account.sh does. Every call is logged.
+# /exit also copies the run's recovery file to $HOME/at-exit. `pane run` runs
+# the command as the pane's shell would, its output in $HOME/pane-out, then
+# brings the --resume id back idle and records the start in $STUB_MOVED_HOME,
+# as session-account.sh does. Every call is logged.
 stub_herdr() {
     stub_bin herdr <<'EOF'
 state=$HOME/panes
@@ -771,11 +774,16 @@ case "$1 $2" in
         | if .[2] == "" then {pane_id: .[0]} else {pane_id: .[0], agent: "claude", agent_status: .[1], agent_session: {value: .[2]}} end)}}' ;;
 "pane process-info")
     row "$4" | jq -R -s '{result: {process_info: {foreground_processes: [split("\n")[0] | split("\t")
-        | select(.[2] != "" and .[3] != "-") | {pid: 4242, argv: (.[3] | split(" "))}]}}}' ;;
+        | select(.[2] != "" and .[3] != "-") | {pid: (.[4] | tonumber), argv: (.[3] | split(" "))}]}}}' ;;
 "agent prompt")
     [ -e "$HOME/dialog-$3" ] && exit 1
-    [ "$4" = /exit ] && set_row "$3" "" "" ;;
+    cat "$XDG_STATE_HOME"/claude-as/*.resume >"$HOME/at-exit" 2>/dev/null
+    if [ "$4" = /exit ]; then
+        kill "$(row "$3" | cut -f5)" 2>/dev/null
+        set_row "$3" "" ""
+    fi ;;
 "pane run")
+    (env -u CLAUDE_AS_MOVE_DETACHED bash -c "$4") >>"$HOME/pane-out" 2>&1 </dev/null
     id=$(printf '%s' "${*:4}" | grep -oE -- '--resume [^ ]+' | cut -d' ' -f2)
     if [ -n "$id" ]; then
         set_row "$3" idle "$id"
@@ -786,9 +794,19 @@ exit 0
 EOF
 }
 
-# pane <pane> <status> <session id> [claude argv | -]
+# pane <pane> <status> <session id> [claude argv | -]: a pane whose claude is
+# a process of its own, with a transcript to resume unless the test wrote one.
 pane() {
-    printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "${4:-claude --allow-dangerously-skip-permissions --resume $3}" >>"${HOME}/panes"
+    # Off bats' own descriptors, or bats would wait for it to end.
+    sleep 600 </dev/null >/dev/null 2>&1 3>&- &
+    echo "$!" >>"${HOME}/pids"
+    printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "${4:-claude --allow-dangerously-skip-permissions --resume $3}" "$!" >>"${HOME}/panes"
+    [[ -e ${HOME}/.claude/projects/-p/$3.jsonl ]] || transcript "$3" '{"type":"user"}'
+}
+
+teardown() {
+    [[ -s ${HOME}/pids ]] || return 0
+    xargs kill <"${HOME}/pids" 2>/dev/null || true
 }
 
 # transcript <id> <json line>...: the session's transcript, one record a line.
@@ -820,8 +838,71 @@ move_setup() {
     [[ ${output} == *"w1:p1: ${SID} moved to me@home.example"* ]]
     grep -q "herdr agent prompt w1:p1 /exit" "${HOME}/herdr.log"
     grep -qF "herdr pane run w1:p1 CLAUDE_AS_CONFIRMED=${SID} ${ME} me@home.example --resume ${SID}" "${HOME}/herdr.log"
-    # How to finish it is written down before /exit.
-    grep -qF "${ME} me@home.example --resume ${SID}" "${XDG_STATE_HOME}/claude-as/move-resume.tsv"
+    grep -q "RAN set=1 home=${HOME}/.claude-home args=--allow-dangerously-skip-permissions --resume ${SID}" "${HOME}/pane-out"
+    # How to finish it is written down before /exit, and dropped once it runs.
+    grep -qF "w1:p1	${SID}	CLAUDE_AS_CONFIRMED=${SID} ${ME} me@home.example --resume ${SID}" "${HOME}/at-exit"
+    ! compgen -G "${XDG_STATE_HOME}/claude-as/*.resume"
+}
+
+@test "--move keeps bypass on with other flags, as claude reads it, and leaves a launcher's --settings behind" {
+    move_setup
+    ran "${SID}" "${HOME}/.claude"
+    pane w1:p1 idle "${SID}" "claude --settings /s/menu/1.json --model opus --dangerously-skip-permissions --mcp-config /m.json --resume ${SID}"
+    run "$SCRIPT" --move me@home.example
+    [ "$status" -eq 0 ]
+    grep -qF "${ME} me@home.example -a --model='opus' --resume ${SID}" "${HOME}/herdr.log"
+    # What claude itself receives: the bypass flag, never a bare -a.
+    grep -q "args=--dangerously-skip-permissions --model=opus --resume ${SID}$" "${HOME}/pane-out"
+    ! grep -q -- " -a \|--settings\|--mcp-config" "${HOME}/pane-out"
+    # A mode the session switched to since goes first as well.
+    : >"${HOME}/panes" && : >"${HOME}/pane-out"
+    pane w1:p1 idle "${SID}" "claude --model opus --resume ${SID}"
+    transcript "${SID}" '{"permissionMode":"bypassPermissions"}'
+    ran "${SID}" "${HOME}/.claude"
+    run "$SCRIPT" --move me@home.example
+    grep -q "args=--dangerously-skip-permissions --model=opus --resume ${SID}$" "${HOME}/pane-out"
+}
+
+@test "--move takes a model with brackets whole, as both fish and claude read it" {
+    move_setup
+    ran "${SID}" "${HOME}/.claude"
+    pane w1:p1 idle "${SID}" "claude --model claude-opus-5-5[1m] --resume ${SID}"
+    run "$SCRIPT" --move me@home.example
+    grep -qF "${ME} me@home.example --model='claude-opus-5-5[1m]' --resume ${SID}" "${HOME}/herdr.log"
+    grep -qF "args=--allow-dangerously-skip-permissions --model=claude-opus-5-5[1m] --resume ${SID}" "${HOME}/pane-out"
+    if command -v fish >/dev/null 2>&1; then
+        fish --no-execute -c "$(grep -oE "CLAUDE_AS_CONFIRMED=.*" "${HOME}/herdr.log")"
+    fi
+}
+
+@test "--move trusts the session claude's own process records over herdr's" {
+    move_setup
+    ran "${SID}" "${HOME}/.claude"
+    pane w1:p1 idle "${SID}"
+    local pid
+    pid=$(cut -f5 "${HOME}/panes")
+    mkdir -p "${HOME}/.claude/sessions"
+    # A `claude -p` from the pane's Bash tool left herdr naming its session.
+    printf '{"pid":%s,"sessionId":"4c3b2a1d-0000-4000-8000-000000000001"}\n' "${pid}" >"${HOME}/.claude/sessions/${pid}.json"
+    run "$SCRIPT" --move me@home.example
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"left alone: herdr names session ${SID}, but its claude (pid ${pid}) runs 4c3b2a1d-0000-4000-8000-000000000001"* ]]
+    ! grep -q "agent prompt" "${HOME}/herdr.log"
+    # When they agree, it moves.
+    printf '{"pid":%s,"sessionId":"%s"}\n' "${pid}" "${SID}" >"${HOME}/.claude/sessions/${pid}.json"
+    run "$SCRIPT" --move me@home.example
+    [[ ${output} == *"w1:p1: ${SID} moved to me@home.example"* ]]
+}
+
+@test "--move leaves a session with no transcript to resume alone" {
+    move_setup
+    ran "${SID}" "${HOME}/.claude"
+    pane w1:p1 idle "${SID}"
+    rm "${HOME}/.claude/projects/-p/${SID}.jsonl"
+    run "$SCRIPT" --move me@home.example
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"${SID} left alone: it has no transcript to resume"* ]]
+    ! grep -q "agent prompt" "${HOME}/herdr.log"
 }
 
 @test "--move leaves a session already on that account alone" {
@@ -854,17 +935,17 @@ move_setup() {
     [[ ${output} == *"me@home.example -a --resume ${SID}"* ]]
     transcript "${SID}" '{"permissionMode":"acceptEdits"}'
     run "$SCRIPT" --move me@home.example --dry-run
-    [[ ${output} == *"me@home.example --permission-mode=acceptEdits --resume ${SID}"* ]]
+    [[ ${output} == *"me@home.example --permission-mode='acceptEdits' --resume ${SID}"* ]]
     # Launched with -a, switched back to the default since.
     : >"${HOME}/panes"
     pane w1:p1 idle "${SID}" "claude --dangerously-skip-permissions --model opus --resume ${SID}"
     transcript "${SID}" '{"permissionMode":"default"}'
     run "$SCRIPT" --move me@home.example --dry-run
-    [[ ${output} == *"me@home.example --model=opus --resume ${SID}"* ]]
+    [[ ${output} == *"me@home.example --model='opus' --resume ${SID}"* ]]
     # No mode recorded: the launch flag stands.
     transcript "${SID}" '{"cwd":"/"}'
     run "$SCRIPT" --move me@home.example --dry-run
-    [[ ${output} == *"me@home.example -a --model=opus --resume ${SID}"* ]]
+    [[ ${output} == *"me@home.example -a --model='opus' --resume ${SID}"* ]]
 }
 
 @test "--move resumes in the folder the session was launched in" {
@@ -892,7 +973,7 @@ move_setup() {
     move_setup
     ran "${SID}" "${HOME}/.claude"
     pane w1:p1 idle "${SID}"
-    stub_bin pgrep 'case "$2" in 4242) echo 7001 ;; 7001) echo 7002 ;; *) exit 1 ;; esac'
+    stub_bin pgrep 'case "$2" in 7001) echo 7002 ;; 7002) exit 1 ;; *) echo 7001 ;; esac'
     stub_bin ps 'case "$4" in 7001) echo "bash -c source /h/.claude/shell-snapshots/snapshot-bash-1.sh" ;; 7002) echo "ng serve --port 4200" ;; esac'
     run "$SCRIPT" --move me@home.example
     [ "$status" -eq 0 ]
@@ -955,6 +1036,9 @@ move_setup() {
     [ "$status" -eq 1 ]
     [[ ${output} == *"did not take /exit (a dialog open?); left as it was"* ]]
     ! grep -q "pane run" "${HOME}/herdr.log"
+    # It never exited, so there is nothing to resume.
+    ! compgen -G "${XDG_STATE_HOME}/claude-as/*.resume"
+    [[ ${output} != *"exited and not resumed"* ]]
 }
 
 @test "--move reports a session that came back under another account" {
