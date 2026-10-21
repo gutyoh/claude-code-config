@@ -705,165 +705,283 @@ check() {
 }
 
 # --move: herdr's view of a pane, and what moving its Claude session needs.
+# The options of the run in progress.
+move_who="" move_dry=0 move_force=0 move_wait=600 move_stop=0 move_script="" move_recover=""
+
 # "<status>\t<session id>" of the Claude agent in <pane>, or nothing.
 pane_claude() {
     herdr pane get "$1" 2>/dev/null \
         | jq -r '.result.pane | select(.agent == "claude") | [.agent_status, (.agent_session.value // "")] | @tsv'
 }
 
-# The pid and argv of the claude process in the foreground of <pane>.
+# The claude process in the foreground of <pane>: its pid, then one per line
+# the flags a resume keeps: -a for bypass permissions, and the allowlisted
+# flags whose value is a plain word. Nothing when herdr shows no claude.
 pane_claude_proc() {
     herdr pane process-info --pane "$1" 2>/dev/null | jq -r '
-        [.result.process_info.foreground_processes[]
-         | select((.argv[0] // "") | test("(^|/)claude$"))][0]
-        | select(. != null) | "\(.pid)\t\(.argv | join(" "))"'
+        def keep: "^--(model|permission-mode|add-dir|settings|mcp-config|fallback-model)";
+        def plain: "^[A-Za-z0-9._/@:+~-]+$";
+        [.result.process_info.foreground_processes[] | select((.argv[0] // "") | test("(^|/)claude$"))][0]
+        | select(. != null)
+        | .pid, (.argv as $a
+            | (if any($a[]; . == "--dangerously-skip-permissions") then "-a" else empty end),
+              (range(1; $a | length) as $i | $a[$i] as $f
+               | if ($f | test(keep + "=")) and ($f | sub("^[^=]*="; "") | test(plain)) then $f
+                 elif ($f | test(keep + "$")) and (($a[$i + 1] // "") | test(plain)) then "\($f)=\($a[$i + 1])"
+                 else empty end))'
 }
 
 # Background jobs the Bash tool of claude <pid> still runs: they end with it.
 bash_jobs() {
-    local child
+    local child job
     for child in $(pgrep -P "$1" 2>/dev/null || true); do
         ps -o command= -p "${child}" 2>/dev/null | grep -F '/shell-snapshots/snapshot-' >/dev/null || continue
-        pgrep -P "${child}" 2>/dev/null | while IFS= read -r job; do
+        for job in $(pgrep -P "${child}" 2>/dev/null || true); do
             printf '      %s\n' "$(ps -o command= -p "${job}" 2>/dev/null | cut -c1-120)"
         done
     done
 }
 
-# The folder session <id> last worked in, from its newest transcript: Claude
-# Code finds a session by id only from its own project folder.
-session_cwd() {
-    local file newest="" dir
+# Session <id>'s newest transcript; a moved folder can leave an older copy.
+session_transcript() {
+    local file newest=""
     for file in "${shared}"/projects/*/"$1.jsonl"; do
         [[ -f ${file} && (-z ${newest} || ${file} -nt ${newest}) ]] && newest=${file}
     done
-    [[ -n ${newest} ]] || return 0
-    dir=$(tail -c 2000000 "${newest}" | grep -o '"cwd":"[^"]*"' | tail -n 1 | cut -d'"' -f4)
-    [[ -n ${dir} && -d ${dir} && ${dir} != *"'"* ]] && printf '%s\n' "${dir}"
-    return 0
+    [[ -z ${newest} ]] || printf '%s\n' "${newest}"
 }
 
-# Whether <pane>'s agent goes idle (or done) within <seconds>.
+# The folder session <id> was launched in: its transcript's first cwd. Later
+# ones follow the Bash tool's cd, and a resume from there re-roots the session
+# (another project key, auto-memory and settings scope).
+session_cwd() {
+    local file
+    file=$(session_transcript "$1")
+    [[ -n ${file} ]] || return 0
+    head -c 2000000 "${file}" | jq -Rr 'fromjson? | .cwd // empty' 2>/dev/null | head -n 1
+}
+
+# The flag for the permission mode session <id> was last in, which Shift+Tab
+# changes after launch: -a for bypass, --permission-mode=<mode> otherwise,
+# nothing for the default; nothing either when the transcript does not say.
+session_mode() {
+    local file mode
+    file=$(session_transcript "$1")
+    [[ -n ${file} ]] || return 0
+    mode=$(tail -c 2000000 "${file}" | jq -Rr 'fromjson? | .permissionMode // empty' 2>/dev/null | tail -n 1)
+    case ${mode} in
+        bypassPermissions) printf -- '-a\n' ;;
+        default) printf 'default\n' ;;
+        "") ;;
+        *[!A-Za-z]*) ;;
+        *) printf -- '--permission-mode=%s\n' "${mode}" ;;
+    esac
+}
+
+# Whether <pane>'s agent goes idle (or done) within <seconds>; false at once
+# when the pane no longer runs a Claude agent, or the run is being stopped.
 idle_within() {
     local pane=$1 left=$2 status _
     while :; do
         IFS=$'\t' read -r status _ <<<"$(pane_claude "${pane}")"
+        [[ -n ${status} ]] || return 1
         [[ ${status} == idle || ${status} == "done" ]] && return 0
-        ((left > 0)) || return 1
+        ((left > 0 && !move_stop)) || return 1
         sleep 5
         left=$((left - 5))
     done
 }
 
-# move_pane <pane> <who> <target home> <dry> <force> <wait>: one session.
+# The command that resumes session <id> as the account, in the pane's shell:
+# this very script by its path (a claude-as on PATH may be an older one), from
+# the session's folder, with the flags <pane>'s claude kept.
+resume_command() {
+    local id=$1 dir=$2 flag cmd=""
+    shift 2
+    [[ -z ${dir} ]] || cmd="cd '${dir}' && "
+    cmd+="CLAUDE_AS_CONFIRMED=${id} '${move_script}' ${move_who}"
+    for flag in "$@"; do cmd+=" ${flag}"; done
+    printf '%s --resume %s\n' "${cmd}" "${id}"
+}
+
+# Moves the session in <pane>: true when it moved or had nothing to do.
 move_pane() {
-    local pane=$1 who=$2 target=$3 dry=$4 force=$5 wait=$6
-    local status id from fromname pid argv jobs mode="" dir cd="" i
+    local pane=$1 status id home was pid line jobs dir cmd now i exit_wait mode flag
+    local -a flags=() kept=()
     IFS=$'\t' read -r status id <<<"$(pane_claude "${pane}")"
     if [[ -z ${id} ]]; then
         printf '%s: no Claude session id known; left alone\n' "${pane}"
         return 0
     fi
-    from=$(last_home "${id}")
-    fromname=""
-    [[ -z ${from} ]] || fromname=$(name_of "${from}")
-    if [[ ${fromname} == "$(name_of "${target}")" ]]; then
-        printf '%s: %s already runs as %s\n' "${pane}" "${id}" "${fromname}"
+    home=$(last_home "${id}")
+    was=""
+    [[ -z ${home} ]] || was=$(name_of "${home}")
+    if [[ ${was} == "${move_who}" ]]; then
+        printf '%s: %s already runs as %s\n' "${pane}" "${id}" "${was}"
         return 0
     fi
-    IFS=$'\t' read -r pid argv <<<"$(pane_claude_proc "${pane}")"
-    [[ " ${argv} " == *" --dangerously-skip-permissions "* ]] && mode="-a "
+    pid=""
+    while IFS= read -r line; do
+        if [[ -z ${pid} ]]; then pid=${line}; else flags+=("${line}"); fi
+    done < <(pane_claude_proc "${pane}")
     jobs=""
-    [[ -z ${pid} ]] || jobs=$(bash_jobs "${pid}")
-    if [[ -n ${jobs} && ${force} == 0 ]]; then
+    if [[ -z ${pid} ]]; then
+        if ((!move_force)); then
+            printf '%s: %s left alone: herdr shows no claude process, so its jobs cannot be checked\n' "${pane}" "${id}"
+            printf '      move it anyway with --pane %s --force\n' "${pane}"
+            return 0
+        fi
+    else
+        jobs=$(bash_jobs "${pid}")
+    fi
+    if [[ -n ${jobs} ]] && ((!move_force)); then
         printf '%s: %s left alone: its Bash tool runs jobs that would end with it:\n%s\n' "${pane}" "${id}" "${jobs}"
         printf '      stop them, or move it anyway with --pane %s --force\n' "${pane}"
         return 0
     fi
-    if ((dry)); then
-        printf '%s: would move %s from %s to %s\n' "${pane}" "${id}" "${fromname:-an unknown account}" "${who}"
+    # The mode the session is in now outranks the one it was launched with.
+    mode=$(session_mode "${id}")
+    if [[ -n ${mode} ]]; then
+        for flag in ${flags[@]+"${flags[@]}"}; do
+            [[ ${flag} == -a || ${flag} == --permission-mode=* ]] || kept+=("${flag}")
+        done
+        [[ ${mode} == default ]] || kept+=("${mode}")
+        flags=(${kept[@]+"${kept[@]}"})
+    fi
+    dir=$(session_cwd "${id}")
+    # Single quotes in fish still read \\ and \'; bash reads neither.
+    if [[ -n ${dir} && (! -d ${dir} || ${dir} == *[\'\\]* || ${dir} == *$'\n'*) ]]; then
+        printf "%s: cannot resume from %s; using the pane's folder\n" "${pane}" "${dir}"
+        dir=""
+    fi
+    cmd=$(resume_command "${id}" "${dir}" ${flags[@]+"${flags[@]}"})
+    if ((move_dry)); then
+        printf '%s: would move %s from %s to %s\n' "${pane}" "${id}" "${was:-an unknown account}" "${move_who}"
         [[ -z ${jobs} ]] || printf '      ending these jobs:\n%s\n' "${jobs}"
+        printf '      by running: %s\n' "${cmd}"
         return 0
     fi
-    if ! idle_within "${pane}" "${wait}"; then
-        printf '%s: %s still busy after %s s; left alone\n' "${pane}" "${id}" "${wait}"
+    if ! idle_within "${pane}" "${move_wait}"; then
+        if ((move_stop)); then
+            printf '%s: %s left alone: stopping\n' "${pane}" "${id}"
+        else
+            printf '%s: %s still busy after %s s, or gone; left alone\n' "${pane}" "${id}" "${move_wait}"
+        fi
         return 1
     fi
+    # Written before /exit, so a run cut short leaves how to finish it.
+    printf '%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${pane}" "${id}" "${cmd}" >>"${move_recover}"
     # Through the agent, not the raw pane: herdr refuses an agent at a dialog.
     if ! herdr agent prompt "${pane}" /exit >/dev/null 2>&1; then
         printf '%s: %s did not take /exit (a dialog open?); left as it was\n' "${pane}" "${id}"
         return 1
     fi
-    for ((i = 0; i < 60; i++)); do
+    # A prompt that lands first runs before the queued /exit.
+    exit_wait=$((move_wait > 60 ? move_wait : 60))
+    for ((i = 0; i < exit_wait; i++)); do
         [[ -z $(pane_claude "${pane}") ]] && break
         sleep 1
     done
     if [[ -n $(pane_claude "${pane}") ]]; then
-        printf '%s: %s did not exit; left as it was\n' "${pane}" "${id}"
+        printf '%s: %s has /exit queued behind its turn; once it exits, run in its pane:\n      %s\n' "${pane}" "${id}" "${cmd}"
         return 1
     fi
     sleep 1
-    dir=$(session_cwd "${id}")
-    [[ -z ${dir} ]] || cd="cd '${dir}' && "
-    herdr pane run "${pane}" "${cd}CLAUDE_AS_CONFIRMED=${id} claude-as ${who} ${mode}--resume ${id}" >/dev/null
+    herdr pane run "${pane}" "${cmd}" >/dev/null
     for ((i = 0; i < 90; i++)); do
-        IFS=$'\t' read -r status from <<<"$(pane_claude "${pane}")"
-        if [[ ${from} == "${id}" ]]; then
-            printf '%s: %s moved to %s\n' "${pane}" "${id}" "${who}"
-            return 0
-        fi
+        IFS=$'\t' read -r status now <<<"$(pane_claude "${pane}")"
+        [[ ${now} == "${id}" ]] && break
         sleep 2
     done
-    printf '%s: %s did not come back within 3 min; its pane shows:\n' "${pane}" "${id}"
-    herdr pane read "${pane}" --source recent-unwrapped --lines 12 2>/dev/null | sed 's/^/      /'
-    return 1
+    if [[ ${now} != "${id}" ]]; then
+        printf '%s: %s did not come back within 3 min; its pane shows:\n' "${pane}" "${id}"
+        herdr pane read "${pane}" --source recent-unwrapped --lines 12 2>/dev/null | sed 's/^/      /'
+        printf '      to resume it: %s\n' "${cmd}"
+        return 1
+    fi
+    # The account comes from session-account.sh's record of this start.
+    for ((i = 0; i < 15; i++)); do
+        home=$(last_home "${id}")
+        [[ -n ${home} && $(name_of "${home}") == "${move_who}" ]] && break
+        sleep 2
+    done
+    if [[ -z ${home} || $(name_of "${home}") != "${move_who}" ]]; then
+        printf '%s: %s came back, but its record says %s, not %s\n' "${pane}" "${id}" "$(name_of "${home:-none}")" "${move_who}"
+        return 1
+    fi
+    printf '%s: %s moved to %s\n' "${pane}" "${id}" "${move_who}"
+}
+
+# Runs the arguments in a session of their own, so neither the hangup nor a
+# signal to the process group of the agent that started it reaches them.
+detached() {
+    if command -v setsid >/dev/null 2>&1; then
+        exec setsid "$@"
+    elif command -v perl >/dev/null 2>&1; then
+        exec perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or die "exec: $!"' "$@"
+    fi
+    exec "$@"
 }
 
 # --move <who> [--pane <id>] [--dry-run] [--force] [--wait <seconds>]
 move() {
-    local who=$1 target only="" dry=0 force=0 wait=600 self="" pane failed=0
+    local only="" self="" pane failed=0 state log
+    local -a again=()
+    move_who=$1
     shift
     while (($#)); do
         case $1 in
-            --pane) only=${2:?--pane needs a pane id} && shift ;;
-            --dry-run) dry=1 ;;
-            --force) force=1 ;;
-            --wait) wait=${2:?--wait needs seconds} && shift ;;
+            --pane) only=${2:?--pane needs a pane id} && again+=(--pane "${only}") && shift ;;
+            --dry-run) move_dry=1 ;;
+            --force) move_force=1 && again+=(--force) ;;
+            --wait) move_wait=${2:?--wait needs seconds} && again+=(--wait "${move_wait}") && shift ;;
             *) die "--move: unknown option $1" 2 ;;
         esac
         shift
     done
-    [[ ${wait} =~ ^[0-9]+$ ]] || die "--wait takes whole seconds" 2
+    [[ ${move_wait} =~ ^[0-9]+$ ]] || die "--wait takes whole seconds" 2
     command -v herdr >/dev/null 2>&1 || die "--move needs herdr"
-    target=$(resolve "${who}")
-    who=$(name_of "${target}")
+    move_who=$(name_of "$(resolve "${move_who}")")
+    move_script="$(cd "$(dirname "$0")" && pwd -P)/$(basename "$0")"
+    [[ ${move_script} != *"'"* ]] || die "--move: this script's path holds a quote: ${move_script}"
+    state="${XDG_STATE_HOME:-${HOME}/.local/state}/claude-as"
+    mkdir -p "${state}"
+    move_recover="${state}/move-resume.tsv"
     [[ ${HERDR_ENV:-} == 1 ]] && self=${HERDR_PANE_ID:-}
-    while IFS= read -r pane; do
+    # Started by an agent, whose tool would be cut off in minutes and whose own
+    # pane moves too: the whole run goes on detached, that pane last.
+    if ((!move_dry)) && [[ -n ${self} && -n $(pane_claude "${self}") && -z ${CLAUDE_AS_MOVE_DETACHED:-} ]]; then
+        log="${state}/move-$(date +%Y%m%dT%H%M%S).log"
+        # A hangup stays ignored through exec; TERM still stops it between sessions.
+        (
+            trap '' HUP
+            detached env CLAUDE_AS_MOVE_DETACHED=1 "${move_script}" --move "${move_who}" ${again[@]+"${again[@]}"}
+        ) </dev/null >"${log}" 2>&1 &
+        disown 2>/dev/null || true
+        printf 'moving in the background, this pane last; follow it with: tail -f %s\n' "$(short "${log}")"
+        printf 'stop it between sessions with: kill %s\n' "$!"
+        return 0
+    fi
+    # Ctrl+C or TERM stops after the session in flight, never inside one: a
+    # wait for a busy agent ends at once, a session past /exit is resumed.
+    trap 'move_stop=1' INT TERM HUP
+    while IFS= read -r -u 3 pane; do
         [[ -n ${pane} ]] || continue
         [[ -z ${only} || ${pane} == "${only}" ]] || continue
-        # This pane's agent is the one running --move: it moves once idle, below.
-        [[ ${pane} == "${self}" && -z ${only} ]] && continue
-        move_pane "${pane}" "${who}" "${target}" "${dry}" "${force}" "${wait}" || failed=$((failed + 1))
-    done < <(herdr agent list 2>/dev/null | jq -r '.result.agents[] | select(.agent == "claude") | .pane_id')
-    if [[ -n ${self} && -z ${only} && -n $(pane_claude "${self}") ]]; then
-        if ((dry)); then
-            move_pane "${self}" "${who}" "${target}" 1 "${force}" "${wait}"
-        else
-            # Detached, ignoring the hangup and stop its agent's exit sends, it
-            # moves this pane once this turn ends and the agent is idle.
-            local log="${XDG_STATE_HOME:-${HOME}/.local/state}/claude-as/move-${self//[^A-Za-z0-9]/_}.log"
-            local -a args=(--move "${who}" --pane "${self}" --wait "${wait}")
-            ((force)) && args+=(--force)
-            mkdir -p "${log%/*}"
-            (
-                trap '' HUP TERM INT
-                exec "$0" "${args[@]}"
-            ) </dev/null >"${log}" 2>&1 &
-            disown 2>/dev/null || true
-            printf '%s: this pane moves once its agent is idle; log: %s\n' "${self}" "$(short "${log}")"
+        [[ ${pane} == "${self}" && -n ${CLAUDE_AS_MOVE_DETACHED:-} ]] && continue
+        move_pane "${pane}" || failed=$((failed + 1))
+        if ((move_stop)); then
+            printf 'stopped; the sessions after %s were not moved\n' "${pane}"
+            break
         fi
+    done 3< <(herdr agent list 2>/dev/null | jq -r '[.result.agents[] | select(.agent == "claude")]
+        | sort_by(if .agent_status == "idle" or .agent_status == "done" then 0 else 1 end) | .[].pane_id')
+    # The pane that started a detached run moves last, once its turn is over.
+    if [[ -n ${CLAUDE_AS_MOVE_DETACHED:-} && -n ${self} && ${move_stop} == 0 ]] && [[ -z ${only} || ${only} == "${self}" ]]; then
+        move_pane "${self}" || failed=$((failed + 1))
     fi
-    ((failed == 0)) || die "${failed} session(s) not moved"
+    trap - INT TERM HUP
+    ((failed == 0)) || die "${failed} session(s) not moved; their resume commands are in $(short "${move_recover}")"
 }
 
 command -v jq >/dev/null 2>&1 || die "needs jq"

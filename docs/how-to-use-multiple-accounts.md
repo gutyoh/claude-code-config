@@ -141,15 +141,24 @@ claude-as --move other@example.com             # move them
 claude-as --move other@example.com --pane w1:p3 --force
 ```
 
-- Each session resumes in its own pane, under its own Remote Control name, in
-  the permission mode it started with. One already on that account stays.
+- Each session resumes in its own pane, from the folder it was launched in,
+  under its own Remote Control name, and in the permission mode it is in now
+  (`Shift+Tab` changes it after launch). One already on that account stays.
 - It waits for an agent to go idle, at most `--wait` seconds (default 600), and
   leaves a busy one alone.
 - A session whose Bash tool still runs background jobs, such as a dev server,
   is left alone and its jobs listed: they end when the session exits. Stop
-  them, or move it anyway with `--pane <id> --force`.
-- Run from inside a herdr pane, that pane's session moves last, once its agent
-  finishes the turn; the log is in `~/.local/state/claude-as/`.
+  them, or move it anyway with `--pane <id> --force`. So is one whose claude
+  process herdr cannot show, since its jobs cannot be checked.
+- The pane is resumed by this `claude-as` itself, by its full path, so an older
+  copy on `PATH` never answers. Each resume command is written to
+  `~/.local/state/claude-as/move-resume.tsv` before `/exit`; a session a run
+  leaves exited comes back by running its line in its pane.
+- Run from inside a herdr pane, the whole run goes on in the background and
+  that pane's session moves last, once its agent finishes the turn. It prints
+  where its log is and the `kill` that stops it.
+- `Ctrl+C`, or `kill` for a background run, stops after the session in
+  flight: a session already sent `/exit` is resumed first.
 - The question above is answered for each session `--move` restarts, and for
   no other.
 
