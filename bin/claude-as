@@ -837,7 +837,11 @@ exited() {
 recovered() {
     local rest
     rest=$(awk -F'\t' -v id="$1" '$2 != id' "${move_recover}")
-    if [[ -n ${rest} ]]; then printf '%s\n' "${rest}" >"${move_recover}"; else rm -f "${move_recover}"; fi
+    if [[ -z ${rest} ]]; then
+        rm -f "${move_recover}"
+    elif printf '%s\n' "${rest}" >"${move_recover}.new"; then
+        mv -f "${move_recover}.new" "${move_recover}"
+    fi
 }
 
 # Moves the session in <pane>: true when it moved or had nothing to do.
