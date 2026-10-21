@@ -110,6 +110,7 @@ resume keeps the account the session last ran as, and switching asks first.
 claude-as --add you@example.com          # once per account and machine
 claude-as you@example.com --continue
 claude-as -r <session id>                # as the account it last ran as
+claude-as --move you@example.com         # every session in herdr, to that account
 ```
 
 **Session names.** Each session is named once, at its first prompt, as

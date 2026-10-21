@@ -130,6 +130,31 @@ personal account sends that work to the personal account. Check its
 Do not open the same session in two accounts at the same time: both would write
 to one transcript.
 
+## Move every session in herdr to one account
+
+When sessions run in [herdr](https://herdr.dev) panes, `--move` does the
+`/exit` and resume above in each pane on this machine:
+
+```bash
+claude-as --move other@example.com --dry-run   # what would move, and what it would end
+claude-as --move other@example.com             # move them
+claude-as --move other@example.com --pane w1:p3 --force
+```
+
+- Each session resumes in its own pane, under its own Remote Control name, in
+  the permission mode it started with. One already on that account stays.
+- It waits for an agent to go idle, at most `--wait` seconds (default 600), and
+  leaves a busy one alone.
+- A session whose Bash tool still runs background jobs, such as a dev server,
+  is left alone and its jobs listed: they end when the session exits. Stop
+  them, or move it anyway with `--pane <id> --force`.
+- Run from inside a herdr pane, that pane's session moves last, once its agent
+  finishes the turn; the log is in `~/.local/state/claude-as/`.
+- The question above is answered for each session `--move` restarts, and for
+  no other.
+
+On another machine, run it there: `ssh <host> claude-as --move other@example.com`.
+
 ## Check every account
 
 ```bash
