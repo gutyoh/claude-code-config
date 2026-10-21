@@ -278,7 +278,6 @@ Test-Prerequisite "jq" "jq" $false "required for hooks and statusline" | Out-Nul
 Test-Prerequisite "python" "python3" $false "used by some hooks" | Out-Null
 Test-Prerequisite "fd" "fd" $false "optional: for faster file suggestions" | Out-Null
 Test-Prerequisite "fzf" "fzf" $false "optional: for faster file suggestions" | Out-Null
-Test-Prerequisite "ccusage" "ccusage" $false "optional: for statusline billing tracking" | Out-Null
 
 # The hooks and the status line are bash scripts; on Windows Claude Code runs
 # them through Git Bash and falls back to PowerShell, which cannot run them.
@@ -474,12 +473,6 @@ elseif ($script:SettingsMode -eq "merge") {
     Write-Status ""
 
     Update-Statusline
-
-    if (-not (Get-Command ccusage -ErrorAction SilentlyContinue)) {
-        Write-Status ""
-        Write-Status "  Note: Install ccusage for full statusline functionality:" -Color DarkGray
-        Write-Status "    npm install -g ccusage" -Color DarkGray
-    }
 
     Write-Status ""
 

@@ -22,7 +22,7 @@ fi
 
 # --- Hermetic HOME ---
 # Without this a test reads the developer's real ~/.claude, so results depend on
-# personal state and anything scanning it (ccusage) pays for gigabytes of real
+# personal state and anything scanning it pays for gigabytes of real
 # session history. Call first in setup().
 isolate_home() {
     unset CLAUDE_CONFIG_DIR CLAUDE_DIR_REF MCP_KEYS_ENV_FILE

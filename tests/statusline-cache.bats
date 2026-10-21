@@ -17,16 +17,11 @@ MODULES_DIR="$BATS_TEST_DIRNAME/../.claude/scripts/lib/statusline"
 setup() {
     source "$BATS_TEST_DIRNAME/helpers.bash"
 
-    # Hermetic HOME, and a ccusage that answers instantly.
-    #
-    # collect_data() calls get_ccusage_block() -> `ccusage blocks --json`, which
-    # walks every session transcript under ~/.claude. Against a real developer's
-    # history that is seconds per call: the seven collect_data tests below were
-    # ~26s each (~180s, 45% of the whole suite) purely from this. No test here
-    # asserts on token or cost values, so a stub costs nothing in coverage and
-    # makes runtime independent of whose machine it runs on.
+    # Hermetic HOME.
     isolate_home
-    stub_bin ccusage 'echo "{\"blocks\":[]}"'
+    # Never the real Keychain: a lookup there can raise an administrator
+    # prompt or read a real login.
+    stub_bin security 'exit 44'
 
     # Test-scoped constants (replaces readonly from statusline.sh)
     CACHE_FILE="$BATS_TEST_TMPDIR/cache"
@@ -360,10 +355,10 @@ mock_api_failure() {
 }
 
 # =========================================================================
-# Integration: data.sh — no more garbage ccusage fallback
+# Integration: data.sh — token counts never become a usage estimate
 # =========================================================================
 
-@test "no API + no cache + ccusage available: DATA_SESSION_PCT stays -- (no garbage estimation)" {
+@test "no API + no cache + large session tokens: DATA_SESSION_PCT stays -- (no estimation)" {
     # Source data.sh too for collect_data
     source "$MODULES_DIR/utils.sh"
     source "$MODULES_DIR/data.sh"
@@ -371,18 +366,15 @@ mock_api_failure() {
     # Ensure hook cache doesn't interfere
     export HOOK_USAGE_CACHE="$BATS_TEST_TMPDIR/nonexistent-hook.json"
     mock_api_failure
-    # Mock ccusage returning a block with high token count
-    eval 'get_ccusage_block() { echo "{\"totalTokens\":14000000,\"tokenCounts\":{\"inputTokens\":5000,\"outputTokens\":40000,\"cacheReadInputTokens\":13000000},\"costUSD\":10.0,\"burnRate\":{\"costPerHour\":2.5}}"; }'
-
     DATA_SESSION_PCT="--"
-    local json='{"model":{"display_name":"Claude Opus 4.5"},"version":"1.0","cost":{}}'
+    local json='{"model":{"display_name":"Claude Opus 4.5"},"version":"1.0","cost":{"total_cost_usd":10.0},"context_window":{"total_input_tokens":14000000,"total_output_tokens":40000,"current_usage":{"cache_read_input_tokens":13000000}}}'
     collect_data "$json"
 
     # MUST be "--", NOT 81% from garbage token estimation
     [[ "$DATA_SESSION_PCT" == "--" ]]
 }
 
-@test "stale API cache + ccusage: shows real API pct, not token estimation" {
+@test "stale API cache + large session tokens: shows real API pct, not an estimation" {
     source "$MODULES_DIR/utils.sh"
     source "$MODULES_DIR/data.sh"
 
@@ -390,11 +382,10 @@ mock_api_failure() {
     export HOOK_USAGE_CACHE="$BATS_TEST_TMPDIR/nonexistent-hook.json"
     write_cache_aged "11.0\t2026-03-05T20:00:00Z\t\t" 7200
     mock_api_failure
-    eval 'get_ccusage_block() { echo "{\"totalTokens\":14000000,\"tokenCounts\":{\"inputTokens\":5000,\"outputTokens\":40000,\"cacheReadInputTokens\":13000000},\"costUSD\":10.0,\"burnRate\":{\"costPerHour\":2.5}}"; }'
 
     DATA_SESSION_PCT="--"
     DATA_TIME_LEFT="--"
-    local json='{"model":{"display_name":"Claude Opus 4.5"},"version":"1.0","cost":{}}'
+    local json='{"model":{"display_name":"Claude Opus 4.5"},"version":"1.0","cost":{"total_cost_usd":10.0},"context_window":{"total_input_tokens":14000000,"total_output_tokens":40000,"current_usage":{"cache_read_input_tokens":13000000}}}'
     collect_data "$json"
 
     # Should be 11 (from stale-while-error cache), NOT 81 (from token estimation)

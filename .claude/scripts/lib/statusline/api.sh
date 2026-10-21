@@ -25,6 +25,9 @@ keychain_service() {
 get_oauth_token() {
     local creds="" service
     service=$(keychain_service)
+    # An empty service would ask the keychain for the first password item of
+    # any kind, a System keychain one included: never query without a name.
+    [[ -n "${service}" ]] || return 1
 
     debug "get_oauth_token: platform=${PLATFORM}"
 

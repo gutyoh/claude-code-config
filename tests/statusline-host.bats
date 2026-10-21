@@ -12,8 +12,10 @@ ESC=$'\033'
 setup() {
     source "$BATS_TEST_DIRNAME/helpers.bash"
     isolate_home
+    # Never the real Keychain: a lookup there can raise an administrator
+    # prompt or read a real login.
+    stub_bin security 'exit 44'
     stub_bin curl 'exit 7'
-    stub_bin ccusage 'echo "{\"blocks\":[]}"'
     export TMPDIR="$BATS_TEST_TMPDIR"
     mkdir -p "$HOME/.claude/statusline.d"
     printf '{"oauthAccount":{"emailAddress":"user@example.com"}}' >"$HOME/.claude.json"

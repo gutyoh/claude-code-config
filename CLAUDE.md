@@ -192,7 +192,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   │       ├── utils.sh         # format_num, iso8601_to_epoch, format_duration_ms
 │   │       ├── api.sh           # get_oauth_token, fetch_api_usage, get_api_session_data
 │   │       ├── cache.sh         # get_file_age, refresh_api_cache, get_cached_api_data
-│   │       ├── data.sh          # get_ccusage_block, calculate_time_remaining, collect_data
+│   │       ├── data.sh          # session_figures, calculate_time_remaining, collect_data
 │   │       ├── bar.sh           # render_progress_bar, _overlay_pct_inside
 │   │       ├── color.sh         # get_color_for_pct, get_utilization_color
 │   │       ├── components.sh    # 14 render_component_* functions

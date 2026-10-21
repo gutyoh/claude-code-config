@@ -116,7 +116,7 @@ Dot-sourced by `setup.ps1`. PowerShell port of `lib/setup/` with arrow-key TUI, 
 | `api.sh` | `get_oauth_token`, `fetch_api_usage`, `get_api_session_data` | OAuth credential retrieval and API calls |
 | `cache.sh` | `get_file_age`, `try_acquire_lock`, `cached_fetch`, `get_cached_api_data` | API cache with locking, backoff, stale-while-error |
 | `providers.sh` | `usage_provider`, `fetch_openai_usage`, `fetch_muse_usage`, `get_provider_usage` | Plan usage for GPT and Muse models |
-| `data.sh` | `get_ccusage_block`, `calculate_time_remaining`, `collect_data` | Data collection, usage by the model's plan |
+| `data.sh` | `session_figures`, `calculate_time_remaining`, `collect_data` | Data collection: usage by the model's plan, tokens and cost from stdin |
 | `bar.sh` | `render_progress_bar`, `_overlay_pct_inside` | Progress bar rendering (6 styles) |
 | `color.sh` | `get_color_for_pct`, `get_utilization_color`, `get_cc_status_color` | Color helpers |
 | `status.sh` | `collect_service_status` | Claude Code service health (status.claude.com) |

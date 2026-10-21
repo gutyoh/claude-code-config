@@ -169,7 +169,7 @@ Setup complete!
 ========================================
 ```
 
-> **Note:** If some optional tools are not installed (like `fd`, `fzf`, or `ccusage`), the script skips those features gracefully. The core installation still completes successfully.
+> **Note:** If some optional tools are not installed (like `fd` or `fzf`), the script skips those features gracefully. The core installation still completes successfully.
 
 ## Step 3: Set Your API Keys
 

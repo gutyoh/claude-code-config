@@ -10,6 +10,9 @@ setup() {
     source "$BATS_TEST_DIRNAME/helpers.bash"
     require_cmd python3
     isolate_home
+    # Never the real Keychain: a lookup there can raise an administrator
+    # prompt or read a real login.
+    stub_bin security 'exit 44'
     REPO_DIR="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
     export REPO_DIR
     SETTINGS_JSON="${BATS_TEST_TMPDIR}/settings.json"

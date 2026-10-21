@@ -125,7 +125,7 @@ assert_setup_ok() {
 @test "check_prerequisite: a missing OPTIONAL tool returns success" {
     # Regression: the function returned 1 for an absent optional tool. setup.sh
     # runs under `set -e` and every call site is a bare statement, so the whole
-    # install aborted the moment fd/fzf/ccusage were missing — the normal state
+    # install aborted the moment fd/fzf were missing — the normal state
     # on a machine that never installed the extras. It failed silently right
     # after "Checking prerequisites..." with no error of its own.
     run bash -c "
@@ -148,7 +148,7 @@ assert_setup_ok() {
 
 # bats test_tags=smoke
 @test "setup.sh --minimal completes with only core tools on PATH" {
-    # The clean-machine case: no fd, no fzf, no ccusage, no brew tools.
+    # The clean-machine case: no fd, no fzf, no brew tools.
     require_cmd python3
     require_cmd jq
     run env HOME="${BATS_TEST_TMPDIR}/barehome" PATH="/usr/bin:/bin" \
