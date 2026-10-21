@@ -12,7 +12,9 @@ COUNTED="jq cat stat date tr awk sed head cut wc uname dirname basename mkdir mv
 setup() {
     source "$BATS_TEST_DIRNAME/helpers.bash"
     isolate_home
-    stub_bin ccusage 'echo "{\"blocks\":[]}"'
+    # Never the real Keychain: a lookup there can raise an administrator
+    # prompt or read a real login.
+    stub_bin security 'exit 44'
     export XDG_STATE_HOME="$HOME/.local/state" TMPDIR="$BATS_TEST_TMPDIR/tmp"
     local tmp="$TMPDIR/claude-statusline-$(id -u)"
     mkdir -p "$HOME/.claude" "$tmp"
@@ -21,8 +23,6 @@ setup() {
     printf '{"oauthAccount":{"emailAddress":"user@example.com"}}' >"$HOME/.claude.json"
     # Warm caches, as in a running session.
     echo on >"$tmp/status-cache"
-    echo '{"tokenCounts":{"inputTokens":296,"outputTokens":68100,"cacheReadInputTokens":72300000},"costUSD":19.51,"isActive":true}' \
-        >"$tmp/ccusage-block.json"
     : >"$BATS_TEST_TMPDIR/transcript.jsonl"
     local now
     now=$(date +%s)

@@ -17,7 +17,9 @@ STATUSLINE="$BATS_TEST_DIRNAME/../.claude/scripts/statusline.sh"
 setup() {
     source "$BATS_TEST_DIRNAME/helpers.bash"
     isolate_home
-    stub_bin ccusage 'echo "{\"blocks\":[]}"'
+    # Never the real Keychain: a lookup there can raise an administrator
+    # prompt or read a real login.
+    stub_bin security 'exit 44'
     stub_curl
 
     _TMP_DIR="$BATS_TEST_TMPDIR/tmp"
@@ -30,6 +32,7 @@ setup() {
     BACKOFF_INITIAL_S=30
     BACKOFF_MAX_S=300
     PLATFORM="$(detect_test_platform)"
+    KEYCHAIN_SERVICE="Claude Code-credentials"
 
     debug() { :; }
     debug_var() { :; }
@@ -213,6 +216,9 @@ stub_curl_status() { # status [header...]
 claude_oauth_login() {
     mkdir -p "$HOME/.claude"
     printf '{"claudeAiOauth":{"accessToken":"tok-claude"}}' >"$HOME/.claude/.credentials.json"
+    # macOS reads the Keychain instead of the file: answer there too, never
+    # from the developer's real login.
+    stub_bin security "cat '$HOME/.claude/.credentials.json'"
     API_URL="https://api.anthropic.com/api/oauth/usage"; CURL_TIMEOUT=5; API_BETA_HEADER="oauth-2025-04-20"
 }
 

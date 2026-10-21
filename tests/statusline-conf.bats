@@ -8,6 +8,9 @@
 setup() {
     source "$BATS_TEST_DIRNAME/helpers.bash"
     isolate_home
+    # Never the real Keychain: a lookup there can raise an administrator
+    # prompt or read a real login.
+    stub_bin security 'exit 44'
     REPO_DIR="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
     CLAUDE_DIR="${HOME}/.claude"
     mkdir -p "${CLAUDE_DIR}"

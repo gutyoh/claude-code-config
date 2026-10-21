@@ -9,8 +9,10 @@ STATUSLINE="$BATS_TEST_DIRNAME/../.claude/scripts/statusline.sh"
 setup() {
     source "$BATS_TEST_DIRNAME/helpers.bash"
     isolate_home
+    # Never the real Keychain: a lookup there can raise an administrator
+    # prompt or read a real login.
+    stub_bin security 'exit 44'
     stub_bin curl 'exit 7'
-    stub_bin ccusage 'echo "{\"blocks\":[]}"'
     export TMPDIR="$BATS_TEST_TMPDIR"
     mkdir -p "$HOME/.claude" "$HOME/.claude-work"
     printf 'components=email\ntheme=none\n' >"$HOME/.claude/statusline.conf"

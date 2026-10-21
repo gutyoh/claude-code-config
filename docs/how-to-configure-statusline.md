@@ -6,7 +6,6 @@ Customize the Claude Code statusline to show model info, usage percentage, token
 
 - This repo's global config installed via `setup.sh`
 - Required: `jq`
-- Optional: `ccusage` (`npm install -g ccusage`) — needed for token/cost/burn-rate components
 
 ## Option A: Interactive TUI (recommended)
 
@@ -69,11 +68,11 @@ cc_status_color=full
 | `usage` | 5-hour window of the model's plan | Progress bar | `21%` |
 | `weekly` | Weekly window of the model's plan | `weekly: 63%` | `63%` |
 | `reset` | Reset countdown | `resets: 2h15m` | `2h15m` |
-| `tokens_in` | Input tokens | `in: 15.4k` | `15.4k` |
-| `tokens_out` | Output tokens | `out: 2.1k` | `2.1k` |
-| `tokens_cache` | Cache read tokens | `cache: 6.2M` | `6.2M` |
-| `cost` | Session cost | `$5.21` | `$5.21` |
-| `burn_rate` | Cost per hour | `($2.99/hr)` | Hidden |
+| `tokens_in` | Tokens in the live context, cache included (`context_window.total_input_tokens`) | `in: 155.5k` | `155.5k` |
+| `tokens_out` | Output tokens of the last response (`context_window.total_output_tokens`) | `out: 1.2k` | `1.2k` |
+| `tokens_cache` | Cache reads of the last request (`current_usage.cache_read_input_tokens`) | `cache: 142.0k` | `142.0k` |
+| `cost` | The session's list-price estimate (`cost.total_cost_usd`); resets on `/clear` | `$5.21` | `$5.21` |
+| `burn_rate` | That cost per hour of session time, after its first minute | `($2.99/hr)` | Hidden |
 | `email` | Account email | `user@email.com` | `user@email.com` |
 | `host` | Machine name, up to the first `.` | `devbox` | `devbox` |
 | `cc_status` | Claude Code service status | `on` / `degraded` | Same |
@@ -216,9 +215,6 @@ cat ~/.claude/settings.json | jq '.statusLine'
 
 # Check the script is executable
 ls -la ~/.claude/scripts/statusline.sh
-
-# Check ccusage is installed
-ccusage --version
 ```
 
 ## Troubleshooting
@@ -227,7 +223,7 @@ ccusage --version
 |---------|-------|-----|
 | Statusline not visible | Missing `statusLine` in settings.json | Re-run `./setup.sh` or add manually |
 | Shows `--` for usage | No reading yet, or no login for the model's plan | Check the login in [Usage for GPT and Muse models](#usage-for-gpt-and-muse-models); `STATUSLINE_DEBUG=1` shows the source tried |
-| Shows `--` for cost | No active billing block | Start a new conversation to begin a billing block |
+| Tokens and cost read `0` | Claude Code has not sent them yet: before the first response, or `current_usage` right after `/compact` | They fill in with the next response |
 | No colors | `NO_COLOR` env var is set | Unset it: `unset NO_COLOR` |
 | Usage stops moving in a quiet session | No `refreshInterval` in the `statusLine` settings: Claude Code redraws only on events | Re-run `./setup.sh`, which sets 60 seconds, or add `"refreshInterval": 60` |
 | Stale usage data (prefixed with `~`) | The last reading is old: the API failed or throttled, or Muse reports no windows while its 5-hour one is idle | Normal; it refreshes once the API answers or the plan is used again |

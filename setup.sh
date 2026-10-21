@@ -156,7 +156,6 @@ main() {
     check_prerequisite "python3" "python3" "true" ""
     check_prerequisite "fd" "fd" "false" "optional: for faster file suggestions"
     check_prerequisite "fzf" "fzf" "false" "optional: for faster file suggestions"
-    check_prerequisite "ccusage" "ccusage" "false" "optional: for statusline billing tracking"
 
     echo ""
 
@@ -333,12 +332,6 @@ main() {
         echo ""
 
         configure_statusline
-
-        if ! command -v ccusage &>/dev/null; then
-            echo ""
-            echo "  Note: Install ccusage for full statusline functionality:"
-            echo "    npm install -g ccusage"
-        fi
 
         echo ""
 

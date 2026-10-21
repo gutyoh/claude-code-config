@@ -33,8 +33,8 @@ agents for it too.
 ## Quick start
 
 You need [Claude Code](https://code.claude.com/docs/en/setup), Git and `jq`,
-plus `python3` on macOS and Linux. `fd` and `fzf` (faster `@` file search) and
-`ccusage` (token and cost figures in the status line) are optional.
+plus `python3` on macOS and Linux. `fd` and `fzf` (faster `@` file search) are
+optional.
 
 **1. Clone and install**
 

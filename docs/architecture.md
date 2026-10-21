@@ -119,7 +119,7 @@ flowchart TD
     P3["3: Hook cache<br/><i>~/.claude/cache/claude-usage.json</i><br/>(5-hour only)"]
     GPT["ChatGPT plan<br/><i>chatgpt.com/backend-api/wham/usage</i><br/>Codex login"]
     MUSE["Muse Code plan<br/><i>api.meta.ai/muse-code/key</i><br/>Muse device login"]
-    CCUSAGE["ccusage blocks --json<br/><i>Token counts + cost</i>"]
+    SESSION["The session's own figures<br/><i>context_window, cost.total_cost_usd</i>"]
     STATUS["status.claude.com API<br/><i>Service health</i>"]
     RENDER["Render components<br/><i>15 renderers, adaptive width</i>"]
 
@@ -134,7 +134,8 @@ flowchart TD
     P3 --> RENDER
     GPT --> RENDER
     MUSE --> RENDER
-    CCUSAGE --> RENDER
+    INPUT --> SESSION
+    SESSION --> RENDER
     STATUS --> RENDER
 ```
 
@@ -174,7 +175,7 @@ The setup is idempotent: running it again detects existing symlinks and skips th
 ## Cross-cutting design principles
 
 - **No hardcoded values**: API keys use `${VAR}` expansion, profile names are discovered at runtime, tool paths use `$CLAUDE_PROJECT_DIR`
-- **Graceful degradation**: missing optional tools (fd, fzf, ccusage) are skipped, not required. Stale cache data is served rather than failing.
+- **Graceful degradation**: missing optional tools (fd, fzf) are skipped, not required. Stale cache data is served rather than failing.
 - **POSIX portability**: all scripts target bash 3.2+ (macOS default). Millisecond timestamps use `python3` instead of GNU-only `date +%s%3N`. Atomic locking uses `mkdir` instead of `flock`.
 - **Testability**: BATS test suite (11 files) covers hooks, statusline, proxy, MCP rotation, and setup CLI parsing.
 

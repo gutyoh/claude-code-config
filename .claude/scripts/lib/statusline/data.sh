@@ -1,4 +1,4 @@
-# data.sh -- ccusage, time formatting, and data collection
+# data.sh -- time formatting and data collection
 # Path: .claude/scripts/lib/statusline/data.sh
 # Sourced by statusline.sh — do not execute directly.
 #
@@ -8,83 +8,6 @@
 #   - OAuth API:  /api/oauth/usage, cached and shared, with stale-while-error
 # and, only when the account has no reading at all, the hook cache (5-hour).
 
-# --- ccusage: SWR cache ------------------------------------------------------
-#
-# `ccusage blocks --json` walks every session transcript under ~/.claude. That
-# is seconds of work that scales with how long you have used Claude Code — on a
-# well-used machine it dominates the render completely, and it ran on EVERY
-# render with no cache. The statusline is drawn after every turn, so the cost
-# was paid continuously and concurrent renders piled up on top of each other.
-#
-# Two independent fixes, in order of how much they save:
-#
-#   1. Do not call it at all unless a component actually consumes it. The
-#      component list is user config; someone who does not display cost or
-#      token counts should never pay for them.
-#   2. Cache the result and serve stale while refreshing in the background —
-#      the same shape status.sh already uses. A render never waits on ccusage.
-#
-# The block is a 5-hour rolling window, so a minute-old number is not
-# meaningfully different from a fresh one. Correctness here is "roughly current",
-# not "to the token".
-
-readonly CCUSAGE_CACHE_FILE="${_TMP_DIR:-/tmp}/ccusage-block.json"
-readonly CCUSAGE_CACHE_TTL=60        # Fresh for a minute
-readonly CCUSAGE_CACHE_MAX_STALE=900 # Serve stale up to 15 minutes
-readonly CCUSAGE_LOCK_DIR="${_TMP_DIR:-/tmp}/ccusage-lock"
-readonly CCUSAGE_LOCK_MAX_AGE=120 # Reclaim a lock left by a killed process
-
-# Components whose values come from ccusage. Nothing else needs it.
-readonly CCUSAGE_COMPONENTS="tokens_in tokens_out tokens_cache cost burn_rate"
-
-# Is any ccusage-fed component actually being displayed?
-_ccusage_needed() {
-    local c
-    for c in ${CCUSAGE_COMPONENTS}; do
-        [[ ",${CONF_COMPONENTS}," == *",${c},"* ]] && return 0
-    done
-    return 1
-}
-
-_ccusage_cache_age() {
-    [[ ! -f "${CCUSAGE_CACHE_FILE}" ]] && echo "999999" && return
-    get_file_age "${CCUSAGE_CACHE_FILE}" 2>/dev/null || echo "999999"
-}
-
-# Run ccusage and replace the cache atomically.
-#
-# Atomic because a render may read the file while this writes it: a half-written
-# JSON document parses as nothing and the statusline silently loses its numbers.
-# Locked because N concurrent sessions would otherwise each spawn their own
-# multi-second scan of the same data.
-_refresh_ccusage_cache() {
-    command -v ccusage >/dev/null 2>&1 || return 1
-
-    if [[ -d "${CCUSAGE_LOCK_DIR}" ]]; then
-        local lock_age
-        lock_age=$(get_file_age "${CCUSAGE_LOCK_DIR}" 2>/dev/null || echo 0)
-        if [[ "${lock_age}" -lt "${CCUSAGE_LOCK_MAX_AGE}" ]]; then
-            return 1 # someone else is already refreshing
-        fi
-        rmdir "${CCUSAGE_LOCK_DIR}" 2>/dev/null
-    fi
-    mkdir "${CCUSAGE_LOCK_DIR}" 2>/dev/null || return 1
-
-    local ccdata active_block tmp
-    ccdata=$(ccusage blocks --json 2>/dev/null)
-    if [[ -n "${ccdata}" && "${ccdata}" != "null" ]]; then
-        active_block=$(echo "${ccdata}" | jq -c '.blocks[] | select(.isActive == true)' 2>/dev/null)
-        if [[ -n "${active_block}" && "${active_block}" != "null" ]]; then
-            tmp="${CCUSAGE_CACHE_FILE}.tmp.$$"
-            printf '%s\n' "${active_block}" >"${tmp}" 2>/dev/null \
-                && mv -f "${tmp}" "${CCUSAGE_CACHE_FILE}" 2>/dev/null
-        fi
-    fi
-
-    rmdir "${CCUSAGE_LOCK_DIR}" 2>/dev/null
-    return 0
-}
-
 # Prints a file with bash's own read, not a cat process.
 _print_file() {
     local text=""
@@ -92,32 +15,6 @@ _print_file() {
     printf '%s' "${text}"
 }
 
-# Emit the active block, never blocking the render on ccusage.
-get_ccusage_block() {
-    _ccusage_needed || return 1
-
-    local age
-    age=$(_ccusage_cache_age)
-
-    # Fresh — serve it.
-    if [[ "${age}" -lt "${CCUSAGE_CACHE_TTL}" && -f "${CCUSAGE_CACHE_FILE}" ]]; then
-        _print_file "${CCUSAGE_CACHE_FILE}"
-        return 0
-    fi
-
-    # Stale but usable — serve it now, refresh for the next render.
-    if [[ "${age}" -lt "${CCUSAGE_CACHE_MAX_STALE}" && -f "${CCUSAGE_CACHE_FILE}" ]]; then
-        _print_file "${CCUSAGE_CACHE_FILE}"
-        _refresh_ccusage_cache &>/dev/null &
-        disown 2>/dev/null || true
-        return 0
-    fi
-
-    # Nothing usable. Start a refresh and report no data for this render only.
-    _refresh_ccusage_cache &>/dev/null &
-    disown 2>/dev/null || true
-    return 1
-}
 
 calculate_time_remaining() {
     local resets_at="$1"
@@ -356,13 +253,43 @@ parse_input() {
         .model.id, .version, .cost.total_lines_added, .cost.total_lines_removed,
         .cost.total_duration_ms, .cwd, .session_id, .transcript_path,
         .rate_limits.five_hour.used_percentage, .rate_limits.five_hour.resets_at,
-        .rate_limits.seven_day.used_percentage, .rate_limits.seven_day.resets_at]
+        .rate_limits.seven_day.used_percentage, .rate_limits.seven_day.resets_at,
+        .cost.total_cost_usd, .context_window.total_input_tokens,
+        .context_window.total_output_tokens, .context_window.current_usage.cache_read_input_tokens]
         | map(if . == null then "" else tostring | gsub("[\u001f\n]"; " ") end)
         | join("\u001f")' <<<"$1" 2>/dev/null) || line=""
     IFS="${sep}" read -r IN_MODEL IN_MODEL_ID IN_VERSION IN_LINES_ADDED IN_LINES_REMOVED \
         IN_DURATION_MS IN_CWD IN_SESSION IN_TRANSCRIPT \
-        IN_FIVE IN_FIVE_RESET IN_WEEK IN_WEEK_RESET <<<"${line}" || true
+        IN_FIVE IN_FIVE_RESET IN_WEEK IN_WEEK_RESET \
+        IN_COST IN_CTX_IN IN_CTX_OUT IN_CACHE_READ <<<"${line}" || true
     IN_MODEL="${IN_MODEL:-claude}"
+}
+
+# Tokens, cost and burn rate for the token and cost components, from stdin:
+#   tokens_in/out  context_window.total_input/output_tokens (the live context;
+#                  input includes cache reads and writes)
+#   tokens_cache   context_window.current_usage.cache_read_input_tokens
+#   cost           cost.total_cost_usd, the session's list-price estimate
+#   burn_rate      that cost per hour of session time, once a minute has passed
+# A field Claude Code has not sent yet (before the first response, after
+# /compact) reads as 0. Non-numeric input never reaches printf.
+session_figures() {
+    local n v
+    for n in IN_CTX_IN IN_CTX_OUT IN_CACHE_READ; do
+        v="${!n:-}"
+        [[ "${v}" =~ ^[0-9]+$ ]] || v=0
+        printf -v "${n}" '%s' "${v}"
+    done
+    DATA_INPUT_TOKENS="${IN_CTX_IN}"
+    DATA_OUTPUT_TOKENS="${IN_CTX_OUT}"
+    DATA_CACHE_READ="${IN_CACHE_READ}"
+    if [[ "${IN_COST:-}" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
+        DATA_COST_USD="${IN_COST}"
+    fi
+    if [[ "${IN_DURATION_MS:-}" =~ ^[0-9]+$ ]] && ((IN_DURATION_MS >= 60000)); then
+        DATA_BURN_RATE=$(awk -v c="${DATA_COST_USD}" -v ms="${IN_DURATION_MS}" 'BEGIN {printf "%.4f", c / (ms / 3600000)}')
+    fi
+    return 0
 }
 
 # The rate_limits Claude Code passes on stdin, once a session has had a
@@ -578,18 +505,11 @@ collect_data() {
     debug_var "DATA_WEEKLY_PCT" "${DATA_WEEKLY_PCT}"
     debug_var "DATA_TIME_LEFT" "${DATA_TIME_LEFT}"
 
-    # Token + cost data from ccusage
-    debug "--- ccusage Data ---"
-    local active_block=""
-    if active_block=$(get_ccusage_block 2>&1); then
-        debug "ccusage: found active block"
-        IFS=$'\t' read -r DATA_INPUT_TOKENS DATA_OUTPUT_TOKENS DATA_CACHE_READ \
-            DATA_COST_USD DATA_BURN_RATE < <(jq -r '[.tokenCounts.inputTokens // 0,
-                .tokenCounts.outputTokens // 0, .tokenCounts.cacheReadInputTokens // 0,
-                .costUSD // 0, .burnRate.costPerHour // 0] | @tsv' <<<"${active_block}")
-    else
-        debug "ccusage: no active block (is ccusage installed? run: npm install -g ccusage)"
-    fi
+    # Tokens and cost: this session's own figures, which Claude Code sends on
+    # stdin. No process and no transcript scan; the plan's real usage is the
+    # usage/weekly bars above. cost.total_cost_usd is a list-price estimate.
+    debug "--- Session tokens and cost (stdin) ---"
+    session_figures
     debug_var "DATA_INPUT_TOKENS" "${DATA_INPUT_TOKENS}"
     debug_var "DATA_OUTPUT_TOKENS" "${DATA_OUTPUT_TOKENS}"
     debug_var "DATA_COST_USD" "${DATA_COST_USD}"

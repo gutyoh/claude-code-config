@@ -13,7 +13,7 @@
 #   Muse models: the Muse Code plan's windows, from the Muse login
 # Every read is read-only: no login is ever refreshed here.
 #
-# Uses ccusage for token breakdown, cost, and burn rate.
+# Tokens, cost and burn rate are the session's own, from stdin: no ccusage.
 #
 # Components (configurable order):
 #   model, usage, weekly, reset, tokens_in, tokens_out, tokens_cache,
@@ -33,7 +33,7 @@
 # style.<component>= colors one component (lib/statusline/style.sh).
 # Legacy: single-line theme name still supported (auto-detected).
 #
-# Prerequisites: jq, curl, awk, cksum, ccusage (optional for token/cost data)
+# Prerequisites: jq, curl, awk, cksum
 # Platforms:     macOS (Keychain), Linux (Secret Service / libsecret),
 #                Windows Git Bash (Credential Manager via PowerShell)
 

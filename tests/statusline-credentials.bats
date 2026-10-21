@@ -12,6 +12,9 @@ MODULES_DIR="$BATS_TEST_DIRNAME/../.claude/scripts/lib/statusline"
 setup() {
     source "$BATS_TEST_DIRNAME/helpers.bash"
     isolate_home
+    # Never the real Keychain: a lookup there can raise an administrator
+    # prompt or read a real login.
+    stub_bin security 'exit 44'
     debug() { :; }
     KEYCHAIN_SERVICE="Claude Code-credentials"
     PLATFORM="$(detect_test_platform)"
