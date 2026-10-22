@@ -35,11 +35,28 @@ Route Claude Code through alternative model providers (OpenAI Codex, Google Gemi
 **PATH and shortcuts setup:** The `setup.sh` script automatically adds `bin/` to your shell PATH and installs shell functions in `~/.zshrc`, `~/.bashrc`, or `~/.profile`:
 
 ```bash
-claude        # normal Claude Code, with bypassPermissions available in Shift+Tab cycle
-claude -a     # start Claude Code directly in bypassPermissions mode
-clp           # claude-proxy with gpt-6.1-sol(high), bypassPermissions available in Shift+Tab cycle
-clp -a        # claude-proxy with gpt-6.1-sol(high), directly in bypassPermissions mode
+claude                            # Claude Code in bypassPermissions (--dangerously-skip-permissions)
+claude --permission-mode default  # a mode you name wins; bypass stays on Shift+Tab
+clp                               # claude-proxy with gpt-6.1-sol(high), in bypassPermissions
 ```
+
+`-a`, `--yolo`, `--unsafe`, `--bypass` and `-adskp` as the first argument are
+still accepted and change nothing. Only `--permission-mode` (or the allow and
+skip flags themselves) counts as naming a mode: a mode set through `--settings`
+or an `--agent` definition is overridden by the bypass flag, so pass
+`--permission-mode` alongside it.
+
+Setup also sets `permissions.defaultMode` to `bypassPermissions` in your user
+settings, unless you already chose a mode, so sessions the shortcuts do not
+launch (a resume, herdr restoring a pane, `claude -p` from a script, an IDE
+that runs the CLI) start in bypass too. The VS Code extension ignores it unless
+its own "Allow Dangerously Skip Permissions" setting is on. Without it Claude Code starts them in auto mode (or
+default, where auto is unavailable), and a resume never restores bypass on its
+own. `--no-bypass-default` (`-NoBypassDefault` on Windows) skips this. To undo
+it, set `"defaultMode": "default"` under `permissions` in
+`~/.claude/settings.json`: setup never replaces a mode that is already set.
+Running as root, setup leaves the key alone, since Claude Code refuses to start
+in bypass there unless `IS_SANDBOX=1`.
 
 The proxy shortcut default model can be overridden per shell:
 
@@ -163,11 +180,11 @@ Options:
 # Pass extra arguments to Claude Code (after --)
 ./bin/claude-proxy -p antigravity -- --verbose
 
-# Installed shell shortcut: proxy + allow switching to bypassPermissions
+# Installed shell shortcut: proxy, in bypassPermissions
 clp
 
-# Installed shell shortcut: proxy + start directly in bypassPermissions
-clp -a
+# Installed shell shortcut: proxy, in the mode you name, bypass on Shift+Tab
+clp --permission-mode plan
 ```
 
 ## Creating Custom Profiles

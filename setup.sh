@@ -13,6 +13,8 @@
 #   --agent-teams          Enable agent teams (experimental)
 #   --no-agent-teams       Disable agent teams
 #   --no-proxy-path        Skip proxy launcher PATH and shell shortcut setup
+#   --bypass-default       Start every session in bypass permissions via settings.json (default)
+#   --no-bypass-default    Leave permissions.defaultMode in settings.json alone
 #   --shell PATH           Install shortcuts for this login shell (default: auto-detect
 #                          from the password database, NOT $SHELL — see detect_login_shell)
 #   --mcp LIST             Comma-separated MCP servers to install
@@ -92,6 +94,7 @@ STATUSLINE_CC_STATUS_VISIBILITY="always" # always | problem_only
 STATUSLINE_CC_STATUS_COLOR="full"        # none | full | status_only
 INSTALL_AGENT_TEAMS="true"
 INSTALL_PROXY_PATH="true"
+INSTALL_BYPASS_DEFAULT="true"
 INSTALL_OPENCODE="auto" # "auto" | "yes" | "no" — auto = detect_opencode result
 ACCEPT_DEFAULTS="false"
 USER_CUSTOMIZED_STATUSLINE="false" # Set to true when user goes through TUI statusline customization
@@ -385,6 +388,17 @@ main() {
     fi
 
     echo ""
+
+    # --- Start sessions in bypass permissions ---
+    if [[ "${INSTALL_BYPASS_DEFAULT}" == "true" && "${SETTINGS_MODE}" != "skip" && -f "${SETTINGS_JSON}" ]]; then
+        step=$((step + 1))
+        echo "Step ${step}: Starting sessions in bypass permissions..."
+        echo ""
+
+        configure_permission_mode
+
+        echo ""
+    fi
 
     # --- Configure MCP servers ---
     if [[ ${#INSTALL_MCP_SERVERS[@]} -gt 0 ]]; then

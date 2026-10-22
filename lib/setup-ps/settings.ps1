@@ -181,6 +181,39 @@ function Update-TranscriptRetention {
     }
 }
 
+function Update-PermissionMode {
+    <#
+    .SYNOPSIS
+    Resumes and direct runs start in bypass too; a mode the user set
+    stays, and nothing is written as root outside a sandbox.
+    Port of configure_permission_mode from lib/setup/settings.sh.
+    #>
+    # $IsWindows does not exist in Windows PowerShell 5.1, which runs only on Windows.
+    $unix = $PSVersionTable.PSEdition -eq "Core" -and -not $IsWindows
+    if ($unix -and "$(& id -u)".Trim() -eq "0" -and $env:IS_SANDBOX -ne "1") {
+        Write-Status "  - Running as root: Claude Code refuses bypass permissions there, so" -Color DarkGray
+        Write-Status "    permissions.defaultMode is left alone (set IS_SANDBOX=1 in a sandbox)" -Color DarkGray
+        return
+    }
+    try {
+        $settings = Read-Utf8Text $script:SettingsJson | ConvertFrom-Json
+        if ($null -eq $settings.PSObject.Properties['permissions']) {
+            $settings | Add-Member -NotePropertyName "permissions" -NotePropertyValue ([pscustomobject]@{}) -Force
+        }
+        if ($null -ne $settings.permissions.PSObject.Properties['defaultMode']) {
+            Write-Status "  + Permission mode already set ($($settings.permissions.defaultMode))" -Color Green
+        }
+        else {
+            $settings.permissions | Add-Member -NotePropertyName "defaultMode" -NotePropertyValue "bypassPermissions" -Force
+            Write-JsonFile -Path $script:SettingsJson -InputObject $settings
+            Write-Status "  + Sessions start in bypass permissions (permissions.defaultMode)" -Color Green
+        }
+    }
+    catch {
+        Write-Status "  ! Failed to set the permission mode: $_" -Color Yellow
+    }
+}
+
 function Update-SessionPrivacy {
     <#
     .SYNOPSIS
@@ -415,15 +448,31 @@ function Get-ClaudeShortcutBlock {
     #>
     return @'
 # claude-code-config: claude launch shortcuts
-# claude: bypass offered; claude -a (or --unsafe, --bypass, -adskp): bypass now.
+# claude and clp start in bypass permissions (--dangerously-skip-permissions),
+# unless the arguments choose a permission mode themselves. -a, --yolo,
+# --unsafe, --bypass or -adskp first is accepted and changes nothing.
 # A resumed session runs as the account it last ran as.
+
+# The permission flag a launch adds: bypass, or only bypass on Shift+Tab when
+# the arguments before any -- choose a mode, which bypass would override.
+function Get-ClaudeLaunchMode([object[]]$Arguments) {
+    foreach ($arg in @($Arguments)) {
+        $text = [string]$arg
+        if ($text -ceq "--") { break }
+        if ($text -ceq "--permission-mode" -or $text.StartsWith("--permission-mode=", [System.StringComparison]::Ordinal) -or
+            $text -ceq "--allow-dangerously-skip-permissions" -or $text -ceq "--dangerously-skip-permissions") {
+            return "--allow-dangerously-skip-permissions"
+        }
+    }
+    return "--dangerously-skip-permissions"
+}
+
 function claude {
-    $mode = "--allow-dangerously-skip-permissions"
     $rest = @($args)
-    if ($rest.Count -gt 0 -and @("-a", "--unsafe", "--bypass", "-adskp") -ccontains [string]$rest[0]) {
-        $mode = "--dangerously-skip-permissions"
+    if ($rest.Count -gt 0 -and @("-a", "--yolo", "--unsafe", "--bypass", "-adskp") -ccontains [string]$rest[0]) {
         $rest = @($rest | Select-Object -Skip 1)
     }
+    $mode = Get-ClaudeLaunchMode $rest
     $exe = Get-Command claude -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $exe) {
         Write-Error "claude not found on PATH. Install: irm https://claude.ai/install.ps1 | iex"
@@ -610,12 +659,11 @@ Remove-Item -Path Alias:clp -Force -ErrorAction SilentlyContinue
 function clp {
     $model = $env:CLAUDE_PROXY_MODEL
     if (-not $model) { $model = "gpt-6.1-sol(high)" }
-    $mode = "--allow-dangerously-skip-permissions"
     $rest = @($args)
-    if ($rest.Count -gt 0 -and @("-a", "--unsafe", "--bypass", "-adskp") -ccontains [string]$rest[0]) {
-        $mode = "--dangerously-skip-permissions"
+    if ($rest.Count -gt 0 -and @("-a", "--yolo", "--unsafe", "--bypass", "-adskp") -ccontains [string]$rest[0]) {
         $rest = @($rest | Select-Object -Skip 1)
     }
+    $mode = Get-ClaudeLaunchMode $rest
     $proxy = Join-Path (Join-Path (Join-Path $HOME ".local") "bin") "claude-proxy.ps1"
     if (-not (Test-Path -LiteralPath $proxy)) { $proxy = "claude-proxy" }
     # Quoted: a bare -- is consumed by PowerShell instead of reaching claude-proxy.

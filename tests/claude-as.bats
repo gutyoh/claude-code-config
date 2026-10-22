@@ -137,7 +137,7 @@ two_accounts() {
     for who in me@home.example ME@HOME.EXAMPLE Me@Home.Example; do
         run "$SCRIPT" "${who}" -p hi
         [ "$status" -eq 0 ]
-        [[ ${output} == *"home=${HOME}/.claude-home args=--allow-dangerously-skip-permissions -p hi"* ]] || {
+        [[ ${output} == *"home=${HOME}/.claude-home args=--dangerously-skip-permissions -p hi"* ]] || {
             echo "${who}: ${output}"
             return 1
         }
@@ -165,12 +165,12 @@ two_accounts() {
 @test "a name that runs one account keeps running it after another is added" {
     account "${HOME}/.claude" me@x.example claude_team Acme
     run "$SCRIPT" me@x.example -p hi
-    [[ ${output} == *"RAN set= home= args=--allow-dangerously-skip-permissions -p hi"* ]]
+    [[ ${output} == *"RAN set= home= args=--dangerously-skip-permissions -p hi"* ]]
     linked_home "${HOME}/.claude-y" me@x.example.org claude_pro Other
     linked_home "${HOME}/.claude-z" ame@x.example claude_pro Other
     run "$SCRIPT" me@x.example -p hi
     [ "$status" -eq 0 ]
-    [[ ${output} == *"RAN set= home= args=--allow-dangerously-skip-permissions -p hi"* ]]
+    [[ ${output} == *"RAN set= home= args=--dangerously-skip-permissions -p hi"* ]]
 }
 
 @test "one email in two organizations takes its /organization, /plan or /organization id" {
@@ -182,13 +182,13 @@ two_accounts() {
     [[ ${output} == *"me@x.example/team/max_5x (Acme, Acme-id, ~/.claude)"* ]]
     for who in me@x.example/acme me@x.example/team me@x.example/team/max_5x ME@X.EXAMPLE/Acme-ID; do
         run "$SCRIPT" "${who}" -p hi
-        [[ ${output} == *"RAN set= home= args=--allow-dangerously-skip-permissions -p hi"* ]] || {
+        [[ ${output} == *"RAN set= home= args=--dangerously-skip-permissions -p hi"* ]] || {
             echo "${who}: ${output}"
             return 1
         }
     done
     run "$SCRIPT" me@x.example/pro -p hi
-    [[ ${output} == *"home=${HOME}/.claude-x args=--allow-dangerously-skip-permissions -p hi"* ]]
+    [[ ${output} == *"home=${HOME}/.claude-x args=--dangerously-skip-permissions -p hi"* ]]
     # Part of an organization or plan is no name either.
     for who in me@x.example/acm me@x.example/tea me@x/pro; do
         run "$SCRIPT" "${who}" -p hi
@@ -200,42 +200,48 @@ two_accounts() {
 @test "~/.claude runs with CLAUDE_CONFIG_DIR unset, others with their exact path" {
     two_accounts
     CLAUDE_CONFIG_DIR="${HOME}/.claude-home" run "$SCRIPT" me@work.example doctor
-    [[ ${output} == *"RAN set= home= args=--allow-dangerously-skip-permissions doctor"* ]]
+    [[ ${output} == *"RAN set= home= args=--dangerously-skip-permissions doctor"* ]]
     CLAUDE_CONFIG_DIR="${HOME}/.claude" run "$SCRIPT" me@home.example doctor
-    [[ ${output} == *"RAN set=1 home=${HOME}/.claude-home args=--allow-dangerously-skip-permissions doctor"* ]]
+    [[ ${output} == *"RAN set=1 home=${HOME}/.claude-home args=--dangerously-skip-permissions doctor"* ]]
 }
 
 @test "CLAUDE_AS chooses the account when claude options come first" {
     two_accounts
     CLAUDE_AS=me@home.example run "$SCRIPT" --continue
-    [[ ${output} == *"home=${HOME}/.claude-home args=--allow-dangerously-skip-permissions --continue"* ]]
+    [[ ${output} == *"home=${HOME}/.claude-home args=--dangerously-skip-permissions --continue"* ]]
     CLAUDE_AS=me@home.example run "$SCRIPT"
-    [[ ${output} == *"home=${HOME}/.claude-home args=--allow-dangerously-skip-permissions"* ]]
+    [[ ${output} == *"home=${HOME}/.claude-home args=--dangerously-skip-permissions"* ]]
     run "$SCRIPT" --continue
     [ "$status" -eq 2 ]
     [[ ${output} == *"name the account first"* ]]
 }
 
-@test "an account starts as the claude shell function does: bypass on Shift+Tab, or on with -a" {
+@test "an account starts as the claude shell function does: in bypass, unless a mode is named" {
     two_accounts
     run "$SCRIPT" me@home.example
-    [[ ${output} == *"home=${HOME}/.claude-home args=--allow-dangerously-skip-permissions"$'\n'* ]]
-    for flag in -a --unsafe --bypass -adskp; do
+    [[ ${output} == *"home=${HOME}/.claude-home args=--dangerously-skip-permissions"$'\n'* ]]
+    for flag in -a --yolo --unsafe --bypass -adskp; do
         run "$SCRIPT" me@home.example "${flag}" --continue
-        [[ ${output} == *"home=${HOME}/.claude-home args=--dangerously-skip-permissions --continue"* ]] || {
+        [[ ${output} == *"home=${HOME}/.claude-home args=--dangerously-skip-permissions --continue"$'\n'* ]] || {
             echo "${flag}: ${output}"
             return 1
         }
     done
-    CLAUDE_AS=me@work.example run "$SCRIPT" -a
+    CLAUDE_AS=me@work.example run "$SCRIPT" --yolo
     [[ ${output} == *"RAN set= home= args=--dangerously-skip-permissions"$'\n'* ]]
     # Only first: a later -a is claude's own.
     run "$SCRIPT" me@home.example --continue -a
-    [[ ${output} == *"args=--allow-dangerously-skip-permissions --continue -a"* ]]
-    # The shell functions setup.sh writes hold the same defaults.
-    grep -q 'mode=--allow-dangerously-skip-permissions' "$BATS_TEST_DIRNAME/../lib/setup/settings.sh"
-    grep -q 'mode=--dangerously-skip-permissions' "$BATS_TEST_DIRNAME/../lib/setup/settings.sh"
-    grep -q 'set -l mode --allow-dangerously-skip-permissions' "$BATS_TEST_DIRNAME/../lib/setup/settings.sh"
+    [[ ${output} == *"args=--dangerously-skip-permissions --continue -a"* ]]
+    # A mode named on the command line wins; bypass stays on Shift+Tab.
+    run "$SCRIPT" me@home.example --permission-mode plan --continue
+    [[ ${output} == *"args=--allow-dangerously-skip-permissions --permission-mode plan --continue"* ]]
+    run "$SCRIPT" me@home.example --yolo --permission-mode=auto
+    [[ ${output} == *"args=--allow-dangerously-skip-permissions --permission-mode=auto"$'\n'* ]]
+    run "$SCRIPT" me@home.example --allow-dangerously-skip-permissions
+    [[ ${output} == *"args=--allow-dangerously-skip-permissions --allow-dangerously-skip-permissions"$'\n'* ]]
+    # After --, the words are a prompt.
+    run "$SCRIPT" me@home.example -p -- --permission-mode
+    [[ ${output} == *"args=--dangerously-skip-permissions -p -- --permission-mode"* ]]
 }
 
 @test "another account's credentials are dropped; a gateway's is named, never shown" {
@@ -271,7 +277,7 @@ two_accounts() {
     grep -qx 'login --email New@Home.example --sso' "${HOME}/logins"
     [[ ${output} == *"Ready: claude-as new@home.example"$'\n'* || ${output} == *"Ready: claude-as new@home.example" ]]
     run "$SCRIPT" new@home.example -p hi
-    [[ ${output} == *"home=${h} args=--allow-dangerously-skip-permissions -p hi"* ]]
+    [[ ${output} == *"home=${h} args=--dangerously-skip-permissions -p hi"* ]]
 }
 
 @test "--add never reuses a folder that exists" {
@@ -410,18 +416,18 @@ two_accounts() {
     run "$SCRIPT" me@x.example -p hi
     [ "$status" -eq 0 ]
     [[ ${output} == *"one account in 2 homes; using ~/.claude"* ]]
-    [[ ${output} == *"RAN set= home= args=--allow-dangerously-skip-permissions -p hi"* ]]
+    [[ ${output} == *"RAN set= home= args=--dangerously-skip-permissions -p hi"* ]]
 }
 
 @test "a home's path names it directly" {
     account "${HOME}/.claude" me@x.example claude_team Acme
     linked_home "${HOME}/.claude-copy" me@x.example claude_team Acme
     run "$SCRIPT" '~/.claude-copy' -p hi
-    [[ ${output} == *"home=${HOME}/.claude-copy args=--allow-dangerously-skip-permissions -p hi"* ]]
+    [[ ${output} == *"home=${HOME}/.claude-copy args=--dangerously-skip-permissions -p hi"* ]]
     run "$SCRIPT" "${HOME}/.claude-copy/" -p hi
-    [[ ${output} == *"home=${HOME}/.claude-copy args=--allow-dangerously-skip-permissions -p hi"* ]]
+    [[ ${output} == *"home=${HOME}/.claude-copy args=--dangerously-skip-permissions -p hi"* ]]
     run "$SCRIPT" "${HOME}/.claude" -p hi
-    [[ ${output} == *"RAN set= home= args=--allow-dangerously-skip-permissions -p hi"* ]]
+    [[ ${output} == *"RAN set= home= args=--dangerously-skip-permissions -p hi"* ]]
     run "$SCRIPT" '~/.nope' -p hi
     [ "$status" -eq 1 ]
     [[ ${output} == *"is not a home"* ]]
@@ -444,7 +450,7 @@ ran() {
     run "$SCRIPT" -r "${SID}"
     [ "$status" -eq 0 ]
     [[ ${output} == *"as it last ran: me@home.example"* ]]
-    [[ ${output} == *"home=${HOME}/.claude-home args=--allow-dangerously-skip-permissions -r ${SID}"* ]]
+    [[ ${output} == *"home=${HOME}/.claude-home args=--dangerously-skip-permissions -r ${SID}"* ]]
     run "$SCRIPT" -a --resume="${SID}"
     [[ ${output} == *"home=${HOME}/.claude-home args=--dangerously-skip-permissions --resume=${SID}"* ]]
 }
@@ -453,7 +459,7 @@ ran() {
     two_accounts
     ran "${SID}" "${HOME}/.claude"
     CLAUDE_AS=me@home.example run "$SCRIPT" --resume "${SID}"
-    [[ ${output} == *"RAN set= home= args=--allow-dangerously-skip-permissions --resume ${SID}"* ]]
+    [[ ${output} == *"RAN set= home= args=--dangerously-skip-permissions --resume ${SID}"* ]]
     CLAUDE_AS=me@home.example run "$SCRIPT" -p hi
     [[ ${output} == *"home=${HOME}/.claude-home args="* ]]
 }
@@ -575,7 +581,7 @@ on_terminal() {
     ran "${SID}" "${HOME}/.claude-home"
     cd "${work}"
     run "$SCRIPT" -c
-    [[ ${output} == *"home=${HOME}/.claude-home args=--allow-dangerously-skip-permissions -c"* ]]
+    [[ ${output} == *"home=${HOME}/.claude-home args=--dangerously-skip-permissions -c"* ]]
     run "$SCRIPT" --where -a --continue
     [ "$output" = "${HOME}/.claude-home" ]
     # Claude Code encodes the path: dots and underscores become dashes too.
@@ -688,11 +694,11 @@ rc_on() { jq -n "{remoteControlAtStartup: ${1:-true}}" >"${HOME}/.claude/setting
     ran "${SID}" "${HOME}/.claude"
     titled "${SID}" claude-dev-20261018T0100Z-x-3f2a9c1e
     run "$SCRIPT" -r "${SID}" -- hi
-    [[ ${output} == *"args=--allow-dangerously-skip-permissions --remote-control claude-dev-20261018T0100Z-x-3f2a9c1e -r ${SID} -- hi"* ]]
+    [[ ${output} == *"args=--dangerously-skip-permissions --remote-control claude-dev-20261018T0100Z-x-3f2a9c1e -r ${SID} -- hi"* ]]
     run "$SCRIPT" me@home.example -a --resume "${SID}"
     [[ ${output} == *"home=${HOME}/.claude-home args=--dangerously-skip-permissions --remote-control claude-dev-20261018T0100Z-x-3f2a9c1e --resume ${SID}"* ]]
     run "$SCRIPT" me@home.example -p hi
-    [[ ${output} == *"args=--allow-dangerously-skip-permissions -p hi"* ]]
+    [[ ${output} == *"args=--dangerously-skip-permissions -p hi"* ]]
 }
 
 @test "a launch names Remote Control's made-up names after the machine, unless the prefix is set" {
@@ -847,7 +853,7 @@ move_setup() {
     [[ ${output} == *"w1:p1: ${SID} moved to me@home.example"* ]]
     grep -q "herdr agent prompt w1:p1 /exit" "${HOME}/herdr.log"
     grep -qF "herdr pane run w1:p1 CLAUDE_AS_CONFIRMED=${SID} ${ME} me@home.example --resume ${SID}" "${HOME}/herdr.log"
-    grep -q "RAN set=1 home=${HOME}/.claude-home args=--allow-dangerously-skip-permissions --resume ${SID}" "${HOME}/pane-out"
+    grep -q "RAN set=1 home=${HOME}/.claude-home args=--dangerously-skip-permissions --resume ${SID}" "${HOME}/pane-out"
     # How to finish it is written down before /exit, and dropped once it runs.
     grep -qF "w1:p1	${SID}	CLAUDE_AS_CONFIRMED=${SID} ${ME} me@home.example --resume ${SID}" "${HOME}/at-exit"
     ! compgen -G "${XDG_STATE_HOME}/claude-as/*.resume"
@@ -878,7 +884,7 @@ move_setup() {
     pane w1:p1 idle "${SID}" "claude --model claude-opus-5-5[1m] --resume ${SID}"
     run "$SCRIPT" --move me@home.example
     grep -qF "${ME} me@home.example --model='claude-opus-5-5[1m]' --resume ${SID}" "${HOME}/herdr.log"
-    grep -qF "args=--allow-dangerously-skip-permissions --model=claude-opus-5-5[1m] --resume ${SID}" "${HOME}/pane-out"
+    grep -qF "args=--dangerously-skip-permissions --model=claude-opus-5-5[1m] --resume ${SID}" "${HOME}/pane-out"
     if command -v fish >/dev/null 2>&1; then
         fish --no-execute -c "$(grep -oE "CLAUDE_AS_CONFIRMED=.*" "${HOME}/herdr.log")"
     fi
@@ -968,12 +974,13 @@ move_setup() {
     transcript "${SID}" '{"permissionMode":"acceptEdits"}'
     run "$SCRIPT" --move me@home.example --dry-run
     [[ ${output} == *"me@home.example --permission-mode='acceptEdits' --resume ${SID}"* ]]
-    # Launched with -a, switched back to the default since.
+    # Launched in bypass, switched back to the default since: named, as the
+    # launch would otherwise start it in bypass again.
     : >"${HOME}/panes"
     pane w1:p1 idle "${SID}" "claude --dangerously-skip-permissions --model opus --resume ${SID}"
     transcript "${SID}" '{"permissionMode":"default"}'
     run "$SCRIPT" --move me@home.example --dry-run
-    [[ ${output} == *"me@home.example --model='opus' --resume ${SID}"* ]]
+    [[ ${output} == *"me@home.example --permission-mode='default' --model='opus' --resume ${SID}"* ]]
     # No mode recorded: the launch flag stands.
     transcript "${SID}" '{"cwd":"/"}'
     run "$SCRIPT" --move me@home.example --dry-run

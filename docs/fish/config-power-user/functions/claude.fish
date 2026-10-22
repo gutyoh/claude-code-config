@@ -1,8 +1,9 @@
 function claude --description 'Claude Code with proxy launcher defaults'
     # setup.sh installs this natively for a fish login shell; this copy is the
     # reference for a manual/copy install. Keep the two in sync.
-    # Defaults to --allow-dangerously-skip-permissions; opt-in to
-    # --dangerously-skip-permissions via the -a / --unsafe / --bypass / -adskp flags.
+    # Starts in bypass permissions unless the arguments name a mode
+    # (__claude_launch_mode.fish); a first -a, --yolo, --unsafe, --bypass or
+    # -adskp is dropped.
     # A resumed session runs as the account it last ran as (__claude_as_home),
     # also when herdr resumes it after a restart, and keeps its own name in
     # Remote Control (claude-as --rc-name).
@@ -11,12 +12,11 @@ function claude --description 'Claude Code with proxy launcher defaults'
     # Outside any block: a variable set in one ends with it.
     test -n "$home"; and set -lx CLAUDE_CONFIG_DIR $home
 
-    set -l mode --allow-dangerously-skip-permissions
     set -l rest $argv
-    if contains -- "$argv[1]" -a --unsafe --bypass -adskp
-        set mode --dangerously-skip-permissions
+    if contains -- "$argv[1]" -a --yolo --unsafe --bypass -adskp
         set -e rest[1]
     end
+    set -l mode (__claude_launch_mode $rest)
 
     set -l rc_name
     set -l host_alias

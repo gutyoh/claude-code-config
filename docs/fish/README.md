@@ -24,6 +24,8 @@ login shell is fish; the files here are the reference for a manual/copy install.
 │   ├── 30-abbreviations.fish   abbreviations
 │   └── 40-bun.fish          bun completions (interactive)
 ├── functions/               auto-loaded ON FIRST CALL (lazy)
+│   ├── __claude_as_home.fish
+│   ├── __claude_launch_mode.fish   claude and clp call both
 │   ├── claude.fish
 │   └── clp.fish
 └── setup-tide-*.fish        one-shot prompt + color theme installers

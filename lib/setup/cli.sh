@@ -30,6 +30,8 @@ show_usage() {
     echo "  --no-weekly-show-reset Hide weekly reset countdown (default)"
     echo "  --proxy-path           Add bin/ to PATH and install Claude shell shortcuts (default)"
     echo "  --no-proxy-path        Skip proxy launcher PATH and shell shortcut setup"
+    echo "  --bypass-default       Start every session in bypass permissions via settings.json (default)"
+    echo "  --no-bypass-default    Leave permissions.defaultMode in settings.json alone"
     echo "  --with-opencode        Force OpenCode parallel install (default: auto-detect)"
     echo "  --no-opencode          Skip OpenCode setup (default: auto-detect)"
     echo "  --shell PATH           Install shortcuts for this login shell (default: auto-detect)"
@@ -124,6 +126,7 @@ parse_arguments() {
                 INSTALL_MCP_SERVERS=()
                 INSTALL_AGENT_TEAMS="false"
                 INSTALL_PROXY_PATH="false"
+                INSTALL_BYPASS_DEFAULT="false"
                 INSTALL_OPENCODE="no"
                 shift
                 ;;
@@ -232,6 +235,14 @@ parse_arguments() {
                 ;;
             --no-proxy-path)
                 INSTALL_PROXY_PATH="false"
+                shift
+                ;;
+            --bypass-default)
+                INSTALL_BYPASS_DEFAULT="true"
+                shift
+                ;;
+            --no-bypass-default)
+                INSTALL_BYPASS_DEFAULT="false"
                 shift
                 ;;
             --with-opencode)

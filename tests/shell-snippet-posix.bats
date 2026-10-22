@@ -113,7 +113,7 @@ stub_proxy() {
             echo "$p produced: $out"
             false
         }
-        [[ "$out" == *"--allow-dangerously-skip-permissions --continue"* ]] || {
+        [[ "$out" == *"--dangerously-skip-permissions --continue"* ]] || {
             echo "$p produced: $out"
             false
         }
@@ -121,16 +121,38 @@ stub_proxy() {
 }
 
 # bats test_tags=integration,portability
-@test "clp -a switches to the bypass flag under every installed shell" {
+@test "clp -a and --yolo keep the bypass flag under every installed shell" {
+    stub_proxy
+    local p out flag
+    while read -r p; do
+        [[ -n "$p" ]] || continue
+        for flag in -a --yolo; do
+            out="$("$p" -c ". '$PROFILE'; clp ${flag} --resume" 2>&1 | tail -1)"
+            [[ "$out" == *"-- --dangerously-skip-permissions --resume" ]] || {
+                echo "$p ${flag} produced: $out"
+                false
+            }
+        done
+    done < <(available_shells)
+}
+
+# bats test_tags=integration,portability
+@test "a permission mode named on the command line wins under every installed shell" {
     stub_proxy
     local p out
     while read -r p; do
         [[ -n "$p" ]] || continue
-        out="$("$p" -c ". '$PROFILE'; clp -a --resume" 2>&1 | tail -1)"
-        [[ "$out" == *"-- --dangerously-skip-permissions --resume"* ]] || {
-            echo "$p produced: $out"
-            false
-        }
+        out="$("$p" -c ". '$PROFILE'; claude --permission-mode plan --resume" 2>&1 | tail -1)"
+        [[ "$out" == "claude:--allow-dangerously-skip-permissions --permission-mode plan --resume" ]] || { echo "$p: $out"; false; }
+        out="$("$p" -c ". '$PROFILE'; claude --yolo --permission-mode=default" 2>&1 | tail -1)"
+        [[ "$out" == "claude:--allow-dangerously-skip-permissions --permission-mode=default" ]] || { echo "$p: $out"; false; }
+        out="$("$p" -c ". '$PROFILE'; clp --permission-mode plan" 2>&1 | tail -1)"
+        [[ "$out" == *"-- --allow-dangerously-skip-permissions --permission-mode plan" ]] || { echo "$p: $out"; false; }
+        # After --, the words are a prompt.
+        out="$("$p" -c ". '$PROFILE'; claude -p -- --permission-mode" 2>&1 | tail -1)"
+        [[ "$out" == "claude:--dangerously-skip-permissions -p -- --permission-mode" ]] || { echo "$p: $out"; false; }
+        out="$("$p" -c ". '$PROFILE'; claude --yolo; echo \"leak=[\${mode-unset}\${__claude_arg-unset}]\"" 2>&1 | tail -1)"
+        [[ "$out" == "leak=[unsetunset]" ]] || { echo "$p leaked: $out"; false; }
     done < <(available_shells)
 }
 
@@ -155,7 +177,7 @@ stub_proxy() {
     while read -r p; do
         [[ -n "$p" ]] || continue
         out="$("$p" -c ". '$PROFILE'; claude --resume" 2>&1 | tail -1)"
-        [[ "$out" == *"claude:--allow-dangerously-skip-permissions --resume"* ]] || {
+        [[ "$out" == *"claude:--dangerously-skip-permissions --resume"* ]] || {
             echo "$p produced: $out"
             false
         }
@@ -177,13 +199,13 @@ stub_proxy() {
         [[ -n "$p" ]] || continue
         out="$("$p" -c ". '$PROFILE'; claude --resume known; echo \"after=[\${CLAUDE_CONFIG_DIR-unset}]\"" 2>&1)"
         [[ "$out" == *"claude: as the session last ran, in /h/.claude-b"* ]] || { echo "$p: $out"; false; }
-        [[ "$out" == *"claude:dir=/h/.claude-b:--allow-dangerously-skip-permissions --resume known"* ]] || { echo "$p: $out"; false; }
+        [[ "$out" == *"claude:dir=/h/.claude-b:--dangerously-skip-permissions --resume known"* ]] || { echo "$p: $out"; false; }
         [[ "$out" == *"after=[unset]"* ]] || { echo "$p leaked: $out"; false; }
         out="$("$p" -c ". '$PROFILE'; claude -a --resume other" 2>&1)"
         [[ "$out" == "claude:dir=unset:--dangerously-skip-permissions --resume other" ]] || { echo "$p: $out"; false; }
         : >"$ASK_LOG"
         out="$(CLAUDE_CONFIG_DIR=/mine "$p" -c ". '$PROFILE'; claude --resume known" 2>&1)"
-        [[ "$out" == "claude:dir=/mine:--allow-dangerously-skip-permissions --resume known" ]] || { echo "$p: $out"; false; }
+        [[ "$out" == "claude:dir=/mine:--dangerously-skip-permissions --resume known" ]] || { echo "$p: $out"; false; }
         ! grep -q '^asked --where' "$ASK_LOG" || { echo "$p asked claude-as despite CLAUDE_CONFIG_DIR"; false; }
     done < <(available_shells)
 }
@@ -199,7 +221,7 @@ stub_proxy() {
         [[ "$out" == *"claude:prefix=claude-dev:[--dangerously-skip-permissions][--remote-control][claude-dev-x 1][--resume][known][--][hi]"* ]] || { echo "$p: $out"; false; }
         [[ "$out" == *"after=[unset]"* ]] || { echo "$p leaked: $out"; false; }
         out="$(CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX=mine "$p" -c ". '$PROFILE'; claude --resume other" 2>&1)"
-        [[ "$out" == "claude:prefix=mine:[--allow-dangerously-skip-permissions][--resume][other]" ]] || { echo "$p: $out"; false; }
+        [[ "$out" == "claude:prefix=mine:[--dangerously-skip-permissions][--resume][other]" ]] || { echo "$p: $out"; false; }
     done < <(available_shells)
 }
 
@@ -212,7 +234,7 @@ stub_proxy() {
         [[ -n "$p" ]] || continue
         out="$("$p" -c ". '$PROFILE'; claude --resume known" 2>&1)"
         [[ "$out" == *"claude: claude-as --where failed; running as the default account"* ]] || { echo "$p: $out"; false; }
-        [[ "$out" == *"claude:dir=unset:--allow-dangerously-skip-permissions --resume known"* ]] || { echo "$p: $out"; false; }
+        [[ "$out" == *"claude:dir=unset:--dangerously-skip-permissions --resume known"* ]] || { echo "$p: $out"; false; }
     done < <(available_shells)
 }
 
@@ -227,7 +249,7 @@ stub_proxy() {
     while read -r p; do
         [[ -n "$p" ]] || continue
         out="$(PATH="${path%:}" "$p" -c ". '$PROFILE'; claude --resume known" 2>&1)"
-        [[ "$out" == "claude:dir=unset:--allow-dangerously-skip-permissions --resume known" ]] || { echo "$p: $out"; false; }
+        [[ "$out" == "claude:dir=unset:--dangerously-skip-permissions --resume known" ]] || { echo "$p: $out"; false; }
     done < <(available_shells)
 }
 
