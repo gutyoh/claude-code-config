@@ -130,6 +130,48 @@ personal account sends that work to the personal account. Check its
 Do not open the same session in two accounts at the same time: both would write
 to one transcript.
 
+## Move every session in herdr to one account
+
+When sessions run in [herdr](https://herdr.dev) panes, `--move` does the
+`/exit` and resume above in each pane on this machine:
+
+```bash
+claude-as --move other@example.com --dry-run   # what would move, and what it would end
+claude-as --move other@example.com             # move them
+claude-as --move other@example.com --pane w1:p3 --force
+```
+
+- Each session resumes in its own pane, from the folder it was launched in,
+  under its own Remote Control name, and in the permission mode it is in now
+  (`Shift+Tab` changes it after launch), with the `--model`, `--fallback-model`
+  and `--add-dir` it was started with. `--settings` and `--mcp-config` stay
+  behind: a wrapper that adds them per account adds the new account's again.
+  One already on that account stays.
+- The session is the one Claude Code itself records for the pane's process.
+  When herdr names another, as after a `claude -p` run from that pane, when
+  there is no such record, or when the session has no transcript to resume,
+  it is left alone.
+- It waits for an agent to go idle, at most `--wait` seconds (default 600), and
+  leaves a busy one alone.
+- A session whose Bash tool still runs background jobs, such as a dev server,
+  is left alone and its jobs listed: they end when the session exits. Stop
+  them, or move it anyway with `--pane <id> --force`. So is one whose claude
+  process herdr cannot show, since its jobs cannot be checked.
+- The pane is resumed by this `claude-as` itself, by its full path, so an older
+  copy on `PATH` never answers. Each run writes a session's resume command to
+  `~/.local/state/claude-as/move-<time>-<pid>.resume` before `/exit` and
+  drops it once the session runs again. A session the run leaves exited is
+  listed at the end with its command: run that in its pane.
+- Run from inside a herdr pane, the whole run goes on in the background and
+  that pane's session moves last, once its agent finishes the turn. It prints
+  where its log is and the `kill` that stops it.
+- `Ctrl+C`, or `kill` for a background run, stops after the session in
+  flight: a session already sent `/exit` is resumed first.
+- The question above is answered for each session `--move` restarts, and for
+  no other.
+
+On another machine, run it there: `ssh <host> claude-as --move other@example.com`.
+
 ## Check every account
 
 ```bash
