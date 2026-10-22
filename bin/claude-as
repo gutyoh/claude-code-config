@@ -12,8 +12,10 @@
 #
 # Usage:
 #   claude-as                         list accounts
-#   claude-as <email> [claude args]   run claude as the account that email signed in
-#   claude-as <email> -a [args]       the same, with bypass permissions on from the start
+#   claude-as <email> [claude args]   run claude as the account that email signed in,
+#                                     in bypass permissions (--dangerously-skip-permissions)
+#                                     unless the args choose a --permission-mode
+#   claude-as <email> --yolo [args]   the same; -a, --unsafe, --bypass and -adskp too
 #   claude-as -r <session id> [args]  resume a session as the account it last ran as
 #   claude-as -c [args]               continue this folder's newest session the same way
 #   claude-as --where [claude args]   that account's home, when the args resume a
@@ -521,18 +523,16 @@ in_home() {
     fi
 }
 
-# The launcher defaults of the claude shell function setup.sh installs, so an
-# account starts as plain claude does: bypass permissions on Shift+Tab, or on
-# from the start with -a, --unsafe, --bypass or -adskp first.
+# An account starts as the claude shell function does: in bypass, unless the
+# arguments name a mode (launch_mode); a first -a, --yolo, --unsafe, --bypass
+# or -adskp is dropped.
 run_in() {
-    local home=$1 name mode=--allow-dangerously-skip-permissions rc alias
+    local home=$1 name mode rc alias
     shift
     case ${1:-} in
-        -a | --unsafe | --bypass | -adskp)
-            shift
-            mode=--dangerously-skip-permissions
-            ;;
+        -a | --yolo | --unsafe | --bypass | -adskp) shift ;;
     esac
+    mode=$(launch_mode "$@")
     rc=$(rc_name "${home}" "$@")
     [[ -z ${rc} ]] || set -- --remote-control "${rc}" "$@"
     set -- "${mode}" "$@"
@@ -548,6 +548,22 @@ run_in() {
         exec env -u CLAUDE_CONFIG_DIR "${claude_bin}" "$@"
     fi
     CLAUDE_CONFIG_DIR=${home} exec "${claude_bin}" "$@"
+}
+
+# The permission flag a launch adds: bypass, or only bypass on Shift+Tab when
+# the arguments before any `--` choose a mode, which bypass would override.
+launch_mode() {
+    local arg
+    for arg in "$@"; do
+        case ${arg} in
+            --) break ;;
+            --permission-mode | --permission-mode=* | --allow-dangerously-skip-permissions | --dangerously-skip-permissions)
+                printf -- '--allow-dangerously-skip-permissions\n'
+                return 0
+                ;;
+        esac
+    done
+    printf -- '--dangerously-skip-permissions\n'
 }
 
 # Whether version $1 is $2 or later (dotted numbers).
@@ -777,8 +793,8 @@ session_cwd() {
 }
 
 # The flag for the permission mode session <id> was last in, which Shift+Tab
-# changes after launch: -a for bypass, --permission-mode=<mode> otherwise,
-# nothing for the default; nothing either when the transcript does not say.
+# changes after launch: -a for bypass, --permission-mode=<mode> otherwise;
+# nothing when the transcript does not say.
 session_mode() {
     local file mode
     file=$(session_transcript "$1")
@@ -786,7 +802,6 @@ session_mode() {
     mode=$(tail -c 2000000 "${file}" | jq -Rr 'fromjson? | .permissionMode // empty' 2>/dev/null | tail -n 1)
     case ${mode} in
         bypassPermissions) printf -- '-a\n' ;;
-        default) printf 'default\n' ;;
         "") ;;
         *[!A-Za-z]*) ;;
         *) printf -- '--permission-mode=%s\n' "${mode}" ;;
@@ -903,7 +918,6 @@ move_pane() {
     done
     flag=$(session_mode "${id}")
     [[ -z ${flag} ]] || mode=${flag}
-    [[ ${mode} != default ]] || mode=""
     flags=(${mode:+"${mode}"} ${kept[@]+"${kept[@]}"})
     dir=$(session_cwd "${id}")
     # Single quotes in fish still read \\ and \'; bash reads neither.

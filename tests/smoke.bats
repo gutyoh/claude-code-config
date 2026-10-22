@@ -87,6 +87,27 @@ assert_setup_ok() {
 }
 
 # bats test_tags=smoke
+@test "setup.sh starts sessions in bypass unless told not to, and keeps a chosen mode" {
+    require_cmd python3
+    require_cmd jq
+    local settings="${HOME}/.claude/settings.json"
+
+    run "$SETUP" -y --minimal --no-opencode --bypass-default
+    assert_setup_ok
+    [ "$(jq -r '.permissions.defaultMode' "$settings")" = "bypassPermissions" ]
+
+    jq '.permissions.defaultMode = "default"' "$settings" >"${settings}.new" && mv "${settings}.new" "$settings"
+    run "$SETUP" -y --minimal --no-opencode --bypass-default
+    assert_setup_ok
+    [ "$(jq -r '.permissions.defaultMode' "$settings")" = "default" ]
+
+    rm -rf "${HOME}/.claude"
+    run "$SETUP" -y --no-opencode --no-mcp --no-proxy-path --no-bypass-default
+    assert_setup_ok
+    [ "$(jq -r '.permissions.defaultMode // "unset"' "$settings")" = "unset" ]
+}
+
+# bats test_tags=smoke
 @test "setup.sh is idempotent across two runs" {
     require_cmd python3
     require_cmd jq

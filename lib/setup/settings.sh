@@ -238,6 +238,41 @@ except Exception as e:
 PYTHON_SCRIPT
 }
 
+# Resumes and direct runs start in bypass too, not Claude Code's auto
+# default; a mode the user set stays. Only user settings can turn bypass on,
+# and as root outside a sandbox Claude Code refuses to start in it at all.
+configure_permission_mode() {
+    if [[ "$(id -u)" == "0" && "${IS_SANDBOX:-}" != "1" ]]; then
+        echo "  ⊘ Running as root: Claude Code refuses bypass permissions there, so"
+        echo "    permissions.defaultMode is left alone (set IS_SANDBOX=1 in a sandbox)"
+        return 0
+    fi
+    python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
+import json
+import sys
+
+settings_file = sys.argv[1]
+try:
+    with open(settings_file) as f:
+        data = json.load(f)
+    permissions = data.setdefault('permissions', {}) if isinstance(data, dict) else None
+    if not isinstance(permissions, dict):
+        print("  ⚠ settings.json has no permissions object to add a mode to; left alone")
+        sys.exit(0)
+    if 'defaultMode' in permissions:
+        print(f"  ✓ Permission mode already set ({permissions['defaultMode']})")
+        sys.exit(0)
+    permissions['defaultMode'] = 'bypassPermissions'
+    with open(settings_file, 'w') as f:
+        json.dump(data, f, indent=2)
+        f.write('\n')
+    print("  ✓ Sessions start in bypass permissions (permissions.defaultMode)")
+except Exception as e:
+    print(f"  ⚠ Failed to set the permission mode: {e}", file=sys.stderr)
+    sys.exit(1)
+PYTHON_SCRIPT
+}
+
 # Commits and pull requests Claude writes name no claude.ai session link, as in
 # the repo's settings; a value the user set stays. The stop-nudge hook now
 # comes from the config-hooks plugin, so an older copy registered by hand in
@@ -587,8 +622,8 @@ configure_proxy_path() {
     echo ""
     echo "  Run 'source ${shell_profile}' or open a new terminal, then:"
     echo "    claude --help"
-    echo "    claude -a"
-    echo "    clp -a"
+    echo "    claude"
+    echo "    clp"
     echo "    claude-proxy -p antigravity --models"
 }
 
@@ -626,6 +661,9 @@ configure_claude_shortcuts() {
     cat >>"${shell_profile}" <<'EOF'
 
 # claude-code-config: claude launch shortcuts
+# claude and clp start in bypass permissions (--dangerously-skip-permissions),
+# unless the arguments choose a permission mode themselves. -a, --yolo,
+# --unsafe, --bypass or -adskp first is accepted and changes nothing.
 # A resumed session runs as the account it last ran as (claude-as --where),
 # also when herdr resumes it after a restart, and keeps its own name in
 # Remote Control (claude-as --rc-name). A subshell keeps the variables out of
@@ -643,13 +681,10 @@ claude() (
       unset CLAUDE_CONFIG_DIR
     fi
   fi
-  mode=--allow-dangerously-skip-permissions
   case "${1:-}" in
-    -a|--unsafe|--bypass|-adskp)
-      shift
-      mode=--dangerously-skip-permissions
-      ;;
+    -a|--yolo|--unsafe|--bypass|-adskp) shift ;;
   esac
+  mode=$(__claude_launch_mode "$@")
   if command -v claude-as >/dev/null 2>&1; then
     # In front: an option after a `--` or a prompt would not be read as one.
     rc_name=$(claude-as --rc-name "$@" 2>/dev/null) || rc_name=
@@ -668,18 +703,30 @@ claude() (
 
 # No `local`: this block is written to ~/.profile for any shell that is not
 # bash or zsh, and `local` is not in POSIX — it is a widely-implemented
-# extension, not a guarantee. Expanding the parameter inline needs no variable,
-# so nothing leaks into the caller's environment either.
-clp() {
+# extension, not a guarantee. A subshell keeps the variables out of the
+# caller's shell instead.
+clp() (
   case "${1:-}" in
-    -a|--unsafe|--bypass|-adskp)
-      shift
-      claude-proxy --no-validate -m "${CLAUDE_PROXY_MODEL:-gpt-6.1-sol(high)}" -- --dangerously-skip-permissions "$@"
-      ;;
-    *)
-      claude-proxy --no-validate -m "${CLAUDE_PROXY_MODEL:-gpt-6.1-sol(high)}" -- --allow-dangerously-skip-permissions "$@"
-      ;;
+    -a|--yolo|--unsafe|--bypass|-adskp) shift ;;
   esac
+  mode=$(__claude_launch_mode "$@")
+  claude-proxy --no-validate -m "${CLAUDE_PROXY_MODEL:-gpt-6.1-sol(high)}" -- "${mode}" "$@"
+)
+
+# The permission flag a launch adds: bypass, or only bypass on Shift+Tab when
+# the arguments before any `--` choose a mode, which bypass would override.
+# Called inside $( ), so its loop variable ends with that subshell.
+__claude_launch_mode() {
+  for __claude_arg in "$@"; do
+    case "${__claude_arg}" in
+      --) break ;;
+      --permission-mode|--permission-mode=*|--allow-dangerously-skip-permissions|--dangerously-skip-permissions)
+        printf '%s\n' --allow-dangerously-skip-permissions
+        return 0
+        ;;
+    esac
+  done
+  printf '%s\n' --dangerously-skip-permissions
 }
 # claude-code-config: end claude launch shortcuts
 EOF
@@ -804,11 +851,30 @@ function __claude_as_home --description 'The home a resumed session last ran in'
 end
 EOF
 
+    _write_managed_fish "${functions_dir}/__claude_launch_mode.fish" "launch mode function" <<'EOF'
+function __claude_launch_mode --description 'The permission flag a claude launch adds'
+    # Managed by claude-code-config setup.sh.
+    # Bypass from the start, or only on Shift+Tab when the arguments before
+    # any `--` choose a mode, which --dangerously-skip-permissions would override.
+    for arg in $argv
+        switch $arg
+            case --
+                break
+            case --permission-mode '--permission-mode=*' --allow-dangerously-skip-permissions --dangerously-skip-permissions
+                echo --allow-dangerously-skip-permissions
+                return 0
+        end
+    end
+    echo --dangerously-skip-permissions
+end
+EOF
+
     _write_managed_fish "${functions_dir}/claude.fish" "claude function" <<'EOF'
 function claude --description 'Claude Code with proxy launcher defaults'
     # Managed by claude-code-config setup.sh.
-    # Defaults to --allow-dangerously-skip-permissions; opt in to
-    # --dangerously-skip-permissions via -a / --unsafe / --bypass / -adskp.
+    # Starts in bypass permissions unless the arguments name a mode
+    # (__claude_launch_mode.fish); a first -a, --yolo, --unsafe, --bypass or
+    # -adskp is dropped.
     # A resumed session runs as the account it last ran as (__claude_as_home),
     # also when herdr resumes it after a restart, and keeps its own name in
     # Remote Control (claude-as --rc-name).
@@ -817,12 +883,11 @@ function claude --description 'Claude Code with proxy launcher defaults'
     # Outside any block: a variable set in one ends with it.
     test -n "$home"; and set -lx CLAUDE_CONFIG_DIR $home
 
-    set -l mode --allow-dangerously-skip-permissions
     set -l rest $argv
-    if contains -- "$argv[1]" -a --unsafe --bypass -adskp
-        set mode --dangerously-skip-permissions
+    if contains -- "$argv[1]" -a --yolo --unsafe --bypass -adskp
         set -e rest[1]
     end
+    set -l mode (__claude_launch_mode $rest)
 
     set -l rc_name
     set -l host_alias
@@ -842,21 +907,16 @@ EOF
     _write_managed_fish "${functions_dir}/clp.fish" "clp function" <<'EOF'
 function clp --description 'Claude proxy with model'
     # Managed by claude-code-config setup.sh.
+    # Starts in bypass permissions like claude; needs __claude_launch_mode.fish.
 
     set -l model 'gpt-6.1-sol(high)'
     test -n "$CLAUDE_PROXY_MODEL"; and set model $CLAUDE_PROXY_MODEL
 
-    set -l first ""
-    test (count $argv) -gt 0; and set first $argv[1]
-
-    switch $first
-        case -a --unsafe --bypass -adskp
-            set -l rest
-            test (count $argv) -gt 1; and set rest $argv[2..-1]
-            claude-proxy --no-validate -m $model -- --dangerously-skip-permissions $rest
-        case '*'
-            claude-proxy --no-validate -m $model -- --allow-dangerously-skip-permissions $argv
+    set -l rest $argv
+    if contains -- "$argv[1]" -a --yolo --unsafe --bypass -adskp
+        set -e rest[1]
     end
+    claude-proxy --no-validate -m $model -- (__claude_launch_mode $rest) $rest
 end
 EOF
 
@@ -874,8 +934,8 @@ EOF
     echo ""
     echo "  Open a new terminal (or 'exec fish'), then:"
     echo "    claude --help"
-    echo "    claude -a"
-    echo "    clp -a"
+    echo "    claude"
+    echo "    clp"
     echo "    claude-proxy -p antigravity --models"
 }
 

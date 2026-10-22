@@ -16,6 +16,8 @@
 #   -NoAgentTeams          Disable agent teams
 #   -ProxyPath             Add bin/ to PATH and install claude/clp shortcuts (default)
 #   -NoProxyPath           Skip proxy launcher PATH and shortcut setup
+#   -BypassDefault         Start every session in bypass permissions via settings.json (default)
+#   -NoBypassDefault       Leave permissions.defaultMode in settings.json alone
 #   -Minimal               Core only (no agents, skills, MCP, agent teams, proxy PATH, or OpenCode)
 #   -OverwriteSettings     Replace settings.json with repo defaults
 #   -SkipSettings          Don't modify settings.json
@@ -50,6 +52,8 @@ param(
     [switch]$NoAgentTeams,
     [switch]$ProxyPath,
     [switch]$NoProxyPath,
+    [switch]$BypassDefault,
+    [switch]$NoBypassDefault,
     [switch]$Minimal,
     [switch]$OverwriteSettings,
     [switch]$SkipSettings,
@@ -127,6 +131,7 @@ $script:StatuslineCcStatusVisibility = "always"
 $script:StatuslineCcStatusColor = "full"
 $script:InstallAgentTeamsFlag = $true
 $script:InstallProxyPath = $true
+$script:InstallBypassDefault = $true
 $script:InstallOpenCode = "auto"                        # auto | yes | no
 $script:AcceptDefaults = $false
 $script:UserCustomizedStatusline = $false
@@ -162,6 +167,7 @@ if ($Minimal) {
     $script:InstallMcpServers = @()
     $script:InstallAgentTeamsFlag = $false
     $script:InstallProxyPath = $false
+    $script:InstallBypassDefault = $false
     $script:InstallOpenCode = "no"
 }
 if ($NoAgents) { $script:InstallAgentsSkills = $false }
@@ -179,6 +185,8 @@ if ($AgentTeams) { $script:InstallAgentTeamsFlag = $true }
 if ($NoAgentTeams) { $script:InstallAgentTeamsFlag = $false }
 if ($ProxyPath) { $script:InstallProxyPath = $true }
 if ($NoProxyPath) { $script:InstallProxyPath = $false }
+if ($BypassDefault) { $script:InstallBypassDefault = $true }
+if ($NoBypassDefault) { $script:InstallBypassDefault = $false }
 if ($OverwriteSettings) { $script:SettingsMode = "overwrite" }
 if ($SkipSettings) { $script:SettingsMode = "skip" }
 if ($Yes) { $script:AcceptDefaults = $true }
@@ -223,6 +231,8 @@ if ($Help) {
     Write-Status "  -NoAgentTeams          Disable agent teams"
     Write-Status "  -ProxyPath             Add bin/ to PATH and install claude/clp shortcuts (default)"
     Write-Status "  -NoProxyPath           Skip proxy launcher PATH and shortcut setup"
+    Write-Status "  -BypassDefault         Start every session in bypass permissions via settings.json (default)"
+    Write-Status "  -NoBypassDefault       Leave permissions.defaultMode in settings.json alone"
     Write-Status "  -Minimal               Core only (no agents, skills, MCP, agent teams, proxy PATH, or OpenCode)"
     Write-Status "  -OverwriteSettings     Replace settings.json with repo defaults"
     Write-Status "  -SkipSettings          Don't modify settings.json"
@@ -508,8 +518,8 @@ if ($script:InstallProxyPath) {
     Write-Status ""
     Write-Status "  Open a new PowerShell window, then:"
     Write-Status "    claude --help"
-    Write-Status "    claude -a"
-    Write-Status "    clp -a"
+    Write-Status "    claude"
+    Write-Status "    clp"
 }
 else {
     $step++
@@ -517,6 +527,15 @@ else {
 }
 
 Write-Status ""
+
+# --- Start sessions in bypass permissions ---
+if ($script:InstallBypassDefault -and $script:SettingsMode -ne "skip" -and (Test-Path $script:SettingsJson)) {
+    $step++
+    Write-Status "Step ${step}: Starting sessions in bypass permissions..." -Color Yellow
+    Write-Status ""
+    Update-PermissionMode
+    Write-Status ""
+}
 
 # --- Configure MCP servers ---
 if ($script:InstallMcpServers.Count -gt 0) {

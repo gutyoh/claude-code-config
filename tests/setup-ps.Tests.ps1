@@ -48,6 +48,7 @@ BeforeAll {
     $script:InstallMcpServers = @("brave-search", "tavily")
     $script:InstallAgentsSkills = $true
     $script:InstallProxyPath = $true
+    $script:InstallBypassDefault = $true
     $script:SettingsMode = "merge"
     $script:AllComponentKeys = @(
         "model", "usage", "weekly", "reset", "tokens_in", "tokens_out", "tokens_cache",
@@ -302,6 +303,48 @@ Describe "Settings JSON manipulation" {
             $guards.Count | Should -Be 1
             $guards[0].matcher | Should -Be "Bash"
             @($settings.hooks.PreToolUse | Where-Object { $_.matcher -eq "mcp__ide__getDiagnostics" }).Count | Should -Be 1
+        }
+    }
+
+    Context "Update-PermissionMode" {
+        It "starts sessions in bypass when the user chose no mode" {
+            Update-PermissionMode
+            $settings = Get-Content $script:SettingsJson -Raw | ConvertFrom-Json
+            $settings.permissions.defaultMode | Should -Be "bypassPermissions"
+            @($settings.hooks.PreToolUse).Count | Should -Be 0
+        }
+
+        It "keeps a mode the user chose, and the rules beside it" {
+            @{ permissions = @{ defaultMode = "plan"; allow = @("Read") } } | ConvertTo-Json -Depth 5 | Set-Content $script:SettingsJson
+            Update-PermissionMode
+            $settings = Get-Content $script:SettingsJson -Raw | ConvertFrom-Json
+            $settings.permissions.defaultMode | Should -Be "plan"
+            @($settings.permissions.allow) | Should -Be @("Read")
+        }
+
+        It "leaves the mode alone as root outside a sandbox" -Skip:($PSVersionTable.PSEdition -ne "Core" -or $IsWindows) {
+            Mock id { "0" }
+            $saved = $env:IS_SANDBOX
+            try {
+                Remove-Item Env:IS_SANDBOX -ErrorAction SilentlyContinue
+                Update-PermissionMode
+                (Get-Content $script:SettingsJson -Raw | ConvertFrom-Json).PSObject.Properties['permissions'] | Should -BeNullOrEmpty
+                $env:IS_SANDBOX = "1"
+                Update-PermissionMode
+                (Get-Content $script:SettingsJson -Raw | ConvertFrom-Json).permissions.defaultMode | Should -Be "bypassPermissions"
+            }
+            finally {
+                if ($null -ne $saved) { $env:IS_SANDBOX = $saved } else { Remove-Item Env:IS_SANDBOX -ErrorAction SilentlyContinue }
+            }
+        }
+
+        It "adds the mode beside existing rules" {
+            @{ permissions = @{ deny = @("Read(./.env)") } } | ConvertTo-Json -Depth 5 | Set-Content $script:SettingsJson
+            Update-PermissionMode
+            Update-PermissionMode
+            $settings = Get-Content $script:SettingsJson -Raw | ConvertFrom-Json
+            $settings.permissions.defaultMode | Should -Be "bypassPermissions"
+            @($settings.permissions.deny) | Should -Be @("Read(./.env)")
         }
     }
 
@@ -887,12 +930,20 @@ Describe "Update-ClaudeShortcut" {
             $env:PATH = $script:SavedPath
         }
 
-        It "claude -a bypasses now and plain claude only offers bypass" {
+        It "claude starts in bypass, and a mode named on the command line wins" {
             . ([scriptblock]::Create((Get-ClaudeShortcutBlock)))
+            ((claude baz) -join " ").Trim() | Should -Be "--dangerously-skip-permissions baz"
             ((claude -a foo bar) -join " ").Trim() | Should -Be "--dangerously-skip-permissions foo bar"
+            ((claude --yolo x) -join " ").Trim() | Should -Be "--dangerously-skip-permissions x"
             ((claude --unsafe x) -join " ").Trim() | Should -Be "--dangerously-skip-permissions x"
-            ((claude baz) -join " ").Trim() | Should -Be "--allow-dangerously-skip-permissions baz"
-            ((claude -A baz) -join " ").Trim() | Should -Be "--allow-dangerously-skip-permissions -A baz"
+            ((claude -A baz) -join " ").Trim() | Should -Be "--dangerously-skip-permissions -A baz"
+            ((claude --permission-mode plan x) -join " ").Trim() | Should -Be "--allow-dangerously-skip-permissions --permission-mode plan x"
+            ((claude --yolo --permission-mode=default) -join " ").Trim() | Should -Be "--allow-dangerously-skip-permissions --permission-mode=default"
+            ((claude --allow-dangerously-skip-permissions) -join " ").Trim() | Should -Be "--allow-dangerously-skip-permissions --allow-dangerously-skip-permissions"
+            # A bare -- never reaches the function (PowerShell takes it), so
+            # claude reads what follows as options; a quoted one does reach it.
+            ((claude -p -- --permission-mode plan) -join " ").Trim() | Should -Be "--allow-dangerously-skip-permissions -p --permission-mode plan"
+            ((claude -p '--' --permission-mode) -join " ").Trim() | Should -Be "--dangerously-skip-permissions -p -- --permission-mode"
         }
 
         It "claude resumes a session as the account the record names" {
@@ -929,13 +980,13 @@ Describe "Update-ClaudeShortcut" {
                 Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue
                 . ([scriptblock]::Create((Get-ClaudeShortcutBlock)))
 
-                "$(claude --resume $id 2>$null)" | Should -BeLike "*dir=$other --allow-dangerously-skip-permissions --resume $id*"
+                "$(claude --resume $id 2>$null)" | Should -BeLike "*dir=$other --dangerously-skip-permissions --resume $id*"
                 "$(claude -a "--resume=$id" 2>$null)" | Should -BeLike "*dir=$other --dangerously-skip-permissions --resume=$id*"
                 $env:CLAUDE_CONFIG_DIR | Should -BeNullOrEmpty
                 "$(claude --resume $old 2>$null)" | Should -Not -BeLike "*$other*"
                 "$(claude --resume 2>$null)" | Should -Not -BeLike "*$other*"
                 Push-Location $work
-                try { "$(claude -c 2>$null)" | Should -BeLike "*dir=$other --allow-dangerously-skip-permissions -c*" }
+                try { "$(claude -c 2>$null)" | Should -BeLike "*dir=$other --dangerously-skip-permissions -c*" }
                 finally { Pop-Location }
                 $env:CLAUDE_CONFIG_DIR = Join-Path $TestDrive "mine"
                 "$(claude --resume $id 2>$null)" | Should -BeLike "*dir=$(Join-Path $TestDrive 'mine') *"
@@ -983,7 +1034,7 @@ Describe "Update-ClaudeShortcut" {
                 Remove-Item Env:CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX -ErrorAction SilentlyContinue
                 . ([scriptblock]::Create((Get-ClaudeShortcutBlock)))
 
-                "$(claude --resume $id 2>$null)" | Should -BeLike "prefix=claude-dev --allow-dangerously-skip-permissions --resume $id*"
+                "$(claude --resume $id 2>$null)" | Should -BeLike "prefix=claude-dev --dangerously-skip-permissions --resume $id*"
                 [System.IO.File]::WriteAllText((Join-Path $cfg "settings.json"), '{"remoteControlAtStartup": true}')
                 "$(claude -a --resume $id 2>$null)" | Should -BeLike "prefix=claude-dev --dangerously-skip-permissions --remote-control claude-dev-new-3f2a9c1e --resume $id*"
                 "$(claude --resume claude-dev-new-3f2a9c1e 2>$null)" | Should -BeLike "*--remote-control claude-dev-new-3f2a9c1e --resume claude-dev-new-3f2a9c1e*"
@@ -1026,10 +1077,13 @@ $global:ProxyArgs -join '|'
 $env:CLAUDE_PROXY_MODEL = 'other-model'
 clp there
 $global:ProxyArgs -join '|'
+clp --permission-mode plan
+$global:ProxyArgs -join '|'
 '@
             $out = @(Invoke-AsProfile -Body $body)
             $out[0] | Should -Be "--no-validate|-m|gpt-6.1-sol(high)|--|--dangerously-skip-permissions|hi"
-            $out[1] | Should -Be "--no-validate|-m|other-model|--|--allow-dangerously-skip-permissions|there"
+            $out[1] | Should -Be "--no-validate|-m|other-model|--|--dangerously-skip-permissions|there"
+            $out[2] | Should -Be "--no-validate|-m|other-model|--|--allow-dangerously-skip-permissions|--permission-mode|plan"
         }
 
         It "the block is ASCII-only" {

@@ -93,6 +93,18 @@ setup() {
     [ "$INSTALL_AGENTS_SKILLS" = "false" ]
     [ "$INSTALL_AGENT_TEAMS" = "false" ]
     [ "$INSTALL_PROXY_PATH" = "false" ]
+    [ "$INSTALL_BYPASS_DEFAULT" = "false" ]
+}
+
+@test "parse_arguments: --no-bypass-default and --bypass-default set the session mode choice" {
+    parse_arguments --no-bypass-default
+    [ "$INSTALL_BYPASS_DEFAULT" = "false" ]
+    parse_arguments --bypass-default
+    [ "$INSTALL_BYPASS_DEFAULT" = "true" ]
+    # A later flag wins, so --minimal can be combined with it.
+    parse_arguments --minimal --bypass-default
+    [ "$INSTALL_BYPASS_DEFAULT" = "true" ]
+    [ "$INSTALL_PROXY_PATH" = "false" ]
 }
 
 @test "parse_arguments: --overwrite-settings sets overwrite mode" {
@@ -210,14 +222,12 @@ setup() {
     configure_claude_shortcuts "$profile"
 
     grep -Fq 'claude-code-config: claude launch shortcuts' "$profile"
-    grep -Fq 'mode=--allow-dangerously-skip-permissions' "$profile"
-    grep -Fq 'mode=--dangerously-skip-permissions' "$profile"
+    grep -Fq 'mode=$(__claude_launch_mode "$@")' "$profile"
     grep -Fq 'command claude "${mode}" "$@"' "$profile"
-    # The model is expanded inline rather than held in a `local` variable:
-    # this block lands in ~/.profile for non-bash/zsh shells, and `local` is
-    # not POSIX. tests/shell-snippet-posix.bats covers that end of it.
-    grep -Fq 'claude-proxy --no-validate -m "${CLAUDE_PROXY_MODEL:-gpt-6.1-sol(high)}" -- --allow-dangerously-skip-permissions "$@"' "$profile"
-    grep -Fq 'claude-proxy --no-validate -m "${CLAUDE_PROXY_MODEL:-gpt-6.1-sol(high)}" -- --dangerously-skip-permissions "$@"' "$profile"
+    # No `local` anywhere: this block lands in ~/.profile for non-bash/zsh
+    # shells, and `local` is not POSIX. tests/shell-snippet-posix.bats covers
+    # that end of it.
+    grep -Fq 'claude-proxy --no-validate -m "${CLAUDE_PROXY_MODEL:-gpt-6.1-sol(high)}" -- "${mode}" "$@"' "$profile"
 }
 
 @test "configure_claude_shortcuts: replaces existing managed block" {
@@ -258,12 +268,18 @@ EOF
 
     configure_claude_shortcuts "$profile"
 
-    run env PATH="${stub_dir}:$PATH" CALL_LOG="$log" bash -c "source '$profile' && claude --resume && claude -a --resume && clp --continue && clp -a --resume"
+    run env PATH="${stub_dir}:$PATH" CALL_LOG="$log" bash -c "source '$profile' && claude --resume r1 && claude -a --resume r2 && claude --yolo --resume r3 && claude --permission-mode plan --resume r4 && claude -p -- --permission-mode && clp --continue && clp --yolo --resume && clp --permission-mode=plan && echo \"leak=[\${mode-unset}\${__claude_arg-unset}]\" >>\"\$CALL_LOG\""
     [ "$status" -eq 0 ]
-    grep -Fq 'claude:--allow-dangerously-skip-permissions --resume' "$log"
-    grep -Fq 'claude:--dangerously-skip-permissions --resume' "$log"
-    grep -Fq 'claude-proxy:--no-validate -m gpt-6.1-sol(high) -- --allow-dangerously-skip-permissions --continue' "$log"
-    grep -Fq 'claude-proxy:--no-validate -m gpt-6.1-sol(high) -- --dangerously-skip-permissions --resume' "$log"
+    grep -Fxq 'claude:--dangerously-skip-permissions --resume r1' "$log"
+    grep -Fxq 'claude:--dangerously-skip-permissions --resume r2' "$log"
+    grep -Fxq 'claude:--dangerously-skip-permissions --resume r3' "$log"
+    grep -Fxq 'claude:--allow-dangerously-skip-permissions --permission-mode plan --resume r4' "$log"
+    grep -Fxq 'claude:--dangerously-skip-permissions -p -- --permission-mode' "$log"
+    grep -Fxq 'claude-proxy:--no-validate -m gpt-6.1-sol(high) -- --dangerously-skip-permissions --continue' "$log"
+    grep -Fxq 'claude-proxy:--no-validate -m gpt-6.1-sol(high) -- --dangerously-skip-permissions --resume' "$log"
+    grep -Fxq 'claude-proxy:--no-validate -m gpt-6.1-sol(high) -- --allow-dangerously-skip-permissions --permission-mode=plan' "$log"
+    # Nothing leaks into the caller's shell.
+    grep -Fxq 'leak=[unsetunset]' "$log"
 }
 
 # --- Unknown option ---

@@ -34,6 +34,9 @@ show_install_menu() {
 
     echo "  agent teams (experimental):       ${teams_label}"
     echo "  proxy PATH + claude/clp shortcuts: ${proxy_path_label}"
+    local bypass_label="yes"
+    [[ "${INSTALL_BYPASS_DEFAULT}" == "false" ]] && bypass_label="no"
+    echo "  sessions start in bypass:         ${bypass_label}"
     local opencode_label
     case "${INSTALL_OPENCODE}" in
         yes) opencode_label="yes" ;;
@@ -133,10 +136,19 @@ customize_installation() {
     # --- Proxy Launcher PATH and shell shortcuts ---
     local proxy_default="yes"
     [[ "${INSTALL_PROXY_PATH}" == "false" ]] && proxy_default="no"
-    if tui_confirm "Add proxy PATH + shortcuts? (claude: bypass available, claude -a/clp -a: bypass now)" "${proxy_default}"; then
+    if tui_confirm "Add proxy PATH + shortcuts? (claude and clp start in bypass permissions)" "${proxy_default}"; then
         INSTALL_PROXY_PATH="true"
     else
         INSTALL_PROXY_PATH="false"
+    fi
+
+    # --- Bypass permissions for every session ---
+    local bypass_default="yes"
+    [[ "${INSTALL_BYPASS_DEFAULT}" == "false" ]] && bypass_default="no"
+    if tui_confirm "Start every session in bypass permissions? (settings.json permissions.defaultMode)" "${bypass_default}"; then
+        INSTALL_BYPASS_DEFAULT="true"
+    else
+        INSTALL_BYPASS_DEFAULT="false"
     fi
 
     # --- OpenCode parallel install ---

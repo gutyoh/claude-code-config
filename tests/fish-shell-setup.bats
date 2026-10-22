@@ -140,6 +140,7 @@ fish_config_dir() {
     CALL_LOG="$log" run fish -c "
         set -gx PATH '${STUB_DIR}' \$PATH
         source '$(fish_config_dir)/functions/__claude_as_home.fish'
+        source '$(fish_config_dir)/functions/__claude_launch_mode.fish'
         source '$(fish_config_dir)/functions/claude.fish'
         claude --resume known
         echo \"after=[\$CLAUDE_CONFIG_DIR]\" >>\$CALL_LOG
@@ -149,10 +150,10 @@ fish_config_dir() {
     "
     [ "$status" -eq 0 ]
     [[ "$output" == *"claude: as the session last ran, in /h/.claude-b"* ]]
-    grep -Fxq 'claude:dir=/h/.claude-b:--allow-dangerously-skip-permissions --resume known' "$log"
+    grep -Fxq 'claude:dir=/h/.claude-b:--dangerously-skip-permissions --resume known' "$log"
     grep -Fxq 'after=[]' "$log"
     grep -Fxq 'claude:dir=unset:--dangerously-skip-permissions --resume other' "$log"
-    grep -Fxq 'claude:dir=/mine:--allow-dangerously-skip-permissions --resume known' "$log"
+    grep -Fxq 'claude:dir=/mine:--dangerously-skip-permissions --resume known' "$log"
     [ "$(grep -c '^asked --where' "$log")" -eq 2 ]
 }
 
@@ -172,6 +173,7 @@ fish_config_dir() {
     CALL_LOG="$log" run fish -c "
         set -gx PATH '${STUB_DIR}' \$PATH
         source '$(fish_config_dir)/functions/__claude_as_home.fish'
+        source '$(fish_config_dir)/functions/__claude_launch_mode.fish'
         source '$(fish_config_dir)/functions/claude.fish'
         claude -a --resume known -- hi
         echo \"after=[\$CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX]\" >>\$CALL_LOG
@@ -182,8 +184,8 @@ fish_config_dir() {
     [ "$status" -eq 0 ]
     grep -Fxq 'claude:prefix=claude-dev:--dangerously-skip-permissions --remote-control claude-dev-x 1 --resume known -- hi' "$log"
     grep -Fxq 'after=[]' "$log"
-    grep -Fxq 'claude:prefix=claude-dev:--allow-dangerously-skip-permissions -p hi' "$log"
-    grep -Fxq 'claude:prefix=mine:--allow-dangerously-skip-permissions -p hi' "$log"
+    grep -Fxq 'claude:prefix=claude-dev:--dangerously-skip-permissions -p hi' "$log"
+    grep -Fxq 'claude:prefix=mine:--dangerously-skip-permissions -p hi' "$log"
 }
 
 # bats test_tags=integration,fish
@@ -202,12 +204,13 @@ fish_config_dir() {
     CALL_LOG="$log" run fish -c "
         set -gx PATH '${STUB_DIR}' \$PATH
         source '$(fish_config_dir)/functions/__claude_as_home.fish'
+        source '$(fish_config_dir)/functions/__claude_launch_mode.fish'
         source '$(fish_config_dir)/functions/claude.fish'
         claude --resume known
     "
     [ "$status" -eq 0 ]
     [[ "$output" == *"claude: claude-as --where failed; running as the default account"* ]]
-    grep -Fxq 'claude:dir=unset:--allow-dangerously-skip-permissions --resume known' "$log"
+    grep -Fxq 'claude:dir=unset:--dangerously-skip-permissions --resume known' "$log"
 }
 
 # bats test_tags=integration,fish
@@ -295,13 +298,59 @@ FISH
     stub_bin claude 'printf "claude:%s\n" "$*" >>"$CALL_LOG"'
 
     CALL_LOG="$log" run fish -c "
+        source '$(fish_config_dir)/functions/__claude_launch_mode.fish'
         source '$(fish_config_dir)/functions/claude.fish'
-        claude --resume
-        claude -a --resume
+        claude --resume r1
+        claude -a --resume r2
+        claude --yolo --resume r3
+        claude --permission-mode plan --resume r4
+        claude --permission-mode=default --resume r5
+        claude --allow-dangerously-skip-permissions --resume r6
+        claude --dangerously-skip-permissions --resume r7
+        claude -p -- --permission-mode
+        claude --continue --yolo
     "
     [ "$status" -eq 0 ]
-    grep -Fq 'claude:--allow-dangerously-skip-permissions --resume' "$log"
-    grep -Fq 'claude:--dangerously-skip-permissions --resume' "$log"
+    grep -Fxq 'claude:--dangerously-skip-permissions --resume r1' "$log"
+    grep -Fxq 'claude:--dangerously-skip-permissions --resume r2' "$log"
+    grep -Fxq 'claude:--dangerously-skip-permissions --resume r3' "$log"
+    # A mode named on the command line wins; bypass stays on Shift+Tab.
+    grep -Fxq 'claude:--allow-dangerously-skip-permissions --permission-mode plan --resume r4' "$log"
+    grep -Fxq 'claude:--allow-dangerously-skip-permissions --permission-mode=default --resume r5' "$log"
+    grep -Fxq 'claude:--allow-dangerously-skip-permissions --allow-dangerously-skip-permissions --resume r6' "$log"
+    grep -Fxq 'claude:--allow-dangerously-skip-permissions --dangerously-skip-permissions --resume r7' "$log"
+    # After --, the words are a prompt.
+    grep -Fxq 'claude:--dangerously-skip-permissions -p -- --permission-mode' "$log"
+    # Only first: a later --yolo is claude's own.
+    grep -Fxq 'claude:--dangerously-skip-permissions --continue --yolo' "$log"
+}
+
+# bats test_tags=integration,fish
+@test "generated fish clp function starts in bypass unless a mode is named" {
+    require_cmd fish
+    run bash -c "
+        REPO_DIR='$REPO_DIR'
+        CLAUDE_CONFIG_SHELL="$FISH_SHELL"
+        source '$SETTINGS_SH'
+        configure_proxy_path
+    "
+    [ "$status" -eq 0 ]
+
+    local log="${BATS_TEST_TMPDIR}/calls.log"
+    stub_bin claude-proxy 'printf "claude-proxy:%s\n" "$*" >>"$CALL_LOG"'
+
+    CALL_LOG="$log" run fish -c "
+        set -gx PATH '${STUB_DIR}' \$PATH
+        source '$(fish_config_dir)/functions/__claude_launch_mode.fish'
+        source '$(fish_config_dir)/functions/clp.fish'
+        clp --continue
+        clp --yolo --resume
+        clp --permission-mode plan
+    "
+    [ "$status" -eq 0 ]
+    grep -Fxq 'claude-proxy:--no-validate -m gpt-6.1-sol(high) -- --dangerously-skip-permissions --continue' "$log"
+    grep -Fxq 'claude-proxy:--no-validate -m gpt-6.1-sol(high) -- --dangerously-skip-permissions --resume' "$log"
+    grep -Fxq 'claude-proxy:--no-validate -m gpt-6.1-sol(high) -- --allow-dangerously-skip-permissions --permission-mode plan' "$log"
 }
 
 # bats test_tags=unit,fish
@@ -346,7 +395,7 @@ FISH
     [ "$status" -eq 0 ]
 
     local f
-    for f in claude clp __claude_as_home; do
+    for f in claude clp __claude_as_home __claude_launch_mode; do
         local doc gen
         doc="$(grep -vE '^[[:space:]]*#' "${REPO_DIR}/docs/fish/config-power-user/functions/${f}.fish" | grep -v '^[[:space:]]*$')"
         gen="$(grep -vE '^[[:space:]]*#' "${XDG_CONFIG_HOME}/fish/functions/${f}.fish" | grep -v '^[[:space:]]*$')"

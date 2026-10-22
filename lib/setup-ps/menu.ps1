@@ -20,6 +20,7 @@ function Show-InstallMenu {
     $mcpLabel = if ($script:InstallMcpServers.Count -gt 0) { $script:InstallMcpServers -join ", " } else { "none" }
     $teamsLabel = if ($script:InstallAgentTeamsFlag) { "yes" } else { "no" }
     $proxyLabel = if ($script:InstallProxyPath) { "yes" } else { "no" }
+    $bypassLabel = if ($script:InstallBypassDefault) { "yes" } else { "no" }
     $compactLabel = if ($script:StatuslineCompact) { "yes" } else { "no" }
     $pctLabel = if ($script:StatuslineBarPctInside) { "yes" } else { "no" }
     $iconLabel = if ($script:StatuslineIcon) { $script:StatuslineIcon } else { "none" }
@@ -39,6 +40,7 @@ function Show-InstallMenu {
     Write-Status "  MCP search servers:               ${mcpLabel}"
     Write-Status "  agent teams (experimental):       ${teamsLabel}"
     Write-Status "  proxy PATH + claude/clp shortcuts: ${proxyLabel}"
+    Write-Status "  sessions start in bypass:         ${bypassLabel}"
     Write-Status "  OpenCode parallel install:        ${openCodeLabel}"
     Write-Status "  settings.json:                    ${settingsLabel}"
     Write-Status "  statusline color theme:           $($script:StatuslineTheme)"
@@ -112,8 +114,13 @@ function Invoke-CustomizeInstallation {
 
     # --- Proxy Launcher PATH ---
     $script:InstallProxyPath = Confirm-TuiYesNo `
-        -Question "Add proxy PATH + shortcuts? (claude: bypass available, claude -a/clp -a: bypass now)" `
+        -Question "Add proxy PATH + shortcuts? (claude and clp start in bypass permissions)" `
         -Default $(if ($script:InstallProxyPath) { "yes" } else { "no" })
+
+    # --- Bypass permissions for every session ---
+    $script:InstallBypassDefault = Confirm-TuiYesNo `
+        -Question "Start every session in bypass permissions? (settings.json permissions.defaultMode)" `
+        -Default $(if ($script:InstallBypassDefault) { "yes" } else { "no" })
 
     # --- OpenCode parallel install ---
     $openCodeDefault = "no"
