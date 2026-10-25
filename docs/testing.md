@@ -131,9 +131,12 @@ Two guards enforce this, and `just verify-clean-machine` exercises `setup.sh` un
 | `git bash` | Windows x64 and arm64 | The status line tests under Git for Windows' bash, which Claude Code uses there |
 | `ci-status` | Ubuntu arm64 | Passes only when every other job passed or was skipped; the one check to require |
 
-A pull request runs only the lanes its files can affect, decided by
-`.github/scripts/ci-lanes.sh`: macOS when shell code changes, the Windows lanes
-when PowerShell or the status line changes. Pushes to `main` run every lane.
+A pull request, and the push to `main` that merges it, run only the lanes
+their files can affect, decided by `.github/scripts/ci-lanes.sh`: macOS when
+shell code changes, the Windows lanes when PowerShell or the status line
+changes. A manual run and the weekly scheduled run take every lane, so a runner
+image change still shows up. macOS minutes cost about ten times Linux ones and
+Windows about twice, out of the account's monthly allowance.
 `fail-fast: false` keeps a macOS- or Windows-only failure from being hidden by
 the Linux result.
 

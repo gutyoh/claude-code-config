@@ -10,6 +10,10 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # Every lane once a week, so a runner image change cannot hide behind
+  # path-scoped runs.
+  schedule:
+    - cron: "23 7 * * 1"
 
 # One run per ref: a new push supersedes the previous run instead of queueing
 # behind it.
@@ -21,8 +25,9 @@ concurrency:
 permissions: {}
 
 jobs:
-  # What a pull request touched decides which expensive lanes it needs; pushes
-  # to main and manual runs take every lane. Plain git, no third-party action.
+  # What a pull request or a push to main touched decides which expensive
+  # lanes it needs; manual and weekly runs take every lane. Plain git, no
+  # third-party action.
   plan:
     name: plan
     runs-on: ubuntu-24.04-arm

@@ -3,8 +3,11 @@
 # Path: .github/scripts/ci-lanes.sh
 #
 # Usage: ci-lanes.sh <event> [<base> <head>]
-# Every event but pull_request takes every lane. A pull request is compared
-# with its base: the merge commit's first parent, unless both are given.
+# A pull request and a push to main take the lanes their change needs: a pull
+# request is compared with its base (the merge commit's first parent), a push
+# with the commit before it, unless both are given. The pull request already
+# ran the same lanes on the same change, so a push re-runs no more than that.
+# Manual and scheduled runs take every lane, and catch drift in the runners.
 
 set -euo pipefail
 
@@ -13,7 +16,7 @@ base=${2:-HEAD^1}
 head=${3:-HEAD}
 all_os='["ubuntu-24.04-arm","macos-latest"]'
 
-if [[ ${event} != pull_request ]]; then
+if [[ ${event} != pull_request && ${event} != push ]]; then
     echo "powershell=true"
     echo "windows-bash=true"
     echo "test-os=${all_os}"
