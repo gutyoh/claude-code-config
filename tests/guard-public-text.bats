@@ -226,3 +226,168 @@ guard() {
     [ "$(jq -r '.hooks.PreToolUse[1].matcher' "$SETTINGS_JSON")" = "Bash" ]
     [ "$(jq -r '.hooks.PreToolUse[1].hooks[0].command' "$SETTINGS_JSON")" = "~/.claude/hooks/guard-public-text.sh" ]
 }
+
+commit_as() {
+    git -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m "$1"
+}
+
+# A GET with no body publishes nothing, whatever its endpoint names. Before
+# this, every read of an endpoint whose owner a needle matched was blocked.
+# bats test_tags=unit
+@test "a gh api read passes unscanned, even when its endpoint names a secret" {
+    visibility UNKNOWN
+    guard 'gh api repos/SECRETNAME/infra/rulesets --jq ".[].name"'
+    [ "$status" -eq 0 ]
+    guard 'gh api repos/SECRETNAME/infra/branches/main/protection --jq ".required_status_checks.contexts" | head -5'
+    [ "$status" -eq 0 ]
+    guard 'gh api -X GET search/issues -f q="repo:SECRETNAME/infra is:open"'
+    [ "$status" -eq 0 ]
+    guard 'gh api --method HEAD repos/SECRETNAME/infra'
+    [ "$status" -eq 0 ]
+    guard 'for id in $(gh api repos/SECRETNAME/x/rulesets --jq ".[].id"); do gh api repos/SECRETNAME/x/rulesets/$id; done'
+    [ "$status" -eq 0 ]
+}
+
+# A field makes gh POST by default, so a body still means a write.
+# bats test_tags=unit
+@test "a gh api call with a body or a writing method is scanned" {
+    guard 'gh api repos/acme/widgets/issues -f title=t -f body="SECRETNAME"'
+    [ "$status" -eq 2 ]
+    guard 'gh api repos/acme/widgets/issues --raw-field body=SECRETNAME'
+    [ "$status" -eq 2 ]
+    guard 'gh api -X DELETE repos/acme/widgets/issues/comments/1 && echo SECRETNAME'
+    [ "$status" -eq 2 ]
+    guard 'gh api --method=post repos/acme/widgets/issues -f body=SECRETNAME'
+    [ "$status" -eq 2 ]
+}
+
+# graphql always POSTs: a query only reads, a mutation publishes.
+# bats test_tags=unit
+@test "gh api graphql: a query passes, a mutation is scanned" {
+    guard 'gh api graphql -f query="{ repository(owner: \"SECRETNAME\", name: \"x\") { id } }"'
+    [ "$status" -eq 0 ]
+    guard 'gh api graphql -f query="mutation { addComment(input: {body: \"SECRETNAME\"}) { clientMutationId } }"'
+    [ "$status" -eq 2 ]
+    guard 'gh api graphql -f query="MUTATION { x(body: \"SECRETNAME\") }"'
+    [ "$status" -eq 2 ]
+    printf '{"query":"mutation { x(body: \\"SECRETNAME\\") }"}' >"$BATS_TEST_TMPDIR/m.json"
+    guard "gh api graphql --input $BATS_TEST_TMPDIR/m.json"
+    [ "$status" -eq 2 ]
+}
+
+# A read chained to a write must not carry the write through unscanned.
+# bats test_tags=unit
+@test "a gh api read chained to a write still checks the write" {
+    guard 'gh api repos/acme/widgets && git commit -m "add SECRETNAME"'
+    [ "$status" -eq 2 ]
+    guard 'gh api repos/acme/widgets; gh pr comment 3 --body "SECRETNAME"'
+    [ "$status" -eq 2 ]
+    commit_as "names SECRETNAME"
+    guard 'gh api repos/acme/widgets --jq .id && git push origin HEAD'
+    [ "$status" -eq 2 ]
+}
+
+# The endpoint names the repository, so its visibility decides, as -R does.
+# bats test_tags=unit
+@test "a gh api write takes its repository from the endpoint" {
+    visibility PRIVATE
+    guard 'gh api repos/acme/private/issues -f body="SECRETNAME"'
+    [ "$status" -eq 0 ]
+    visibility PUBLIC
+    guard 'gh api repos/acme/open/issues -f body="SECRETNAME"'
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"acme/open"* ]]
+}
+
+# Two repositories in one command: the visibility of one cannot clear the other.
+# bats test_tags=unit
+@test "several repositories in one command are checked as unknown" {
+    visibility PRIVATE
+    guard 'gh api repos/acme/private/issues -f body=x; gh api repos/acme/open/issues -f body="SECRETNAME"'
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"unknown visibility"* ]]
+}
+
+# Where the text goes is not the text: an owner a needle matches may be
+# addressed, as long as nothing published names it.
+# bats test_tags=unit
+@test "the address is not scanned, only the text sent to it" {
+    guard 'gh api repos/SECRETNAME/widgets/issues -f body="all clean"'
+    [ "$status" -eq 0 ]
+    guard 'gh pr create -R SECRETNAME/widgets --title t --body "all clean"'
+    [ "$status" -eq 0 ]
+    guard 'gh pr create -R SECRETNAME/widgets --title t --body "hello SECRETNAME"'
+    [ "$status" -eq 2 ]
+}
+
+# Text these commands publish, missed before.
+# bats test_tags=unit
+@test "other gh commands that publish text are checked" {
+    local c
+    for c in 'gh pr merge 1 --subject "SECRETNAME"' 'gh pr close 1 --comment "SECRETNAME"' \
+        'gh issue close 1 --comment "SECRETNAME"' 'gh repo edit --description "SECRETNAME"' \
+        'gh repo create acme/new --public --description "SECRETNAME"' 'gh label create bug --description "SECRETNAME"' \
+        'gh gist edit 1 --desc "SECRETNAME"' 'gh workflow run ci.yml -f note="SECRETNAME"'; do
+        guard "$c"
+        [ "$status" -eq 2 ] || { echo "not checked: $c"; return 1; }
+    done
+}
+
+# git's global options between git and the subcommand hid the commit.
+# bats test_tags=unit
+@test "git global options before commit or push do not hide them" {
+    guard 'git -c commit.gpgsign=false commit -m "add SECRETNAME"'
+    [ "$status" -eq 2 ]
+    guard 'git --no-pager -c x=y commit -m "add SECRETNAME"'
+    [ "$status" -eq 2 ]
+    commit_as "names SECRETNAME"
+    guard 'git -c push.default=current push origin'
+    [ "$status" -eq 2 ]
+}
+
+# A repository can push to a GitHub remote that is not origin (a mirror).
+# bats test_tags=unit
+@test "a push to a named remote checks that remote, not origin" {
+    git remote set-url origin https://dev.azure.example/acme/_git/widgets
+    git remote add github https://github.com/acme/widgets.git
+    commit_as "names SECRETNAME"
+    guard 'git push origin HEAD'
+    [ "$status" -eq 0 ]
+    guard 'git push github HEAD'
+    [ "$status" -eq 2 ]
+    guard 'git push -u --force-with-lease github main'
+    [ "$status" -eq 2 ]
+    guard 'git push https://github.com/acme/widgets.git HEAD'
+    [ "$status" -eq 2 ]
+}
+
+# A word that is no remote (a misread flag value) must not read as "not GitHub".
+# bats test_tags=unit
+@test "a push to an unresolvable remote is checked, not waved through" {
+    git remote set-url origin https://dev.azure.example/acme/_git/widgets
+    commit_as "names SECRETNAME"
+    guard 'git push -o ci.skip github-mirror HEAD'
+    [ "$status" -eq 2 ]
+}
+
+# Pushing a branch other than HEAD sends that branch's messages.
+# bats test_tags=unit
+@test "a push checks every local branch the remote lacks, not only HEAD" {
+    commit_as "first"
+    git checkout -q -b other
+    commit_as "names SECRETNAME"
+    git checkout -q -
+    guard 'git push origin other'
+    [ "$status" -eq 2 ]
+}
+
+# Annotated tag messages travel with --tags and --follow-tags.
+# bats test_tags=unit
+@test "a push that sends tags checks annotated tag messages" {
+    commit_as "first"
+    git -c user.name=t -c user.email=t@example.invalid tag -a v1 -m "release SECRETNAME"
+    guard 'git push origin --follow-tags'
+    [ "$status" -eq 2 ]
+    guard 'git push origin v1 --tags'
+    [ "$status" -eq 2 ]
+}
