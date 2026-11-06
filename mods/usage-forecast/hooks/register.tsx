@@ -140,11 +140,13 @@ export const register: Register = on => {
     }
   })
 
-  // The band speaks only when a limit will run out before it resets.
+  // The statusline carries the forecast; the band speaks only when it is red:
+  // a limit runs out within 30 min (5h) or 12 h (7d), or is already spent.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     const now = await $.clock.now()
     const lines = current(now)
+      .filter(f => f.level >= 4)
       .map(f => ({ f, text: warning(f) }))
       .filter((x): x is { f: Forecast; text: string } => x.text !== undefined)
     if (lines.length === 0) return next(e)

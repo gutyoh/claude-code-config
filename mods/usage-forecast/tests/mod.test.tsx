@@ -84,13 +84,18 @@ test('a burning session: readings arrive, the band warns once and a toast fires 
     await clock.advance(2 * MIN)
     await $.session.measure({ context: { tokens: 0, window: 200000, percent: 0 } as never, changed: ['rateLimits'], rateLimits: [{ kind: 'five_hour', percentUsed: p, resetsAt: iso(reset) }] })
   }
+  // Orange: the statusline shows it, the band stays quiet, one toast fires.
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>engine</Text>
+  })
   for (const surface of ['terminal', 'desktop'] as const) {
     const band = await $.ui.mount({ ...BAND, surface })
-    const line = await band.find({ type: 'Text', text: /Session 50% · full in/ })
-    expect(line?.text).toMatch(/^▲ Session 50% · full in \d+h?\d*m?, resets in 2h$/)
+    expect(await band.find({ type: 'Text', text: /▲/ })).toBeUndefined()
     await band.unmount()
   }
   expect(toasts.length).toBe(1)
+  expect(toasts[0]).toMatch(/^Session 50% · full in \d+h?\d*m?, resets in 2h$/)
 })
 
 test('readings are shared through the store across sessions and survive a restart', async ($, on) => {

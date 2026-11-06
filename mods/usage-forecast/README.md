@@ -6,7 +6,7 @@ A Claude Code mod that forecasts when the 5-hour and weekly plan limits run out.
   `52%⇥1h12m/25% (160h39m)` when a window will run out before it resets, colored by
   the worse of its percentage and its forecast. Without the file the statusline falls
   back to the window's average pace.
-- **Band above the prompt**: one line per window that will run out early, or is spent.
+- **Band above the prompt**: only when red: a window runs out within 30 min (5h) or 12 h (7d), or is spent.
 - **`/usage-forecast`**: a pane charting both windows (used so far, projection after),
   and last window at the same point.
 
