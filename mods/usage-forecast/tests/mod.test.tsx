@@ -24,7 +24,7 @@ const iso = (ms: number) => new Date(ms).toISOString()
 function engine(on: On, usage: { kind: string; percentUsed: number; resetsAt?: string }[] = [], opened: string[] = []) {
   const clock = mock.clock(on, { now: T0 })
   mock.store(on)
-  mock.env(on, { HOME: '/home/t' })
+  mock.env(on, { HOME: '/home/user' })
   const files: Record<string, string> = {}
   on('fs.write', (_, e) => {
     const [path, text] = (e as { args?: [string, string] }).args ?? [(e as any).path, (e as any).text]
@@ -168,7 +168,7 @@ test('hands the forecast to statusline.sh as one tab-separated line per window',
     await clock.advance(2 * MIN)
     await $.session.measure({ context: ctx, changed: ['rateLimits'], rateLimits: [{ kind: 'five_hour', percentUsed: p, resetsAt: iso(reset) }, { kind: 'seven_day', percentUsed: 10, resetsAt: iso(T0 + 4 * 24 * HOUR) }] })
   }
-  const text = files['/home/t/.claude/cache/usage-forecast.tsv'] ?? ''
+  const text = files['/home/user/.claude/cache/usage-forecast.tsv'] ?? ''
   const [five, week] = text.trim().split('\n')
   const f = (five ?? '').split('\t')
   expect(f[0]).toBe('five_hour')
