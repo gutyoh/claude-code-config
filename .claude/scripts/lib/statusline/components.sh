@@ -27,10 +27,13 @@ render_component_usage() {
         raw=$(printf "%s%%" "${display_pct}")
     fi
 
+    forecast_window five_hour "${DATA_SESSION_PCT}" "${DATA_SESSION_RESET_EPOCH:-}"
+    raw+="${FC_SUFFIX}"
+
     # Wrap in color when color_scope=percentage
     if [[ "${CONF_COLOR_SCOPE}" == "percentage" ]]; then
         local ucolor
-        ucolor=$(get_utilization_color)
+        ucolor=$(forecast_color "${DATA_SESSION_PCT}")
         if [[ -n "${ucolor}" ]]; then
             printf "%s%s%s" "${ucolor}" "${raw}" "${COLOR_RESET}"
         else
@@ -55,6 +58,9 @@ render_component_weekly() {
         raw=$(printf "%s%%" "${display_pct}")
     fi
 
+    forecast_window seven_day "${DATA_WEEKLY_PCT}" "${DATA_WEEKLY_RESET_EPOCH:-}"
+    raw+="${FC_SUFFIX}"
+
     # Append reset countdown if configured
     if [[ "${CONF_WEEKLY_SHOW_RESET}" == "true" && "${DATA_WEEKLY_TIME_LEFT}" != "--" ]]; then
         raw+=" (${DATA_WEEKLY_TIME_LEFT})"
@@ -63,7 +69,7 @@ render_component_weekly() {
     # Wrap in color when color_scope=percentage
     if [[ "${CONF_COLOR_SCOPE}" == "percentage" ]]; then
         local wcolor
-        wcolor=$(get_color_for_pct "${DATA_WEEKLY_PCT}")
+        wcolor=$(forecast_color "${DATA_WEEKLY_PCT}")
         if [[ -n "${wcolor}" ]]; then
             printf "%s%s%s" "${wcolor}" "${raw}" "${COLOR_RESET}"
         else

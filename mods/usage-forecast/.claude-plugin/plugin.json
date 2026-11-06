@@ -1,0 +1,5 @@
+{
+  "name": "usage-forecast",
+  "version": "0.1.0",
+  "description": "Forecasts when the 5-hour and weekly plan limits run out, warns above the prompt, and charts both in a pane"
+}
