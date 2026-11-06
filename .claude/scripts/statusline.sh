@@ -112,6 +112,12 @@ CONF_CC_STATUS_COLOR="full"        # none | full | status_only
 # Four tiers: ok (<50%), caution (>=50%), warn (>=75%), crit (>=90%)
 # Colors apply ONLY to the usage/percentage component, not the full statusline.
 
+COLOR_IDLE=""
+COLOR_W_IDLE=""
+COLOR_W_OK=""
+COLOR_W_CAUTION=""
+COLOR_W_WARN=""
+COLOR_W_CRIT=""
 COLOR_OK=""
 COLOR_CAUTION=""
 COLOR_WARN=""
@@ -197,6 +203,7 @@ source "${_STATUSLINE_DIR}/lib/statusline/providers.sh"
 source "${_STATUSLINE_DIR}/lib/statusline/data.sh"
 source "${_STATUSLINE_DIR}/lib/statusline/bar.sh"
 source "${_STATUSLINE_DIR}/lib/statusline/color.sh"
+source "${_STATUSLINE_DIR}/lib/statusline/forecast.sh"
 source "${_STATUSLINE_DIR}/lib/statusline/style.sh"
 source "${_STATUSLINE_DIR}/lib/statusline/status.sh"
 source "${_STATUSLINE_DIR}/lib/statusline/components.sh"

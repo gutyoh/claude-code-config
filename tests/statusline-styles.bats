@@ -90,7 +90,7 @@ sgr_component() {
     run env COLUMNS=200 bash "$STATUSLINE" \
         <<<'{"model":{"id":"claude-opus-5-5"},"rate_limits":{"five_hour":{"used_percentage":12,"resets_at":9999999999}}}'
     [ "$status" -eq 0 ]
-    [[ "$output" == "${ESC}[4m${ESC}[0;34m12%${ESC}[0m${ESC}[4m"* ]]
+    [[ "$output" == "${ESC}[4m${ESC}[38;5;245m12%${ESC}[0m${ESC}[4m"* ]]
 }
 
 # bats test_tags=unit
@@ -98,7 +98,7 @@ sgr_component() {
     printf 'components=email,model\ntheme=dark\ncolor_scope=full\nstyle.email=bold\n' >"$HOME/.claude/statusline.conf"
     run env COLUMNS=200 bash "$STATUSLINE" \
         <<<'{"model":{"id":"claude-opus-5-5","display_name":"Opus 5.5"},"rate_limits":{"five_hour":{"used_percentage":12,"resets_at":9999999999}}}'
-    [ "$output" = "${ESC}[0;34m${ESC}[1muser@example.com${ESC}[0m${ESC}[0;34m | opus-5.5${ESC}[0m" ]
+    [ "$output" = "${ESC}[38;5;245m${ESC}[1muser@example.com${ESC}[0m${ESC}[38;5;245m | opus-5.5${ESC}[0m" ]
 }
 
 # bats test_tags=unit
