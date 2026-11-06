@@ -93,11 +93,12 @@ forecast_window() {
     ((full <= urgent)) && FC_LEVEL=4 || FC_LEVEL=3
 }
 
-# Color for a window: the worse of its percentage and its forecast.
+# Color for a window: the worse of its percentage and its forecast, in the
+# window's own shade ("weekly" as the second argument).
 forecast_color() {
-    local pct="$1"
+    local pct="$1" shade="${2:-}"
     [[ "${pct}" =~ ^[0-9]+$ ]] || return
     level_for_pct "${pct}"
     ((FC_LEVEL > REPLY)) && REPLY="${FC_LEVEL}"
-    get_color_for_level "${REPLY}"
+    get_color_for_level "${REPLY}" "${shade}"
 }

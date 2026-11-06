@@ -69,7 +69,7 @@ render_component_weekly() {
     # Wrap in color when color_scope=percentage
     if [[ "${CONF_COLOR_SCOPE}" == "percentage" ]]; then
         local wcolor
-        wcolor=$(forecast_color "${DATA_WEEKLY_PCT}")
+        wcolor=$(forecast_color "${DATA_WEEKLY_PCT}" weekly)
         if [[ -n "${wcolor}" ]]; then
             printf "%s%s%s" "${wcolor}" "${raw}" "${COLOR_RESET}"
         else

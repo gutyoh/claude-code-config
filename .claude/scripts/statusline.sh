@@ -113,6 +113,11 @@ CONF_CC_STATUS_COLOR="full"        # none | full | status_only
 # Colors apply ONLY to the usage/percentage component, not the full statusline.
 
 COLOR_IDLE=""
+COLOR_W_IDLE=""
+COLOR_W_OK=""
+COLOR_W_CAUTION=""
+COLOR_W_WARN=""
+COLOR_W_CRIT=""
 COLOR_OK=""
 COLOR_CAUTION=""
 COLOR_WARN=""

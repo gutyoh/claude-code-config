@@ -17,8 +17,19 @@ level_for_pct() {
     else REPLY=0; fi
 }
 
-# Returns the ANSI color code for a severity level (0-4).
+# Returns the ANSI color code for a severity level (0-4). With "weekly" as
+# the second argument, the weekly shade of the same hue.
 get_color_for_level() {
+    if [[ "${2:-}" == "weekly" ]]; then
+        case "$1" in
+            4) printf "%s" "${COLOR_W_CRIT-}" ;;
+            3) printf "%s" "${COLOR_W_WARN-}" ;;
+            2) printf "%s" "${COLOR_W_CAUTION-}" ;;
+            1) printf "%s" "${COLOR_W_OK-}" ;;
+            *) printf "%s" "${COLOR_W_IDLE-}" ;;
+        esac
+        return
+    fi
     case "$1" in
         4) printf "%s" "${COLOR_CRIT}" ;;
         3) printf "%s" "${COLOR_WARN}" ;;

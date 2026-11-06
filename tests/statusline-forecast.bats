@@ -59,3 +59,27 @@ setup() {
     for p in 0 24 25 49 50 74 75 89 90 100; do level_for_pct "$p"; out+="${REPLY}"; done
     [ "${out}" = "0011223344" ]
 }
+
+@test "the weekly window takes a lighter shade of the same level on dark themes" {
+    source "${L}/config.sh"
+    CONF_THEME=dark
+    load_theme
+    [ "$(forecast_color 45)" = $'\033[38;5;111m' ]
+    [ "$(forecast_color 45 weekly)" = $'\033[38;5;153m' ]
+    [ "$(forecast_color 60)" = $'\033[0;33m' ]
+    [ "$(forecast_color 60 weekly)" = $'\033[38;5;222m' ]
+    FC_LEVEL=3
+    [ "$(forecast_color 45)" = $'\033[38;5;208m' ]
+    [ "$(forecast_color 40 weekly)" = $'\033[38;5;215m' ]
+}
+
+@test "on a light theme the weekly shade is darker, and NO_COLOR empties both" {
+    source "${L}/config.sh"
+    CONF_THEME=light
+    load_theme
+    FC_LEVEL=3
+    [ "$(forecast_color 40 weekly)" = $'\033[38;5;166m' ]
+    NO_COLOR=1 load_theme
+    [ -z "$(forecast_color 40 weekly)" ]
+    [ -z "$(forecast_color 40)" ]
+}

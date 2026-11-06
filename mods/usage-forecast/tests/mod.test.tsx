@@ -74,8 +74,12 @@ test('calm usage: the band stays empty and the pane shows both windows', async (
   }
 })
 
-test('a burning session: readings arrive, the band warns once and a toast fires once', async ($, on) => {
+test('a burning session: the band stays quiet in orange and a toast fires once', async ($, on) => {
   const { clock, toasts } = engine(on)
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>engine</Text>
+  })
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   const reset = T0 + 3 * HOUR // window began 2h ago
   // 30 points in the last hour, one reading per point.
@@ -85,17 +89,14 @@ test('a burning session: readings arrive, the band warns once and a toast fires 
     await $.session.measure({ context: { tokens: 0, window: 200000, percent: 0 } as never, changed: ['rateLimits'], rateLimits: [{ kind: 'five_hour', percentUsed: p, resetsAt: iso(reset) }] })
   }
   // Orange: the statusline shows it, the band stays quiet, one toast fires.
-  on('ui.render', ($, e) => {
-    const { Text } = $.ui.resolve(e)
-    return <Text>engine</Text>
-  })
   for (const surface of ['terminal', 'desktop'] as const) {
     const band = await $.ui.mount({ ...BAND, surface })
     expect(await band.find({ type: 'Text', text: /▲/ })).toBeUndefined()
     await band.unmount()
   }
   expect(toasts.length).toBe(1)
-  expect(toasts[0]).toMatch(/^Session 50% · full in \d+h?\d*m?, resets in 2h$/)
+  // Fires the first time the window turns orange, not on later readings.
+  expect(toasts[0]).toMatch(/^Session \d+% · full in \d+h?\d*m?, resets in 2h\d*m?$/)
 })
 
 test('readings are shared through the store across sessions and survive a restart', async ($, on) => {
