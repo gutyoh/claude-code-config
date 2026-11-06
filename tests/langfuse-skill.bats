@@ -296,16 +296,18 @@ setup_npx() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"Resources:"* ]]
     [[ "$output" == *"traces"* ]]
-    [[ "$output" == *"sessions"* ]]
+    [[ "$output" == *"observations"* ]]
     [[ "$output" == *"prompts"* ]]
 }
 
-@test "integration: langfuse-cli api traces --help shows list action" {
+# langfuse-cli 1.3.1 (2026-11-03) dropped the deprecated v3 reads (sessions,
+# traces list/get) from its v4 surface; reads go through observations list.
+@test "integration: langfuse-cli api observations --help shows list action" {
     setup_npx
-    run npx -y langfuse-cli api traces --help
+    run npx -y langfuse-cli api observations --help
     [ "$status" -eq 0 ]
     [[ "$output" == *"list"* ]]
-    [[ "$output" == *"get"* ]]
+    [[ "$output" == *"/api/public/v2/observations"* ]]
 }
 
 @test "integration: langfuse-cli api prompts --help shows CRUD actions" {

@@ -66,48 +66,87 @@ _load_conf_file() {
 load_theme() {
     # NO_COLOR convention (https://no-color.org/) — disable all color output
     if [[ -n "${NO_COLOR:-}" ]]; then
+        COLOR_IDLE=""
         COLOR_OK=""
         COLOR_CAUTION=""
         COLOR_WARN=""
         COLOR_CRIT=""
+        COLOR_W_IDLE=""
+        COLOR_W_OK=""
+        COLOR_W_CAUTION=""
+        COLOR_W_WARN=""
+        COLOR_W_CRIT=""
         COLOR_RESET=""
         return
     fi
 
     case "${CONF_THEME}" in
         dark)
-            COLOR_OK=$'\033[0;34m'       # blue
-            COLOR_CAUTION=$'\033[0;33m'  # yellow
-            COLOR_WARN=$'\033[38;5;208m' # orange (256-color)
-            COLOR_CRIT=$'\033[0;31m'     # red
+            COLOR_IDLE=$'\033[38;5;245m' # grey: under 25%
+            COLOR_OK=$'\033[38;5;111m'   # soft blue: 25-49%
+            COLOR_CAUTION=$'\033[0;33m'  # yellow: 50-74%
+            COLOR_WARN=$'\033[38;5;208m' # orange: 75-89%
+            COLOR_CRIT=$'\033[0;31m'     # red: 90%+
+            # Weekly: the same hues, lighter, so the two windows read apart
+            COLOR_W_IDLE=$'\033[38;5;250m'
+            COLOR_W_OK=$'\033[38;5;153m'
+            COLOR_W_CAUTION=$'\033[38;5;222m'
+            COLOR_W_WARN=$'\033[38;5;215m'
+            COLOR_W_CRIT=$'\033[38;5;210m'
             COLOR_RESET=$'\033[0m'
             ;;
         light)
+            COLOR_IDLE=$'\033[38;5;244m' # grey
             COLOR_OK=$'\033[0;34m'       # blue
             COLOR_CAUTION=$'\033[0;33m'  # yellow
-            COLOR_WARN=$'\033[38;5;208m' # orange (256-color)
+            COLOR_WARN=$'\033[38;5;208m' # orange
             COLOR_CRIT=$'\033[0;31m'     # red
+            # Weekly: the same hues, darker, away from a light background
+            COLOR_W_IDLE=$'\033[38;5;240m'
+            COLOR_W_OK=$'\033[38;5;25m'
+            COLOR_W_CAUTION=$'\033[38;5;136m'
+            COLOR_W_WARN=$'\033[38;5;166m'
+            COLOR_W_CRIT=$'\033[38;5;124m'
             COLOR_RESET=$'\033[0m'
             ;;
         colorblind)
-            COLOR_OK=$'\033[1;34m'      # bold blue
-            COLOR_CAUTION=$'\033[1;33m' # bold yellow
-            COLOR_WARN=$'\033[1;36m'    # bold cyan
-            COLOR_CRIT=$'\033[1;35m'    # bold magenta
+            COLOR_IDLE=$'\033[38;5;245m' # grey
+            COLOR_OK=$'\033[1;34m'       # bold blue
+            COLOR_CAUTION=$'\033[1;33m'  # bold yellow
+            COLOR_WARN=$'\033[1;36m'     # bold cyan
+            COLOR_CRIT=$'\033[1;35m'     # bold magenta
+            # Weekly: the same hues without bold
+            COLOR_W_IDLE=$'\033[38;5;250m'
+            COLOR_W_OK=$'\033[0;34m'
+            COLOR_W_CAUTION=$'\033[0;33m'
+            COLOR_W_WARN=$'\033[0;36m'
+            COLOR_W_CRIT=$'\033[0;35m'
             COLOR_RESET=$'\033[0m'
             ;;
         none)
+            COLOR_IDLE=""
             COLOR_OK=""
             COLOR_CAUTION=""
             COLOR_WARN=""
             COLOR_CRIT=""
+            COLOR_W_IDLE=""
+            COLOR_W_OK=""
+            COLOR_W_CAUTION=""
+            COLOR_W_WARN=""
+            COLOR_W_CRIT=""
             COLOR_RESET=""
             ;;
         *)
-            COLOR_OK=$'\033[0;34m'
+            COLOR_IDLE=$'\033[38;5;245m'
+            COLOR_OK=$'\033[38;5;111m'
             COLOR_CAUTION=$'\033[0;33m'
             COLOR_WARN=$'\033[38;5;208m'
             COLOR_CRIT=$'\033[0;31m'
+            COLOR_W_IDLE=$'\033[38;5;250m'
+            COLOR_W_OK=$'\033[38;5;153m'
+            COLOR_W_CAUTION=$'\033[38;5;222m'
+            COLOR_W_WARN=$'\033[38;5;215m'
+            COLOR_W_CRIT=$'\033[38;5;210m'
             COLOR_RESET=$'\033[0m'
             ;;
     esac

@@ -223,6 +223,7 @@ apply_claude_account() {
     if [[ "${pct}" =~ ^[0-9]+$ ]]; then
         DATA_SESSION_PCT="${pct}"
         DATA_TIME_LEFT=$(calculate_time_remaining_epoch "${reset}")
+        DATA_SESSION_RESET_EPOCH="${reset}"
         ((now - seen > ${USAGE_STALE_S:-900})) && DATA_SESSION_PCT_STALE=1
         shown=0
     fi
@@ -230,6 +231,7 @@ apply_claude_account() {
     if [[ "${pct}" =~ ^[0-9]+$ ]]; then
         DATA_WEEKLY_PCT="${pct}"
         DATA_WEEKLY_TIME_LEFT=$(calculate_time_remaining_epoch "${reset}")
+        DATA_WEEKLY_RESET_EPOCH="${reset}"
         ((now - seen > ${USAGE_STALE_S:-900})) && DATA_WEEKLY_PCT_STALE=1
         shown=0
     fi
@@ -321,12 +323,14 @@ get_provider_usage_data() {
         DATA_SESSION_PCT=$(_usage_pct "${five}")
         # An idle window has no reset to count down to
         [[ -n "${five_reset}" ]] && DATA_TIME_LEFT=$(calculate_time_remaining_epoch "${five_reset}")
+        DATA_SESSION_RESET_EPOCH="${five_reset}"
     fi
     DATA_WEEKLY_PCT=""
     DATA_WEEKLY_TIME_LEFT="--"
     if [[ -n "${week}" ]]; then
         DATA_WEEKLY_PCT=$(_usage_pct "${week}")
         DATA_WEEKLY_TIME_LEFT=$(calculate_time_remaining_epoch "${week_reset}")
+        DATA_WEEKLY_RESET_EPOCH="${week_reset}"
     fi
     # Each window is approximate once its own reading is old: a weekly window
     # carried through an idle stretch can be older than the fetch serving it.
@@ -376,6 +380,7 @@ get_hook_usage_data() {
         DATA_SESSION_PCT_STALE=1
     fi
     DATA_TIME_LEFT=$(calculate_time_remaining_epoch "${reset_epoch}")
+    DATA_SESSION_RESET_EPOCH="${reset_epoch}"
     return 0
 }
 
