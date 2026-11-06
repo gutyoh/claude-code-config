@@ -31,7 +31,10 @@ _forecast_load_mod() {
 # Short duration: 12m, 1h10m, 1d4h.
 _fc_dur() {
     local m=$((($1 + 30) / 60)) h d
-    if ((m < 60)); then REPLY="${m}m"; return; fi
+    if ((m < 60)); then
+        REPLY="${m}m"
+        return
+    fi
     h=$((m / 60))
     if ((h < 24)); then
         ((m % 60)) && REPLY="${h}h$((m % 60))m" || REPLY="${h}h"
@@ -49,7 +52,10 @@ forecast_window() {
     FC_SUFFIX="" FC_LEVEL=0
     local kind="$1" pct="$2" reset="$3"
     [[ "${pct}" =~ ^[0-9]+$ && "${reset}" =~ ^[0-9]+$ ]] || return 0
-    if ((pct >= 100)); then FC_LEVEL=4; return 0; fi
+    if ((pct >= 100)); then
+        FC_LEVEL=4
+        return 0
+    fi
     epoch_now
     local now="${_NOW}" left win urgent min_elapsed full=-1
     left=$((reset - now))

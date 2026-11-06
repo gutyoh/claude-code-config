@@ -6,10 +6,14 @@
 # 0 under 25%, 1 to 49%, 2 to 74%, 3 to 89%, 4 at 90% and above.
 level_for_pct() {
     local pct="$1"
-    if ((pct >= 90)); then REPLY=4
-    elif ((pct >= 75)); then REPLY=3
-    elif ((pct >= 50)); then REPLY=2
-    elif ((pct >= 25)); then REPLY=1
+    if ((pct >= 90)); then
+        REPLY=4
+    elif ((pct >= 75)); then
+        REPLY=3
+    elif ((pct >= 50)); then
+        REPLY=2
+    elif ((pct >= 25)); then
+        REPLY=1
     else REPLY=0; fi
 }
 

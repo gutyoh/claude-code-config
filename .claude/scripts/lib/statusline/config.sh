@@ -94,10 +94,10 @@ load_theme() {
             ;;
         colorblind)
             COLOR_IDLE=$'\033[38;5;245m' # grey
-            COLOR_OK=$'\033[1;34m'      # bold blue
-            COLOR_CAUTION=$'\033[1;33m' # bold yellow
-            COLOR_WARN=$'\033[1;36m'    # bold cyan
-            COLOR_CRIT=$'\033[1;35m'    # bold magenta
+            COLOR_OK=$'\033[1;34m'       # bold blue
+            COLOR_CAUTION=$'\033[1;33m'  # bold yellow
+            COLOR_WARN=$'\033[1;36m'     # bold cyan
+            COLOR_CRIT=$'\033[1;35m'     # bold magenta
             COLOR_RESET=$'\033[0m'
             ;;
         none)

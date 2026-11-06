@@ -143,7 +143,7 @@ test('5h, slow pace lands under the limit: no warning, shows where it ends', () 
 })
 
 test('7d, this week: the warning lands on Tuesday, days before Friday', () => {
-  // Sun 4 PM reset; Hermann's chart: ~33% by Tue 4 PM, ~50% by Wed noon, 100% Fri noon.
+  // Sun 4 PM reset; a real week: ~33% by Tue 4 PM, ~50% by Wed noon, 100% Fri noon.
   const reset = T0 + 7 * DAY
   const tue = T0 + 2 * DAY
   const track = linear(reset, T0, tue, T0, 0, tue, 33)
