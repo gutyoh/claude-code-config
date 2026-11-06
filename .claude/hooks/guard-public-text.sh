@@ -87,7 +87,8 @@ literal_path() {
 # there only a query with no mutation reads.
 gh_api_reads() {
     local call="${1#*gh api}" method=""
-    [[ "${call}" =~ (^|[[:space:]])(-X|--method)([[:space:]]+|=)([A-Za-z]+) ]] \
+    # -X takes its value attached too (-XPOST), as pflag allows.
+    [[ "${call}" =~ (^|[[:space:]])(-X|--method)([[:space:]]+|=)?([A-Za-z]+) ]] \
         && method=$(printf '%s' "${BASH_REMATCH[4]}" | tr '[:lower:]' '[:upper:]')
     if [[ "${call}" =~ (^|[[:space:]])graphql([[:space:]]|$) ]]; then
         [[ "$(printf '%s' "${call}" | tr '[:upper:]' '[:lower:]')" == *mutation* ]] && return 1
@@ -99,7 +100,8 @@ gh_api_reads() {
         "") ;;
         *) return 1 ;;
     esac
-    ! [[ "${call}" =~ (^|[[:space:]])(-f|-F|--field|--raw-field|--input)([[:space:]]|=) ]]
+    # A short field flag sends a body with its value attached as well (-ftitle=x).
+    ! [[ "${call}" =~ (^|[[:space:]])(-[fF]|--field([[:space:]]|=)|--raw-field([[:space:]]|=)|--input([[:space:]]|=)) ]]
 }
 
 main() {

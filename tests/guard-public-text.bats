@@ -391,3 +391,14 @@ commit_as() {
     guard 'git push origin v1 --tags'
     [ "$status" -eq 2 ]
 }
+
+@test "gh api writes with attached short flags are still checked" {
+    guard 'gh api repos/acme/widgets/issues -ftitle=SECRETNAME'
+    [ "$status" -eq 2 ]
+    guard 'gh api repos/acme/widgets/issues -Fbody=SECRETNAME'
+    [ "$status" -eq 2 ]
+    guard 'gh api -XPATCH repos/acme/widgets/pulls/1 --input=-  <<<"SECRETNAME"'
+    [ "$status" -eq 2 ]
+    guard 'gh api -XPOST repos/acme/widgets/dispatches -H "X: SECRETNAME"'
+    [ "$status" -eq 2 ]
+}
