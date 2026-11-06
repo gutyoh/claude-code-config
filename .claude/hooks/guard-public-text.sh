@@ -14,6 +14,9 @@
 # fleet. Unset, the hook does nothing. Set, any failure blocks: a scanner
 # that cannot run, or a body file the hook cannot read, never lets text out.
 #
+# A `gh api` call with no body and a GET or HEAD method only reads and passes
+# unscanned. The address a command sends to (endpoint, -R) is never scanned.
+#
 # Usage:     Configured in .claude/settings.json as a PreToolUse hook (Bash)
 # Platforms: macOS, Linux, Windows (Git Bash)
 
@@ -79,6 +82,28 @@ literal_path() {
     printf '%s' "${path}"
 }
 
+# Whether the `gh api` call in $1 only reads. A field or --input sends a body
+# and makes gh POST; an explicit -X/--method wins. graphql always POSTs, so
+# there only a query with no mutation reads.
+gh_api_reads() {
+    local call="${1#*gh api}" method=""
+    # -X takes its value attached too (-XPOST), as pflag allows.
+    [[ "${call}" =~ (^|[[:space:]])(-X|--method)([[:space:]]+|=)?([A-Za-z]+) ]] \
+        && method=$(printf '%s' "${BASH_REMATCH[4]}" | tr '[:lower:]' '[:upper:]')
+    if [[ "${call}" =~ (^|[[:space:]])graphql([[:space:]]|$) ]]; then
+        [[ "$(printf '%s' "${call}" | tr '[:upper:]' '[:lower:]')" == *mutation* ]] && return 1
+        [[ "${call}" =~ (--input|=@) ]] && return 1
+        return 0
+    fi
+    case "${method}" in
+        GET | HEAD) return 0 ;;
+        "") ;;
+        *) return 1 ;;
+    esac
+    # A short field flag sends a body with its value attached as well (-ftitle=x).
+    ! [[ "${call}" =~ (^|[[:space:]])(-[fF]|--field([[:space:]]|=)|--raw-field([[:space:]]|=)|--input([[:space:]]|=)) ]]
+}
+
 main() {
     [[ -n "${CLAUDE_LEAK_GUARD:-}" ]] || exit 0
     command -v jq >/dev/null 2>&1 || block "jq is required to read the command"
@@ -88,25 +113,62 @@ main() {
     cmd=$(printf '%s' "${input}" | jq -r '.tool_input.command // empty')
     [[ -n "${cmd}" ]] || exit 0
 
+    # Each publishing verb is detected on its own, so a read chained to a
+    # write never lets the write through. git's global options may sit
+    # between git and its subcommand (git -c k=v commit).
+    local start='(^|[^[:alnum:]_-])'
+    local git_opts='([[:space:]]+(-[Cc][[:space:]]+[^[:space:]]+|--(git-dir|work-tree|namespace|config-env|exec-path)(=[^[:space:]]+|[[:space:]]+[^[:space:]]+)|-[pP]|--(no-pager|paginate|bare|no-replace-objects|no-optional-locks|no-advice|no-lazy-fetch)))*'
+    local gh_verbs='((pr|issue)[[:space:]]+(create|edit|comment|review|close|merge)|(release|repo|label)[[:space:]]+(create|edit)|gist[[:space:]]+(create|edit)|workflow[[:space:]]+run)'
+    local gh_text=0 gh_api=0 commit=0 push=0
+    [[ "${cmd}" =~ ${start}gh[[:space:]]+${gh_verbs}([[:space:]]|$) ]] && gh_text=1
+    [[ "${cmd}" =~ ${start}gh[[:space:]]+api[[:space:]] ]] && gh_api=1
+    [[ "${cmd}" =~ ${start}git${git_opts}[[:space:]]+commit([[:space:]]|$) ]] && commit=1
+    [[ "${cmd}" =~ ${start}git${git_opts}[[:space:]]+push([[:space:]]|$) ]] && push=1
+    # A gh api read publishes nothing, whatever its endpoint names.
+    ((gh_api)) && gh_api_reads "${cmd}" && gh_api=0
+
     local kind=""
-    if [[ "${cmd}" =~ (^|[^[:alnum:]_-])gh[[:space:]]+((pr|issue)[[:space:]]+(create|edit|comment|review)|release[[:space:]]+(create|edit)|gist[[:space:]]+create|api[[:space:]]) ]]; then
+    if ((gh_text || gh_api)); then
         kind="gh"
-    elif [[ "${cmd}" =~ (^|[^[:alnum:]_-])git[[:space:]]+(-C[[:space:]]+[^[:space:]]+[[:space:]]+)?commit([[:space:]]|$) ]]; then
+    elif ((commit)); then
         kind="commit"
-    elif [[ "${cmd}" =~ (^|[^[:alnum:]_-])git[[:space:]]+(-C[[:space:]]+[^[:space:]]+[[:space:]]+)?push([[:space:]]|$) ]]; then
+    elif ((push)); then
         kind="push"
     fi
     [[ -n "${kind}" ]] || exit 0
 
-    local dir repo=""
+    local dir repo="" remote="origin"
     dir=$(command_dir "${cmd}")
-    [[ "${cmd}" =~ git[[:space:]]+-C[[:space:]]+([^[:space:]]+) ]] && dir=$(literal_path "${BASH_REMATCH[1]}" "${dir}") || true
-    if [[ "${kind}" == "gh" && "${cmd}" =~ (-R|--repo)[[:space:]=]+([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+) ]]; then
-        repo="${BASH_REMATCH[2]}"
+    [[ "${cmd}" =~ ${start}git([[:space:]]+-c[[:space:]]+[^[:space:]]+)*[[:space:]]+-C[[:space:]]+([^[:space:]]+) ]] \
+        && dir=$(literal_path "${BASH_REMATCH[3]}" "${dir}") || true
+    # A push sends to the remote it names, not necessarily origin.
+    if ((push)) && [[ "${cmd}" =~ ${start}git${git_opts}[[:space:]]+push(([[:space:]]+-[^[:space:]]*)*)[[:space:]]+([^-\;\&\|[:space:]][^\;\&\|[:space:]]*) ]]; then
+        remote="${BASH_REMATCH[${#BASH_REMATCH[@]} - 1]}"
+    fi
+
+    # The address names the repository: -R, else a gh api repos/<owner>/<name>
+    # endpoint. Several different ones leave the repository unknown.
+    local -a addresses=() distinct=()
+    local unread="${cmd}" named
+    while [[ "${kind}" == "gh" && "${unread}" =~ ((-R|--repo)[[:space:]=]+|(^|[[:space:]/])repos/)([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+) ]]; do
+        named="${BASH_REMATCH[4]}"
+        addresses+=("${BASH_REMATCH[0]#"${BASH_REMATCH[3]}"}")
+        [[ " ${distinct[*]-} " == *" ${named} "* ]] || distinct+=("${named}")
+        unread="${unread#*"${BASH_REMATCH[0]}"}"
+    done
+    if ((${#addresses[@]} > 0)); then
+        ((${#distinct[@]} == 1)) && repo="${distinct[0]}"
     else
-        repo=$(github_repo "$(git -C "${dir}" remote get-url origin 2>/dev/null)")
-        # Outside GitHub nothing is public.
-        [[ -n "${repo}" || "${kind}" == "gh" ]] || exit 0
+        local url known=0
+        url=$(git -C "${dir}" remote get-url "${remote}" 2>/dev/null) || known=1
+        ((known == 0)) || url="${remote}"
+        repo=$(github_repo "${url}")
+        # Outside GitHub nothing is public. A word that is neither a remote nor
+        # a URL (say, a misread flag value) stays unknown and is checked.
+        if [[ -z "${repo}" && "${kind}" != "gh" ]]; then
+            ((known == 0)) && exit 0
+            [[ "${url}" == *"://"* || "${url}" == *@*:* ]] && exit 0
+        fi
     fi
     if [[ -n "${repo}" ]]; then
         case "$(visibility "${repo}")" in
@@ -122,6 +184,8 @@ main() {
     local -a local_only=()
     [[ "${cmd}" =~ (^|[;&|][[:space:]]*)cd[[:space:]]+([^;&|[:space:]]+)[[:space:]]*\&\& ]] && local_only+=("${BASH_REMATCH[2]}")
     [[ "${cmd}" =~ git[[:space:]]+-C[[:space:]]+([^[:space:]]+) ]] && local_only+=("${BASH_REMATCH[1]}")
+    # Where the text goes is not the text: endpoints and -R values are left out.
+    local_only+=(${addresses[@]+"${addresses[@]}"})
 
     # Text a flag reads from a file: gh --body-file/-F, git commit -F/--file.
     local rest="${cmd}" arg path
@@ -152,10 +216,17 @@ main() {
         published="${published//"${token}"/}"
     done
     printf '%s\n' "${published}" >"${work}/command.txt"
-    # A push sends every commit the remotes lack, with its message.
-    if [[ "${kind}" == "push" ]]; then
-        git -C "${dir}" log --format='%B' HEAD --not --remotes -n 200 >"${work}/pushed-messages.txt" 2>/dev/null \
+    # A push may send any local branch or tag the remote lacks, so every commit
+    # message the remote has not seen is checked, and annotated tag messages too.
+    if ((push)); then
+        local -a lacks=(--not --remotes)
+        git -C "${dir}" remote get-url "${remote}" >/dev/null 2>&1 && lacks=(--not "--remotes=${remote}")
+        git -C "${dir}" log --format='%B' --branches --tags "${lacks[@]}" -n 200 >"${work}/pushed-messages.txt" 2>/dev/null \
             || block "cannot list the commits this push sends"
+        if [[ "${cmd}" =~ (--tags|--follow-tags|refs/tags/) || "$(git -C "${dir}" config --bool push.followTags 2>/dev/null)" == "true" ]]; then
+            git -C "${dir}" for-each-ref --count=200 --format='%(contents)' refs/tags >>"${work}/pushed-messages.txt" 2>/dev/null \
+                || block "cannot list the tags this push may send"
+        fi
         files+=("${work}/pushed-messages.txt")
     fi
 

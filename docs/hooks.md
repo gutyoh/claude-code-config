@@ -48,10 +48,16 @@ scanner exits non-zero:
 
 | Command | What is checked |
 |---------|-----------------|
-| `gh pr`/`gh issue` `create`, `edit`, `comment`, `review`; `gh release create`/`edit`; `gh gist create` | The command's text, and every `--body-file`/`-F` file |
-| `gh api` | The command's text, `--input` files, and `-F field=@file` files |
+| `gh pr`/`gh issue` `create`, `edit`, `comment`, `review`, `close`, `merge`; `gh release`/`repo`/`label` `create`/`edit`; `gh gist create`/`edit`; `gh workflow run` | The command's text, and every `--body-file`/`-F` file |
+| `gh api` that writes: a field, `--input`, a non-GET method, or a graphql `mutation` | The command's text, `--input` files, and `-F field=@file` files |
 | `git commit` | The message, inline or from `-F`/`--file` |
-| `git push` | The message of every commit the remotes do not have yet |
+| `git push` | The message of every local commit the pushed-to remote lacks, on any branch, plus annotated tag messages when tags go too |
+
+A `gh api` read (no field, no `--input`, GET or HEAD, or a graphql query)
+publishes nothing and passes unscanned, whatever its endpoint names. Each verb is
+detected separately, so a read chained to a write (`gh api … && git commit -m …`)
+still has the write checked. git's global options (`git -c k=v commit`) do not
+hide a commit or push.
 
 The scanner is yours, so the list of what is private never enters a public
 repository. `CLAUDE_LEAK_GUARD` holds its command; the hook appends the file
@@ -63,11 +69,15 @@ whose needles come from a private repository:
 ```
 
 - **Opt-in:** with `CLAUDE_LEAK_GUARD` unset the hook does nothing.
-- **Public only:** the repository comes from `-R`/`--repo`, a leading
-  `cd <dir> &&`, `git -C <dir>`, or the working directory's `origin`. `gh repo
-  view` gives its visibility, cached for a day. Private and internal
-  repositories, and remotes outside GitHub, pass unchecked; an unknown
-  visibility is checked as public.
+- **Public only:** the repository comes from `-R`/`--repo`, a `gh api
+  repos/<owner>/<name>` endpoint, the remote a `git push` names (else
+  `origin`), a leading `cd <dir> &&`, or `git -C <dir>`. `gh repo view` gives
+  its visibility, cached for a day. Private and internal repositories, and
+  remotes outside GitHub, pass unchecked. An unknown visibility is checked as
+  public, and so is a command naming two repositories, or a push to a word
+  that is neither a remote nor a URL.
+- **Addresses are not text:** an endpoint or `-R` value says where text goes,
+  so it is left out of the scan; an owner a needle matches can be addressed.
 - **Fails closed:** a scanner that cannot run, or a body file the hook cannot
   read, blocks the call. A body file named through a variable (`--body-file
   "$F"`) is refused: write the literal path.
