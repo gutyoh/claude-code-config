@@ -152,7 +152,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column">
         {lines.map(({ f, text }) => (
-          <Text color={COLOR[f.level]} bold={f.level >= 3} wrap="truncate-end">
+          <Text color={COLOR[f.level]} wrap="truncate-end">
             ▲ {text}
           </Text>
         ))}
@@ -177,7 +177,7 @@ export const register: Register = on => {
             <Box flexDirection="column">
               <Box flexDirection="row" columnGap={1}>
                 <Text bold>{f.kind === 'five_hour' ? 'Session' : 'Week   '}</Text>
-                <Text color={COLOR[f.level]} bold={f.level >= 3}>
+                <Text color={COLOR[f.level]}>
                   {String(Math.round(f.pct)).padStart(3)}%
                 </Text>
               </Box>

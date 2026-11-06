@@ -77,19 +77,19 @@ load_theme() {
 
     case "${CONF_THEME}" in
         dark)
-            COLOR_IDLE=$'\033[38;5;245m'   # grey: under 25%
-            COLOR_OK=$'\033[38;5;111m'     # soft blue: 25-49%
-            COLOR_CAUTION=$'\033[0;33m'    # yellow: 50-74%
-            COLOR_WARN=$'\033[1;38;5;208m' # bold orange: 75-89%
-            COLOR_CRIT=$'\033[1;31m'       # bold red: 90%+
+            COLOR_IDLE=$'\033[38;5;245m' # grey: under 25%
+            COLOR_OK=$'\033[38;5;111m'   # soft blue: 25-49%
+            COLOR_CAUTION=$'\033[0;33m'  # yellow: 50-74%
+            COLOR_WARN=$'\033[38;5;208m' # orange: 75-89%
+            COLOR_CRIT=$'\033[0;31m'     # red: 90%+
             COLOR_RESET=$'\033[0m'
             ;;
         light)
-            COLOR_IDLE=$'\033[38;5;244m'   # grey
-            COLOR_OK=$'\033[0;34m'         # blue
-            COLOR_CAUTION=$'\033[0;33m'    # yellow
-            COLOR_WARN=$'\033[1;38;5;208m' # bold orange
-            COLOR_CRIT=$'\033[1;31m'       # bold red
+            COLOR_IDLE=$'\033[38;5;244m' # grey
+            COLOR_OK=$'\033[0;34m'       # blue
+            COLOR_CAUTION=$'\033[0;33m'  # yellow
+            COLOR_WARN=$'\033[38;5;208m' # orange
+            COLOR_CRIT=$'\033[0;31m'     # red
             COLOR_RESET=$'\033[0m'
             ;;
         colorblind)
@@ -112,8 +112,8 @@ load_theme() {
             COLOR_IDLE=$'\033[38;5;245m'
             COLOR_OK=$'\033[38;5;111m'
             COLOR_CAUTION=$'\033[0;33m'
-            COLOR_WARN=$'\033[1;38;5;208m'
-            COLOR_CRIT=$'\033[1;31m'
+            COLOR_WARN=$'\033[38;5;208m'
+            COLOR_CRIT=$'\033[0;31m'
             COLOR_RESET=$'\033[0m'
             ;;
     esac
