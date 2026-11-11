@@ -26,8 +26,11 @@
 #   claude-as --host-alias            the machine's short name in session names
 #   claude-as --move <email> [opts]   every Claude session in this machine's herdr
 #                                     continues as that account (see --move below)
-#   claude-as --add <email> [args]    new home for an account, then sign it in
-#   claude-as --check                 every home: login, links, shared history
+#   claude-as --add <email> [args]    sign an account in; its home is named after it
+#                                     once the login is known to be that email
+#   claude-as --tidy [--dry-run]      one home per account, named after it: archives
+#                                     signed-out and duplicate homes, renames the rest
+#   claude-as --check                 every home: login, name, links, shared history
 #   claude-as --relink                link shared items a home is missing
 #
 # The email is matched whole, in any case; never a part of one, which a later
@@ -38,7 +41,13 @@
 # With CLAUDE_AS set, a first argument that is a claude option runs as it.
 # A session resumed by id runs as the account it last ran as, which
 # hooks/session-account.sh records; naming another account asks first.
-# --add passes [args] to `claude auth login` (for example --sso).
+# --add passes [args] to `claude auth login` (for example --sso). The login is
+# made in a staging folder: a browser signed in to another account, or a
+# sign-in left unfinished, leaves no home behind. A home is ~/.claude-<email>,
+# or ~/.claude-<email>-<organization> for another organization of that email.
+# --tidy archives into $XDG_STATE_HOME/claude-as/removed (credentials deleted,
+# history kept) and leaves alone a home a running Claude Code still uses; a
+# renamed home in use keeps its old path as a link until a later --tidy.
 #
 # --move <email> [--pane <id>] [--dry-run] [--force] [--wait <seconds>]
 # moves each Claude session herdr runs on this machine to that account, in its
@@ -359,6 +368,8 @@ last_home() {
         done < <(homes)
     fi
     [[ -n ${last} ]] || return 0
+    # A home --tidy renamed while the session ran left a link in its place.
+    [[ -L ${last} ]] && last=$(readlink "${last}")
     while IFS= read -r home; do
         if [[ ${home} == "${last}" ]]; then
             printf '%s\n' "${home}"
@@ -597,57 +608,292 @@ link_shared() {
     done
 }
 
+state_dir="${XDG_STATE_HOME:-${HOME}/.local/state}/claude-as"
+# The login being signed in by --add, discarded unless it is kept.
+adding=""
+# Homes a --tidy --dry-run would archive: their names count as free.
+freed=""
+
+sha256() {
+    if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi | cut -d' ' -f1
+}
+
+# Claude Code names a home's Keychain login after the home's path, so a home
+# that moves must carry it; a .credentials.json login (Linux, or a Keychain
+# locked over SSH) moves with the folder.
+secret_service() {
+    if [[ $1 == "${HOME}/.claude" ]]; then
+        printf 'Claude Code-credentials\n'
+    else
+        printf 'Claude Code-credentials-%s\n' "$(printf '%s' "$1" | sha256 | cut -c1-8)"
+    fi
+}
+
+keychain() { [[ $(uname -s) == Darwin ]] && command -v security >/dev/null 2>&1; }
+
+# Moves <from>'s Keychain login to <to>. The secret goes to security(1) on
+# stdin: a command line is readable by every process of the machine.
+# Status 1: there may be one, but the Keychain is locked.
+carry_secret() {
+    local from to secret quoted rc=0 user=${USER:-$(id -un)}
+    keychain || return 0
+    from=$(secret_service "$1")
+    to=$(secret_service "$2")
+    secret=$(security find-generic-password -s "${from}" -a "${user}" -w 2>/dev/null) || rc=$?
+    # 44: no such item, so nothing to carry; anything else: locked or refused.
+    case ${rc} in
+        0) ;;
+        44) return 0 ;;
+        *) return 1 ;;
+    esac
+    quoted=${secret//\\/\\\\}
+    quoted=${quoted//\"/\\\"}
+    printf 'add-generic-password -U -s "%s" -a "%s" -w "%s"\n' "${to}" "${user}" "${quoted}" \
+        | security -i >/dev/null 2>&1 || return 1
+    security delete-generic-password -s "${from}" -a "${user}" >/dev/null 2>&1 || true
+}
+
+# Whether <home>'s login is a Keychain item. Reading an item's attributes works
+# while the Keychain is locked; reading its secret does not.
+keychain_login() {
+    keychain && security find-generic-password -s "$(secret_service "$1")" -a "${USER:-$(id -un)}" >/dev/null 2>&1
+}
+
+drop_secret() {
+    keychain || return 0
+    security delete-generic-password -s "$(secret_service "$1")" -a "${USER:-$(id -un)}" >/dev/null 2>&1 || true
+}
+
+# Homes a running process has as CLAUDE_CONFIG_DIR. pgrep matches names, not
+# environments, so ps(1) it is (BSD and procps alike).
+live_homes() {
+    # shellcheck disable=SC2009
+    ps eww -A -o command= 2>/dev/null | grep -oE '(^| )CLAUDE_CONFIG_DIR=[^ ]+' \
+        | sed -e 's/^ //' -e 's/^CLAUDE_CONFIG_DIR=//' -e 's:/*$::' | sort -u || true
+}
+
+in_use() { live_homes | grep -qxF -- "$1"; }
+
+# "herdr (3427), kdeconnectd (76969) and 2 more": who holds <home>. A process
+# that is not Claude Code still hands it to everything it starts.
+users_of() {
+    local pid name list="" n=0
+    # shellcheck disable=SC2009
+    while read -r pid; do
+        n=$((n + 1))
+        ((n <= 2)) || continue
+        name=$(ps -p "${pid}" -o comm= 2>/dev/null)
+        list+="${list:+, }${name##*/} (${pid})"
+    done < <(ps eww -A -o pid=,command= 2>/dev/null | grep -F -- " CLAUDE_CONFIG_DIR=$1 " | awk '{ print $1 }')
+    ((n > 2)) && list+=" and $((n - 2)) more"
+    printf '%s\n' "${list:-a running process}"
+}
+
+signed_in() {
+    (cd / && in_home "$1" auth status --json </dev/null 2>/dev/null || true) \
+        | jq -e '.loggedIn == true' >/dev/null 2>&1
+}
+
+# Where a home signed in as <email>/<org>/<org id> belongs: ~/.claude-<email>,
+# else with the org slug, else the id; <home> may already be it.
+# A path that exists is never reused.
+home_for() {
+    local home=$1 base want
+    base="${HOME}/.claude-$(lower "$2")"
+    for want in "${base}" "${base}-$(slug "$3" 24)" "${base}-$(lower "${4:0:8}")"; do
+        [[ ${want} != "${base}-" ]] || continue
+        if [[ ${want} == "${home}" ]] || ! [[ -e ${want} || -L ${want} ]] || grep -qxF -- "${want}" <<<"${freed}"; then
+            printf '%s\n' "${want}"
+            return 0
+        fi
+    done
+    [[ -n ${home} ]] || return 1
+    printf '%s\n' "${home}"
+}
+
+# A name without an email (~/.claude-work) is the user's choice and stays;
+# one with an email is claude-as's, so it must be that login's own.
+chosen_name() { [[ ${1##*/} != *@* ]]; }
+
+# The record of which home each session ran in follows a home that moved.
+retarget_ledger() {
+    [[ -r ${ledger} ]] || return 0
+    awk -F'\t' -v OFS='\t' -v from="$1" -v to="$2" '$2 == from { $2 = to } { print }' \
+        "${ledger}" >"${ledger}.$$" && mv "${ledger}.$$" "${ledger}"
+}
+
+# Moves <from> to <to> with its login, undone unless it is still signed in.
+# A session running in <from> follows a link, so its one .credentials.json is
+# shared; a Keychain login cannot be, and relocate() is not called for it.
+relocate() {
+    local from=$1 to=$2 live=0
+    in_use "${from}" && live=1
+    mv "${from}" "${to}" || return 1
+    carry_secret "${from}" "${to}" \
+        || printf 'claude-as: the Keychain is locked; %s keeps its Keychain login\n' "$(short "${from}")" >&2
+    ((live)) && ln -s "${to}" "${from}"
+    if ! signed_in "${to}"; then
+        [[ -L ${from} ]] && rm "${from}"
+        carry_secret "${to}" "${from}" || true
+        mv "${to}" "${from}"
+        return 1
+    fi
+    retarget_ledger "${from}" "${to}"
+    if ((live)); then
+        printf 'renamed     %s -> %s (running sessions use it through a link)\n' "$(short "${from}")" "$(short "${to}")"
+    else
+        printf 'renamed     %s -> %s\n' "$(short "${from}")" "$(short "${to}")"
+    fi
+}
+
+# Archives <home>, keeping its history but not its login. The token is deleted
+# here, not revoked: another home of the account may share the grant.
+retire() {
+    local home=$1 dest
+    dest="${state_dir}/removed/${home##*/}-$(date +%Y%m%dT%H%M%S)"
+    mkdir -p "${state_dir}/removed"
+    chmod 700 "${state_dir}/removed"
+    drop_secret "${home}"
+    rm -f "${home}/.credentials.json"
+    mv "${home}" "${dest}"
+    # Its sessions resume as the home of the same account that stays, if any.
+    retarget_ledger "${home}" "${3:-${dest}}"
+    printf 'archived    %s -> %s (%s)\n' "$(short "${home}")" "$(short "${dest}")" "$2"
+}
+
+discard_adding() {
+    [[ -n ${adding} && -d ${adding} ]] || return 0
+    drop_secret "${adding}"
+    rm -rf "${adding}"
+    adding=""
+}
+
 add() {
-    local email=$1 home base n=1 line
+    local email=$1 home got org plan uuid other oemail ouuid
     shift
     # The home and its account file are the account's alone.
     umask 077
     [[ ${email} =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] || die "'${email}' is not an email" 2
     [[ -d ${shared} ]] || die "$(short "${shared}") does not exist; run claude once first"
-    while IFS=$'\037' read -r home line _; do
-        if [[ $(lower "${line}") == "$(lower "${email}")" ]]; then
-            printf '%s is signed in already: %s\n' "${email}" "$(accounts_of "${home}")"
-            printf 'Signing in again, for another of its organizations: pick it in the browser.\n'
-        fi
-    done < <(accounts)
-    base="${HOME}/.claude-$(lower "${email}")"
-    home=${base}
-    while [[ -e ${home} ]]; do
-        n=$((n + 1))
-        home="${base}-${n}"
-    done
-    mkdir -p "${home}"
-    chmod 700 "${home}"
-    link_shared "${home}"
+    # Signed in in a staging folder and named only once known to be <email>:
+    # a browser on another account, or an unfinished sign-in, leaves nothing.
+    mkdir -p "${state_dir}"
+    adding=$(mktemp -d "${state_dir}/adding.XXXXXX")
+    trap discard_adding EXIT
+    trap 'exit 130' INT TERM HUP
+    link_shared "${adding}" >/dev/null
     # Skip the first-run wizard and keep the folders already trusted: the
     # account changes, the person and the machine do not.
     jq '{hasCompletedOnboarding: true, projects: ((.projects // {})
         | with_entries(select(.value.hasTrustDialogAccepted == true)
           | .value = {hasTrustDialogAccepted: true}))}' "$(account_file "${shared}")" \
-        >"$(account_file "${home}")" 2>/dev/null \
-        || jq -n '{hasCompletedOnboarding: true}' >"$(account_file "${home}")"
-    chmod 600 "$(account_file "${home}")"
-    printf 'Signing in %s in %s\n' "${email}" "$(short "${home}")"
-    (cd / && in_home "${home}" auth login --email "${email}" "$@") \
-        || die "sign-in did not finish; run it again: claude-as --add ${email}"
-    added "${home}" "${email}"
-}
-
-# What the new login turned out to be, and why it may not work as hoped.
-added() {
-    local home=$1 email=$2 got org plan uuid other oemail ouuid
-    IFS=$'\037' read -r _ got org plan uuid < <(CLAUDE_AS_HOMES=${home} accounts)
+        >"$(account_file "${adding}")" 2>/dev/null \
+        || jq -n '{hasCompletedOnboarding: true}' >"$(account_file "${adding}")"
+    chmod 600 "$(account_file "${adding}")"
+    printf 'Signing in %s\n' "${email}"
+    (cd / && in_home "${adding}" auth login --email "${email}" "$@") \
+        || die "sign-in did not finish; nothing was kept. Run it again: claude-as --add ${email}"
+    IFS=$'\037' read -r _ got org plan uuid < <(CLAUDE_AS_HOMES=${adding} accounts)
     [[ $(lower "${got}") == "$(lower "${email}")" ]] \
-        || die "signed in as '${got:-nobody}', not ${email}; sign in again: CLAUDE_CONFIG_DIR=$(short "${home}") claude auth login"
+        || die "the browser signed in '${got:-nobody}', not ${email}; nothing was kept. Sign out of ${got:-it} in the browser, or use a private window, and run it again"
     while IFS=$'\037' read -r other oemail _ _ ouuid; do
-        [[ ${other} != "${home}" && -n ${uuid} && ${ouuid} == "${uuid}" &&
-            $(lower "${oemail}") == "$(lower "${email}")" ]] \
-            && printf 'note: %s is the same account and organization as %s\n' "$(short "${home}")" "$(short "${other}")"
+        if [[ -n ${uuid} && ${ouuid} == "${uuid}" && $(lower "${oemail}") == "$(lower "${email}")" ]]; then
+            printf '%s is this account and organization already; nothing new was kept\n' "$(short "${other}")"
+            exit 0
+        fi
     done < <(accounts)
+    home=$(home_for "" "${email}" "${org}" "${uuid}") || die "no free name for ${email} in ~/.claude-${email}*; run claude-as --tidy"
+    relocate "${adding}" "${home}" >/dev/null || die "the new login did not survive the move to $(short "${home}"); nothing was kept"
+    adding=""
+    trap - EXIT INT TERM HUP
     case ${plan} in
         free* | "") printf 'warning: %s has no paid plan; Claude Code needs Pro, Max, Team or Enterprise\n' "${email}" >&2 ;;
     esac
+    printf 'Signed in %s in %s\n' "${email}" "$(short "${home}")"
     printf 'Ready: claude-as %s\n' "$(name_of "${home}")"
+}
+
+# archive (signed out, or the same account and org as an earlier home in
+# <kept>, "<email>/<org id>\t<home>" lines) or keep. An unknown org id is no
+# proof of a duplicate.
+tidy_plan() {
+    local home=$1 email=$2 uuid=$4 kept=$5 key twin
+    key="$(lower "${email}")/${uuid}"
+    twin=$(awk -F'\t' -v k="${key}" '$1 == k { print $2; exit }' <<<"${kept}")
+    if ! signed_in "${home}"; then
+        printf 'archive\tnot signed in\t\n'
+    elif [[ -n ${email} && -n ${uuid} && -n ${twin} ]]; then
+        printf 'archive\tthe same account and organization as %s\t%s\n' "$(short "${twin}")" "${twin}"
+    else
+        printf 'keep\t%s\t%s\n' "${key}" "${home}"
+    fi
+}
+
+# --tidy [--dry-run]: one home per account, named after it. Signed-out and
+# duplicate homes are archived, never deleted; misnamed ones renamed with
+# their login. A home a running session uses is left alone.
+tidy() {
+    local dry=0 link to home email org plan uuid action why twin kept="" keep_homes="" want changed=0 held=0
+    case ${1:-} in
+        "") ;;
+        --dry-run) dry=1 ;;
+        *) die "usage: claude-as --tidy [--dry-run]" 2 ;;
+    esac
+    for link in "${HOME}"/.claude-*; do
+        to=$(readlink "${link}" 2>/dev/null) || continue
+        [[ ${to} == "${HOME}"/.claude-* && -d ${to} ]] || continue
+        in_use "${link}" && continue
+        changed=1
+        if ((dry)); then
+            printf 'would drop  %s: a link no running session uses\n' "$(short "${link}")"
+        else
+            # A session's hook may have recorded the link since the rename.
+            rm "${link}"
+            retarget_ledger "${link}" "${to}"
+            printf 'dropped     %s: a link no running session uses\n' "$(short "${link}")"
+        fi
+    done
+    while IFS=$'\037' read -r home email org plan uuid; do
+        IFS=$'\t' read -r action why twin <<<"$(tidy_plan "${home}" "${email}" "${org}" "${uuid}" "${kept}")"
+        if [[ ${action} == keep ]]; then
+            kept+="${why}"$'\t'"${twin}"$'\n'
+            keep_homes+="${home}"$'\n'
+            continue
+        fi
+        [[ ${home} == "${shared}" ]] && continue
+        if in_use "${home}"; then
+            printf 'left alone  %s: %s, but %s still holds it; run --tidy once it ends\n' \
+                "$(short "${home}")" "${why}" "$(users_of "${home}")"
+            held=1
+            continue
+        fi
+        changed=1
+        if ((dry)); then
+            freed+="${home}"$'\n'
+            printf 'would archive %s (%s)\n' "$(short "${home}")" "${why}"
+        else
+            retire "${home}" "${why}" "${twin}"
+        fi
+    done < <(accounts)
+    while IFS=$'\037' read -r home email org plan uuid; do
+        if [[ ${home} == "${shared}" ]] || chosen_name "${home}"; then continue; fi
+        want=$(home_for "${home}" "${email}" "${org}" "${uuid}")
+        [[ ${want} != "${home}" ]] || continue
+        if in_use "${home}" && keychain_login "${home}"; then
+            printf 'left alone  %s: should be %s, but %s holds its Keychain login; run --tidy once it ends\n' \
+                "$(short "${home}")" "$(short "${want}")" "$(users_of "${home}")"
+            held=1
+            continue
+        fi
+        changed=1
+        if ((dry)); then
+            printf 'would rename %s -> %s\n' "$(short "${home}")" "$(short "${want}")"
+        elif ! relocate "${home}" "${want}"; then
+            printf 'left alone  %s: its login did not survive the move to %s\n' "$(short "${home}")" "$(short "${want}")"
+            held=1
+        fi
+    done < <(while IFS= read -r home; do [[ -z ${home} ]] || CLAUDE_AS_HOMES=${home} accounts; done <<<"${keep_homes}")
+    ((changed || held)) || printf 'nothing to tidy: one home per account, each named after it\n'
 }
 
 # A transcript only the shared projects folder holds: a home that can resume
@@ -674,7 +920,7 @@ canary_gone() {
 }
 
 check() {
-    local problems=0 home email org plan uuid status out name src dst managed version
+    local problems=0 home email org plan uuid status out name src dst managed version kept="" want
     canary
     # Claude Code gives each home its own Keychain entry from 2.1.144 on.
     if [[ $(uname -s) == Darwin ]]; then
@@ -693,8 +939,19 @@ check() {
         status=$(cd / && in_home "${home}" auth status --json </dev/null 2>/dev/null || true)
         if jq -e '.loggedIn == true' <<<"${status}" >/dev/null 2>&1; then
             printf '  ok    signed in\n'
+            if [[ -n ${uuid} ]] && grep -qxF -- "$(lower "${email}")/${uuid}" <<<"${kept}"; then
+                printf '  FAIL  the same account and organization as another home: claude-as --tidy archives it\n'
+                problems=$((problems + 1))
+            elif [[ ${home} != "${shared}" ]] && ! chosen_name "${home}"; then
+                want=$(home_for "${home}" "${email}" "${org}" "${uuid}")
+                if [[ ${want} != "${home}" ]]; then
+                    printf '  FAIL  not named after %s: claude-as --tidy renames it to %s\n' "${email}" "$(short "${want}")"
+                    problems=$((problems + 1))
+                fi
+            fi
+            kept+="$(lower "${email}")/${uuid}"$'\n'
         else
-            printf '  FAIL  not signed in: claude-as --add <email>\n'
+            printf '  FAIL  not signed in: claude-as --add <email> signs one in, claude-as --tidy archives it\n'
             problems=$((problems + 1))
         fi
         if [[ ${home} != "${shared}" ]]; then
@@ -1084,6 +1341,10 @@ case ${1:-} in
         add "$@"
         ;;
     --check) check ;;
+    --tidy)
+        shift
+        tidy "$@"
+        ;;
     --move)
         [[ -n ${2:-} && ${2} != -* ]] || die "usage: claude-as --move <email> [--pane <id>] [--dry-run] [--force] [--wait <seconds>]" 2
         shift

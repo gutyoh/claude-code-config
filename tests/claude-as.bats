@@ -25,6 +25,58 @@ setup() {
     echo '{}' >"${HOME}/.claude/settings.json"
     echo 'shared prompt' >"${HOME}/.claude/history.jsonl"
     stub_claude
+    stub_ps
+}
+
+# ps: one process per home in STUB_LIVE (colon-separated) runs with it as its
+# CLAUDE_CONFIG_DIR, as `ps eww` shows a process's environment.
+stub_ps() {
+    stub_bin ps <<'EOF'
+if [[ $1 == -p ]]; then
+    echo /opt/bin/claude
+    exit 0
+fi
+IFS=: read -ra live <<<"${STUB_LIVE:-}"
+n=100
+for h in "${live[@]}"; do
+    n=$((n + 1))
+    [[ $* == *pid=* ]] && printf '%s ' "$n"
+    [[ -n $h ]] && printf '/usr/bin/claude --resume x TERM=xterm CLAUDE_CONFIG_DIR=%s HOME=/h\n' "$h"
+done
+exit 0
+EOF
+}
+
+# security: a Keychain in $HOME/keychain/<service>; argv goes to $HOME/security.argv
+# and stdin to $HOME/security.stdin, so a test sees what a process listing would.
+# STUB_KEYCHAIN_LOCKED=1 answers as a Keychain locked over SSH does (status 36).
+stub_security() {
+    stub_bin security <<'EOF'
+printf '%s\n' "$*" >>"$HOME/security.argv"
+kc=$HOME/keychain
+mkdir -p "$kc"
+[[ -z ${STUB_KEYCHAIN_LOCKED:-} ]] || exit 36
+svc=""
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do [[ ${args[i]} == -s ]] && svc=${args[i + 1]}; done
+case $1 in
+    find-generic-password) [[ -f $kc/$svc ]] || exit 44; cat "$kc/$svc" ;;
+    delete-generic-password) [[ -f $kc/$svc ]] || exit 44; rm "$kc/$svc" ;;
+    -i)
+        line=$(cat)
+        printf '%s\n' "$line" >>"$HOME/security.stdin"
+        svc=$(sed -E 's/.* -s "([^"]*)".*/\1/' <<<"$line")
+        secret=$(sed -E 's/.* -w "(.*)"$/\1/' <<<"$line" | sed -e 's/\\"/"/g' -e 's/\\\\/\\/g')
+        printf '%s' "$secret" >"$kc/$svc"
+        ;;
+esac
+EOF
+    stub_bin uname 'echo Darwin'
+}
+
+# The Keychain service Claude Code names after a home's path.
+service_of() {
+    printf 'Claude Code-credentials-%s' "$(printf '%s' "$1" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-8)"
 }
 
 # The stub: `auth status` and `auth login` act on the home it is given;
@@ -45,6 +97,8 @@ if [[ $1 == auth && $2 == status ]]; then
 fi
 if [[ $1 == auth && $2 == login ]]; then
     printf 'login %s\n' "${*:3}" >>"$HOME/logins"
+    [[ -z ${STUB_LOGIN_FAIL:-} ]] || exit 1
+    printf '{"token": "for %s"}' "${STUB_EMAIL:-$4}" >"$home/.credentials.json"
     jq --arg e "${STUB_EMAIL:-$4}" --arg t "${STUB_TYPE:-claude_pro}" --arg o "${STUB_ORG:-Org}" \
         '.oauthAccount = {emailAddress: $e, organizationType: $t, organizationName: $o, organizationUuid: ($o + "-id")}' \
         "$acct" >"$acct.tmp" && cat "$acct.tmp" >"$acct" && rm "$acct.tmp"
@@ -269,7 +323,8 @@ two_accounts() {
         [ "$(readlink "${h}/${name}")" = "${HOME}/.claude/${name}" ]
     done
     [ ! -e "${h}/history.jsonl" ]
-    [ ! -e "${h}/.credentials.json" ]
+    # Its own login, never a copy of the shared home's.
+    [ "$(cat "${h}/.credentials.json")" = '{"token": "for New@Home.example"}' ]
     jq -e '.hasCompletedOnboarding == true' "${h}/.claude.json"
     jq -e '.projects == {"/repo": {"hasTrustDialogAccepted": true}}' "${h}/.claude.json"
     jq -e '.oauthAccount.emailAddress == "New@Home.example"' "${h}/.claude.json"
@@ -280,21 +335,52 @@ two_accounts() {
     [[ ${output} == *"home=${h} args=--dangerously-skip-permissions -p hi"* ]]
 }
 
-@test "--add never reuses a folder that exists" {
+@test "--add never reuses a folder that exists, and never numbers a retry" {
     account "${HOME}/.claude" me@work.example
     mkdir -p "${HOME}/.claude-b@x.example"
-    run "$SCRIPT" --add b@x.example
+    echo mine >"${HOME}/.claude-b@x.example/notes"
+    STUB_ORG="Big Co" run "$SCRIPT" --add b@x.example
     [ "$status" -eq 0 ]
-    [ -f "${HOME}/.claude-b@x.example-2/.claude.json" ]
-    [ ! -e "${HOME}/.claude-b@x.example/.claude.json" ]
+    [ -f "${HOME}/.claude-b@x.example-big-co/.claude.json" ]
+    [ "$(cat "${HOME}/.claude-b@x.example/notes")" = mine ]
+    [ ! -e "${HOME}/.claude-b@x.example-2" ]
 }
 
-@test "--add says when the browser signed in someone else, or a free plan" {
+@test "--add keeps nothing when the browser signed in someone else" {
     account "${HOME}/.claude" me@work.example
     STUB_EMAIL=other@x.example run "$SCRIPT" --add b@x.example
     [ "$status" -eq 1 ]
-    [[ ${output} == *"signed in as 'other@x.example', not b@x.example"* ]]
+    [[ ${output} == *"the browser signed in 'other@x.example', not b@x.example; nothing was kept"* ]]
+    [[ ${output} == *"Sign out of other@x.example in the browser, or use a private window"* ]]
+    [ -z "$(compgen -G "${HOME}/.claude-*" || true)" ]
+    [ -z "$(compgen -G "${XDG_STATE_HOME}/claude-as/adding.*" || true)" ]
+}
+
+@test "--add keeps nothing when the sign-in does not finish" {
+    account "${HOME}/.claude" me@work.example
+    STUB_LOGIN_FAIL=1 run "$SCRIPT" --add b@x.example
+    [ "$status" -eq 1 ]
+    [[ ${output} == *"sign-in did not finish; nothing was kept"* ]]
+    [ -z "$(compgen -G "${HOME}/.claude-*" || true)" ]
+    [ -z "$(compgen -G "${XDG_STATE_HOME}/claude-as/adding.*" || true)" ]
+}
+
+@test "three failed sign-ins and a good one leave one home, named after the email" {
+    account "${HOME}/.claude" me@work.example
+    STUB_EMAIL=me@work.example run "$SCRIPT" --add b@x.example
+    STUB_LOGIN_FAIL=1 run "$SCRIPT" --add b@x.example
+    STUB_EMAIL=other@x.example run "$SCRIPT" --add b@x.example
+    run "$SCRIPT" --add b@x.example
+    [ "$status" -eq 0 ]
+    run "$SCRIPT"
+    [ "$(grep -c 'claude-b@x.example' <<<"${output}")" -eq 1 ]
+    [[ ${output} == *"b@x.example"*"~/.claude-b@x.example"$'\n'* || ${output} == *"b@x.example"*"~/.claude-b@x.example" ]]
+}
+
+@test "--add warns about a free plan" {
+    account "${HOME}/.claude" me@work.example
     STUB_TYPE=claude_free run "$SCRIPT" --add c@x.example
+    [ "$status" -eq 0 ]
     [[ ${output} == *"c@x.example has no paid plan"* ]]
 }
 
@@ -302,12 +388,55 @@ two_accounts() {
     account "${HOME}/.claude" me@x.example claude_team Acme
     STUB_ORG=Personal run "$SCRIPT" --add me@x.example
     [ "$status" -eq 0 ]
-    [[ ${output} == *"is signed in already"* ]]
-    [[ ${output} != *"same account and organization"* ]]
+    [ -f "${HOME}/.claude-me@x.example/.claude.json" ]
     # Its name tells it apart from the email's other organization.
     [[ ${output} == *"Ready: claude-as me@x.example/pro"* ]]
+    STUB_ORG=Third run "$SCRIPT" --add me@x.example
+    [ -f "${HOME}/.claude-me@x.example-third/.claude.json" ]
+}
+
+@test "--add for an account and organization already here keeps nothing new" {
+    account "${HOME}/.claude" me@x.example claude_team Acme
     STUB_ORG=Acme STUB_TYPE=claude_team run "$SCRIPT" --add me@x.example
-    [[ ${output} == *"is the same account and organization as ~/.claude"* ]]
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"~/.claude is this account and organization already; nothing new was kept"* ]]
+    [ -z "$(compgen -G "${HOME}/.claude-*" || true)" ]
+}
+
+@test "--add moves the login it made with the home: the credentials file" {
+    account "${HOME}/.claude" me@work.example
+    run "$SCRIPT" --add b@x.example
+    [ "$status" -eq 0 ]
+    [ "$(cat "${HOME}/.claude-b@x.example/.credentials.json")" = '{"token": "for b@x.example"}' ]
+    [ "$(file_mode "${HOME}/.claude-b@x.example")" = 700 ]
+}
+
+@test "--add on macOS moves the Keychain login, never through a command line" {
+    account "${HOME}/.claude" me@work.example
+    stub_security
+    stub_bin claude <<'EOF'
+home=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
+if [[ $1 == auth && $2 == login ]]; then
+    jq --arg e "$4" '.oauthAccount = {emailAddress: $e, organizationType: "claude_pro", organizationName: "Org", organizationUuid: "Org-id"}' \
+        "$home/.claude.json" >"$home/j" && mv "$home/j" "$home/.claude.json"
+    svc="Claude Code-credentials-$(printf '%s' "$home" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-8)"
+    mkdir -p "$HOME/keychain"
+    printf '%s' '{"t":"s3cr\"et"}' >"$HOME/keychain/$svc"
+    exit 0
+fi
+if [[ $1 == auth && $2 == status ]]; then
+    svc="Claude Code-credentials-$(printf '%s' "$home" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-8)"
+    [[ -f $HOME/keychain/$svc ]] && echo '{"loggedIn": true}' || echo '{"loggedIn": false}'
+    exit 0
+fi
+EOF
+    run "$SCRIPT" --add b@x.example
+    [ "$status" -eq 0 ]
+    local h="${HOME}/.claude-b@x.example"
+    [ "$(cat "${HOME}/keychain/$(service_of "${h}")")" = '{"t":"s3cr\"et"}' ]
+    [ "$(find "${HOME}/keychain" -type f | wc -l | tr -d ' ')" -eq 1 ]
+    ! grep -q 's3cr' "${HOME}/security.argv"
+    grep -q 's3cr' "${HOME}/security.stdin"
 }
 
 @test "--add refuses what is not an email" {
@@ -1128,4 +1257,328 @@ move_setup() {
     [[ ${output} == *"unknown option --bogus"* ]]
     PATH="${STUB_DIR}:/usr/bin:/bin" run "$SCRIPT" --move me@home.example
     [[ ${output} == *"needs herdr"* ]]
+}
+
+# The machine this was found on: a home named for one account that the browser
+# signed in as another, a second retry of it, the account itself on a third
+# retry, and a fourth whose sign-in was left unfinished.
+four_retries() {
+    account "${HOME}/.claude" me@home.example claude_max Personal
+    linked_home "${HOME}/.claude-me@work.example" me@home.example claude_max Personal
+    touch "${HOME}/.claude-me@work.example/.signed-out"
+    linked_home "${HOME}/.claude-me@work.example-2" me@home.example claude_max Personal
+    linked_home "${HOME}/.claude-me@work.example-3" me@work.example claude_team Acme
+    echo '{"token": "work"}' >"${HOME}/.claude-me@work.example-3/.credentials.json"
+    mkdir -p "${HOME}/.claude-me@work.example-4"
+    echo '{"hasCompletedOnboarding": true}' >"${HOME}/.claude-me@work.example-4/.claude.json"
+}
+
+@test "--tidy turns four retries into one home per account, each named after it" {
+    four_retries
+    echo 'kept prompt' >"${HOME}/.claude-me@work.example-2/history.jsonl"
+    run "$SCRIPT" --tidy
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"archived    ~/.claude-me@work.example -> "*"(not signed in)"* ]]
+    [[ ${output} == *"archived    ~/.claude-me@work.example-2 -> "*"(the same account and organization as ~/.claude)"* ]]
+    [[ ${output} == *"archived    ~/.claude-me@work.example-4 -> "*"(not signed in)"* ]]
+    [[ ${output} == *"renamed     ~/.claude-me@work.example-3 -> ~/.claude-me@work.example"* ]]
+    run "$SCRIPT"
+    [ "$(grep -c '@' <<<"${output}")" -eq 2 ]
+    [[ ${output} == *"me@home.example"*"~/.claude"$'\n'* ]]
+    [[ ${output} == *"me@work.example"*"~/.claude-me@work.example" || ${output} == *"me@work.example"*"~/.claude-me@work.example"$'\n'* ]]
+    [ "$(cat "${HOME}/.claude-me@work.example/.credentials.json")" = '{"token": "work"}' ]
+    run "$SCRIPT" me@work.example -p hi
+    [[ ${output} == *"home=${HOME}/.claude-me@work.example args="* ]]
+}
+
+@test "--tidy archives keep the history and drop the credentials" {
+    four_retries
+    echo 'kept prompt' >"${HOME}/.claude-me@work.example-2/history.jsonl"
+    echo '{"token": "dup"}' >"${HOME}/.claude-me@work.example-2/.credentials.json"
+    run "$SCRIPT" --tidy
+    local archived
+    archived=$(compgen -G "${XDG_STATE_HOME}/claude-as/removed/.claude-me@work.example-2-*")
+    [ "$(cat "${archived}/history.jsonl")" = 'kept prompt' ]
+    [ ! -e "${archived}/.credentials.json" ]
+    [ "$(file_mode "${XDG_STATE_HOME}/claude-as/removed")" = 700 ]
+    # Its links point into the shared home and still do: nothing shared was moved.
+    [ "$(readlink "${archived}/projects")" = "${HOME}/.claude/projects" ]
+    [ -d "${HOME}/.claude/projects" ]
+}
+
+@test "--tidy --dry-run changes nothing and shows the whole plan" {
+    four_retries
+    run "$SCRIPT" --tidy --dry-run
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"would archive ~/.claude-me@work.example (not signed in)"* ]]
+    [[ ${output} == *"would archive ~/.claude-me@work.example-2 (the same account and organization as ~/.claude)"* ]]
+    [[ ${output} == *"would archive ~/.claude-me@work.example-4 (not signed in)"* ]]
+    # The name an archive would free counts as free.
+    [[ ${output} == *"would rename ~/.claude-me@work.example-3 -> ~/.claude-me@work.example"* ]]
+    [ -d "${HOME}/.claude-me@work.example-4" ] && [ -d "${HOME}/.claude-me@work.example-3" ]
+    [ ! -e "${XDG_STATE_HOME}/claude-as/removed" ]
+}
+
+@test "--tidy a second time has nothing to do" {
+    four_retries
+    run "$SCRIPT" --tidy
+    run "$SCRIPT" --tidy
+    [ "$status" -eq 0 ]
+    [ "$output" = "nothing to tidy: one home per account, each named after it" ]
+}
+
+@test "--tidy never touches the shared home, signed in or not" {
+    account "${HOME}/.claude" me@home.example
+    touch "${HOME}/.claude/.signed-out"
+    linked_home "${HOME}/.claude-me@work.example" me@work.example claude_team Acme
+    run "$SCRIPT" --tidy
+    [ "$status" -eq 0 ]
+    [ -f "${HOME}/.claude.json" ] && [ -d "${HOME}/.claude" ]
+    [[ ${output} == "nothing to tidy"* ]]
+}
+
+@test "--tidy keeps a name the user chose" {
+    account "${HOME}/.claude" me@home.example
+    linked_home "${HOME}/.claude-work" me@work.example claude_team Acme
+    run "$SCRIPT" --tidy
+    [ "$status" -eq 0 ]
+    [ -f "${HOME}/.claude-work/.claude.json" ]
+    [[ ${output} == "nothing to tidy"* ]]
+}
+
+@test "--tidy renames a home named after another email to its own" {
+    account "${HOME}/.claude" me@home.example
+    linked_home "${HOME}/.claude-someone@else.example" me@work.example claude_team Acme
+    run "$SCRIPT" --tidy
+    [ "$status" -eq 0 ]
+    [ -f "${HOME}/.claude-me@work.example/.claude.json" ]
+    [ ! -e "${HOME}/.claude-someone@else.example" ]
+}
+
+@test "--tidy names a second organization of one email after the organization" {
+    account "${HOME}/.claude" me@home.example
+    linked_home "${HOME}/.claude-me@work.example" me@work.example claude_team Acme
+    linked_home "${HOME}/.claude-me@work.example-2" me@work.example claude_pro "Side Gig"
+    run "$SCRIPT" --tidy
+    [ "$status" -eq 0 ]
+    [ -f "${HOME}/.claude-me@work.example/.claude.json" ]
+    [ -f "${HOME}/.claude-me@work.example-side-gig/.claude.json" ]
+    run "$SCRIPT" --tidy
+    [[ ${output} == "nothing to tidy"* ]]
+}
+
+@test "--tidy leaves alone a home a running session uses, when it would archive it" {
+    four_retries
+    STUB_LIVE="${HOME}/.claude-me@work.example-4" run "$SCRIPT" --tidy
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"left alone  ~/.claude-me@work.example-4: not signed in, but claude (101) still holds it; run --tidy once it ends"* ]]
+    [ -d "${HOME}/.claude-me@work.example-4" ]
+}
+
+@test "--tidy renames a home in use and leaves a link the running sessions follow" {
+    four_retries
+    local old="${HOME}/.claude-me@work.example-3" new="${HOME}/.claude-me@work.example"
+    mkdir -p "${XDG_STATE_HOME}/claude-as"
+    printf 'aaaaaaaa-0000-4000-8000-000000000001\t%s\t1\n' "${old}" >"${XDG_STATE_HOME}/claude-as/sessions"
+    STUB_LIVE="${old}" run "$SCRIPT" --tidy
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"renamed     ~/.claude-me@work.example-3 -> ~/.claude-me@work.example (running sessions use it through a link)"* ]]
+    [ "$(readlink "${old}")" = "${new}" ]
+    [ "$(cat "${old}/.credentials.json")" = '{"token": "work"}' ]
+    grep -qx "aaaaaaaa-0000-4000-8000-000000000001	${new}	1" "${XDG_STATE_HOME}/claude-as/sessions"
+    # A link is not a home: the list shows the account once.
+    run "$SCRIPT"
+    [ "$(grep -c 'me@work.example' <<<"${output}")" -eq 1 ]
+}
+
+@test "a later --tidy drops the link once no session uses it" {
+    four_retries
+    local old="${HOME}/.claude-me@work.example-3"
+    STUB_LIVE="${old}" run "$SCRIPT" --tidy
+    STUB_LIVE="${old}" run "$SCRIPT" --tidy
+    [ -L "${old}" ]
+    run "$SCRIPT" --tidy
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"dropped     ~/.claude-me@work.example-3: a link no running session uses"* ]]
+    [ ! -e "${old}" ] && [ ! -L "${old}" ]
+    [ -d "${HOME}/.claude-me@work.example" ]
+}
+
+@test "--tidy leaves a link it did not make alone" {
+    account "${HOME}/.claude" me@home.example
+    mkdir -p "${HOME}/elsewhere"
+    ln -s "${HOME}/elsewhere" "${HOME}/.claude-tool"
+    run "$SCRIPT" --tidy
+    [ -L "${HOME}/.claude-tool" ]
+}
+
+@test "--tidy undoes a rename the login does not survive" {
+    account "${HOME}/.claude" me@home.example
+    linked_home "${HOME}/.claude-me@work.example-3" me@work.example claude_team Acme
+    stub_bin claude <<'EOF'
+home=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
+if [[ $1 == auth && $2 == status ]]; then
+    [[ $home == *-3 ]] && echo '{"loggedIn": true}' || echo '{"loggedIn": false}'
+    exit 0
+fi
+EOF
+    run "$SCRIPT" --tidy
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"left alone  ~/.claude-me@work.example-3: its login did not survive the move to ~/.claude-me@work.example"* ]]
+    [ -f "${HOME}/.claude-me@work.example-3/.claude.json" ]
+    [ ! -e "${HOME}/.claude-me@work.example" ]
+}
+
+@test "--tidy on macOS carries the Keychain login and deletes an archived one" {
+    four_retries
+    stub_security
+    local old="${HOME}/.claude-me@work.example-3" new="${HOME}/.claude-me@work.example"
+    mkdir -p "${HOME}/keychain"
+    printf 'work-secret' >"${HOME}/keychain/$(service_of "${old}")"
+    printf 'dup-secret' >"${HOME}/keychain/$(service_of "${HOME}/.claude-me@work.example-2")"
+    run "$SCRIPT" --tidy
+    [ "$status" -eq 0 ]
+    [ "$(cat "${HOME}/keychain/$(service_of "${new}")")" = work-secret ]
+    [ ! -e "${HOME}/keychain/$(service_of "${old}")" ]
+    [ ! -e "${HOME}/keychain/$(service_of "${HOME}/.claude-me@work.example-2")" ]
+    ! grep -q secret "${HOME}/security.argv"
+}
+
+@test "--tidy with the Keychain locked says so and still moves a file login" {
+    four_retries
+    stub_security
+    mkdir -p "${HOME}/keychain"
+    printf 'work-secret' >"${HOME}/keychain/$(service_of "${HOME}/.claude-me@work.example-3")"
+    STUB_KEYCHAIN_LOCKED=1 run "$SCRIPT" --tidy
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"the Keychain is locked; ~/.claude-me@work.example-3 keeps its Keychain login"* ]]
+    [ "$(cat "${HOME}/.claude-me@work.example/.credentials.json")" = '{"token": "work"}' ]
+}
+
+@test "--tidy refuses an option it does not know" {
+    account "${HOME}/.claude" me@home.example
+    run "$SCRIPT" --tidy --yes
+    [ "$status" -eq 2 ]
+    [[ ${output} == *"usage: claude-as --tidy [--dry-run]"* ]]
+}
+
+@test "--check names a misnamed and a duplicate home, and the command that fixes them" {
+    four_retries
+    run "$SCRIPT" --check
+    [ "$status" -eq 1 ]
+    [[ ${output} == *"FAIL  the same account and organization as another home: claude-as --tidy archives it"* ]]
+    [[ ${output} == *"FAIL  not named after me@work.example: claude-as --tidy renames it to"* ]]
+    [[ ${output} == *"FAIL  not signed in: claude-as --add <email> signs one in, claude-as --tidy archives it"* ]]
+}
+
+@test "--check passes once --tidy ran" {
+    four_retries
+    local h name
+    for h in "${HOME}"/.claude-*; do
+        for name in hooks skills settings.json projects; do
+            [[ -e ${h}/${name} ]] || ln -s "${HOME}/.claude/${name}" "${h}/${name}"
+        done
+    done
+    run "$SCRIPT" --tidy
+    run "$SCRIPT" --check
+    [ "$status" -eq 0 ]
+}
+
+@test "a session that ran in a renamed home resumes in its new place" {
+    four_retries
+    local id=aaaaaaaa-0000-4000-8000-000000000002 old="${HOME}/.claude-me@work.example-3"
+    mkdir -p "${XDG_STATE_HOME}/claude-as" "${HOME}/.claude/projects/-x"
+    echo '{}' >"${HOME}/.claude/projects/-x/${id}.jsonl"
+    printf '%s\t%s\t1\n' "${id}" "${old}" >"${XDG_STATE_HOME}/claude-as/sessions"
+    STUB_LIVE="${old}" run "$SCRIPT" --tidy
+    # The running session's hook writes the old path again; it still resolves.
+    printf '%s\t%s\t2\n' "${id}" "${old}" >>"${XDG_STATE_HOME}/claude-as/sessions"
+    run "$SCRIPT" -r "${id}"
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"home=${HOME}/.claude-me@work.example args="* ]]
+    run "$SCRIPT" --where -r "${id}"
+    [ "$output" = "${HOME}/.claude-me@work.example" ]
+}
+
+@test "--tidy leaves a home in use alone when its login is in the Keychain" {
+    four_retries
+    stub_security
+    local old="${HOME}/.claude-me@work.example-3"
+    mkdir -p "${HOME}/keychain"
+    printf 'work-secret' >"${HOME}/keychain/$(service_of "${old}")"
+    STUB_LIVE="${old}" run "$SCRIPT" --tidy
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"left alone  ~/.claude-me@work.example-3: should be ~/.claude-me@work.example, but claude (101) holds its Keychain login; run --tidy once it ends"* ]]
+    [ -d "${old}" ] && [ ! -L "${old}" ]
+    [ "$(cat "${HOME}/keychain/$(service_of "${old}")")" = work-secret ]
+    # Once it ends, the next --tidy renames it and carries the login.
+    run "$SCRIPT" --tidy
+    [ "$(cat "${HOME}/keychain/$(service_of "${HOME}/.claude-me@work.example")")" = work-secret ]
+}
+
+@test "dropping a link moves session records written through it to the new home" {
+    four_retries
+    local id=aaaaaaaa-0000-4000-8000-000000000003 old="${HOME}/.claude-me@work.example-3"
+    STUB_LIVE="${old}" run "$SCRIPT" --tidy
+    mkdir -p "${XDG_STATE_HOME}/claude-as"
+    printf '%s\t%s\t5\n' "${id}" "${old}" >>"${XDG_STATE_HOME}/claude-as/sessions"
+    run "$SCRIPT" --tidy
+    [ ! -L "${old}" ]
+    grep -qx "${id}	${HOME}/.claude-me@work.example	5" "${XDG_STATE_HOME}/claude-as/sessions"
+}
+
+@test "an archived duplicate's sessions resume in the home of the same account that stays" {
+    four_retries
+    local id=aaaaaaaa-0000-4000-8000-000000000004
+    mkdir -p "${XDG_STATE_HOME}/claude-as"
+    printf '%s\t%s\t1\n' "${id}" "${HOME}/.claude-me@work.example-2" >"${XDG_STATE_HOME}/claude-as/sessions"
+    run "$SCRIPT" --tidy
+    grep -qx "${id}	${HOME}/.claude	1" "${XDG_STATE_HOME}/claude-as/sessions"
+}
+
+@test "--add with every name taken says so instead of moving to nowhere" {
+    account "${HOME}/.claude" me@work.example
+    mkdir -p "${HOME}/.claude-b@x.example" "${HOME}/.claude-b@x.example-org" "${HOME}/.claude-b@x.example-org-id"
+    run "$SCRIPT" --add b@x.example
+    [ "$status" -eq 1 ]
+    [[ ${output} == *"no free name for b@x.example"* ]]
+    [ -z "$(compgen -G "${XDG_STATE_HOME}/claude-as/adding.*" || true)" ]
+}
+
+@test "a login named with its organization takes the plain name once it is free" {
+    account "${HOME}/.claude" me@home.example
+    linked_home "${HOME}/.claude-b@x.example" someone@else.example
+    touch "${HOME}/.claude-b@x.example/.signed-out"
+    run "$SCRIPT" --add b@x.example
+    [ -f "${HOME}/.claude-b@x.example-org/.claude.json" ]
+    run "$SCRIPT" --tidy
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"renamed     ~/.claude-b@x.example-org -> ~/.claude-b@x.example"* ]]
+    jq -e '.oauthAccount.emailAddress == "b@x.example"' "${HOME}/.claude-b@x.example/.claude.json"
+}
+
+@test "two organizations of one email without org ids are not duplicates" {
+    account "${HOME}/.claude" me@home.example
+    linked_home "${HOME}/.claude-a@x.example" a@x.example
+    linked_home "${HOME}/.claude-a@x.example-2" a@x.example
+    local h
+    for h in "${HOME}/.claude-a@x.example" "${HOME}/.claude-a@x.example-2"; do
+        jq '.oauthAccount.organizationUuid = ""' "${h}/.claude.json" >"${h}/j" && mv "${h}/j" "${h}/.claude.json"
+    done
+    run "$SCRIPT" --tidy
+    [ "$status" -eq 0 ]
+    [[ ${output} != *archived* ]]
+    [ -f "${HOME}/.claude-a@x.example/.claude.json" ]
+    run "$SCRIPT"
+    [ "$(grep -c 'a@x.example' <<<"${output}")" -eq 2 ]
+}
+
+@test "--tidy with only held homes left does not claim there is nothing to do" {
+    four_retries
+    local two="${HOME}/.claude-me@work.example-2"
+    STUB_LIVE="${two}:${two}:${two}" run "$SCRIPT" --tidy
+    STUB_LIVE="${two}:${two}:${two}" run "$SCRIPT" --tidy
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"but claude (101), claude (102) and 1 more still holds it"* ]]
+    [[ ${output} != *"nothing to tidy"* ]]
 }
