@@ -180,7 +180,7 @@ files another tool owns, the second for that profile alone. `claude-as` shares
 
 | Server | Package | Environment Variable |
 |--------|---------|---------------------|
-| `brave-search` | `@brave/brave-search-mcp-server` | `BRAVE_API_KEY` |
+| `brave-search` | `@brave/brave-search-mcp-server@2.1.4` | `BRAVE_API_KEY` |
 | `tavily` | `tavily-mcp@0.2.17` | `TAVILY_API_KEY` |
 
 Both use `${VAR}` syntax for runtime environment variable expansion.

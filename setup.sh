@@ -199,6 +199,14 @@ main() {
         echo "    Run: chmod +x ${REPO_DIR}/bin/mcp-env-inject"
     fi
 
+    if [[ -x "${REPO_DIR}/bin/mcp-fnox-inject" ]]; then
+        ln -sf "${REPO_DIR}/bin/mcp-fnox-inject" "${bin_dir}/mcp-fnox-inject"
+        echo "  ✓ ~/.local/bin/mcp-fnox-inject -> ${REPO_DIR}/bin/mcp-fnox-inject"
+    else
+        echo "  ⚠ bin/mcp-fnox-inject not found or not executable (skipping)"
+        echo "    Run: chmod +x ${REPO_DIR}/bin/mcp-fnox-inject"
+    fi
+
     if [[ -x "${REPO_DIR}/bin/claude-permissions-audit" ]]; then
         ln -sf "${REPO_DIR}/bin/claude-permissions-audit" "${bin_dir}/claude-permissions-audit"
         echo "  ✓ ~/.local/bin/claude-permissions-audit -> ${REPO_DIR}/bin/claude-permissions-audit"

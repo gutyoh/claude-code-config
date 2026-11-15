@@ -39,60 +39,35 @@ teardown() {
 
 # bats file_tags=integration
 
-@test "_build_mcp_json: doppler backend produces correct JSON for brave-search" {
+@test "_build_mcp_json: fnox backend passes the server only its own key" {
     local result
-    result="$(_build_mcp_json "brave-search" "doppler")"
-
-    # Validate it's valid JSON
-    echo "${result}" | python3 -m json.tool > /dev/null
-
-    # Check structure
-    local cmd args_len
-    cmd="$(echo "${result}" | python3 -c "import sys,json; print(json.load(sys.stdin)['command'])")"
-    [ "$cmd" = "doppler" ]
-
-    local type_val
-    type_val="$(echo "${result}" | python3 -c "import sys,json; print(json.load(sys.stdin)['type'])")"
-    [ "$type_val" = "stdio" ]
+    result="$(_build_mcp_json "brave-search" "fnox")"
+    echo "${result}" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d["type"] == "stdio" and d["command"] == "mcp-fnox-inject", d
+assert d["args"] == ["BRAVE_API_KEY", "npx", "-y", "@brave/brave-search-mcp-server@2.1.4"], d["args"]
+'
 }
 
-@test "_build_mcp_json: doppler backend includes -p and -c flags in args" {
+@test "_build_mcp_json: fnox backend names tavily's own key" {
     local result
-    result="$(_build_mcp_json "brave-search" "doppler")"
-
-    # Extract args as a comma-separated string for easy matching
-    local args
-    args="$(echo "${result}" | python3 -c "import sys,json; print(','.join(json.load(sys.stdin)['args']))")"
-
-    [[ "$args" == *"-p"* ]]
-    [[ "$args" == *"-c"* ]]
-    [[ "$args" == *"claude-code-config"* ]]
-    [[ "$args" == *"dev"* ]]
-    [[ "$args" == *"--"* ]]
-    [[ "$args" == *"npx"* ]]
-    [[ "$args" == *"-y"* ]]
-    [[ "$args" == *"@brave/brave-search-mcp-server"* ]]
+    result="$(_build_mcp_json "tavily" "fnox")"
+    echo "${result}" | python3 -c '
+import json, sys
+a = json.load(sys.stdin)["args"]
+assert a == ["TAVILY_API_KEY", "npx", "-y", "tavily-mcp@0.2.17"], a
+'
 }
 
-@test "_build_mcp_json: doppler backend args are in correct order" {
-    local result
-    result="$(_build_mcp_json "brave-search" "doppler")"
-
-    # Verify exact args array
-    local args_json
-    args_json="$(echo "${result}" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin)['args']))")"
-    [ "$args_json" = '["run", "-p", "claude-code-config", "-c", "dev", "--", "npx", "-y", "@brave/brave-search-mcp-server"]' ]
-}
-
-@test "_build_mcp_json: doppler backend produces correct JSON for tavily" {
-    local result
-    result="$(_build_mcp_json "tavily" "doppler")"
-
-    echo "${result}" | python3 -m json.tool > /dev/null
-
-    local args_json
-    args_json="$(echo "${result}" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin)['args']))")"
-    [ "$args_json" = '["run", "-p", "claude-code-config", "-c", "dev", "--", "npx", "-y", "tavily-mcp@0.2.17"]' ]
+@test "detect_mcp_backend: decides per server, by that server's own key" {
+    mkdir -p "${TEST_TMPDIR}/bin"
+    printf '#!/bin/sh\n[ "$1" = get ] && [ "$2" = BRAVE_API_KEY ] && echo k\n' > "${TEST_TMPDIR}/bin/fnox"
+    chmod +x "${TEST_TMPDIR}/bin/fnox"
+    [ "$(PATH="${TEST_TMPDIR}/bin:${PATH}" detect_mcp_backend brave-search)" = "fnox" ]
+    [ "$(PATH="${TEST_TMPDIR}/bin:${PATH}" detect_mcp_backend tavily)" = "envfile" ]
+    printf '#!/bin/sh\nexit 1\n' > "${TEST_TMPDIR}/bin/fnox"
+    [ "$(PATH="${TEST_TMPDIR}/bin:${PATH}" detect_mcp_backend brave-search)" = "envfile" ]
 }
 
 @test "_build_mcp_json: envfile backend produces correct JSON for brave-search" {
@@ -107,7 +82,7 @@ teardown() {
 
     local args_json
     args_json="$(echo "${result}" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin)['args']))")"
-    [ "$args_json" = '["npx", "-y", "@brave/brave-search-mcp-server"]' ]
+    [ "$args_json" = '["npx", "-y", "@brave/brave-search-mcp-server@2.1.4"]' ]
 }
 
 @test "_build_mcp_json: envfile backend produces correct JSON for tavily" {
@@ -131,39 +106,13 @@ teardown() {
 }
 
 # ==========================================================================
-# UNIT TESTS: _build_mcp_json — custom Doppler project/config
-# ==========================================================================
-
-@test "_build_mcp_json: respects MCP_DOPPLER_PROJECT override" {
-    # DOPPLER_PROJECT is readonly in the sourced script, so we override
-    # by sourcing again with the env var set in a subshell
-    local result
-    result="$(MCP_DOPPLER_PROJECT=my-custom-proj bash -c '
-        source "'"${MCP_SH}"'"
-        _build_mcp_json "brave-search" "doppler"
-    ')"
-
-    [[ "$result" == *"my-custom-proj"* ]]
-}
-
-@test "_build_mcp_json: respects MCP_DOPPLER_CONFIG override" {
-    local result
-    result="$(MCP_DOPPLER_CONFIG=staging bash -c '
-        source "'"${MCP_SH}"'"
-        _build_mcp_json "brave-search" "doppler"
-    ')"
-
-    [[ "$result" == *"staging"* ]]
-}
-
-# ==========================================================================
 # UNIT TESTS: _build_mcp_json — output is always valid JSON
 # ==========================================================================
 
 @test "_build_mcp_json: all server+backend combos produce valid JSON" {
     local key backend
     for key in brave-search tavily; do
-        for backend in doppler envfile; do
+        for backend in fnox envfile; do
             local result
             result="$(_build_mcp_json "${key}" "${backend}")"
             echo "${result}" | python3 -m json.tool > /dev/null 2>&1
@@ -173,7 +122,7 @@ teardown() {
 
 @test "_build_mcp_json: JSON has exactly 3 top-level keys" {
     local result
-    result="$(_build_mcp_json "brave-search" "doppler")"
+    result="$(_build_mcp_json "brave-search" "fnox")"
 
     local key_count
     key_count="$(echo "${result}" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")"
@@ -187,7 +136,7 @@ teardown() {
 @test "mcp_get: returns correct package for brave-search" {
     local pkg
     pkg="$(mcp_get "brave-search" "package")"
-    [ "$pkg" = "@brave/brave-search-mcp-server" ]
+    [ "$pkg" = "@brave/brave-search-mcp-server@2.1.4" ]
 }
 
 @test "mcp_get: returns correct package for tavily" {
@@ -217,7 +166,7 @@ teardown() {
 # INTEGRATION TESTS: _configure_single_mcp with mocked claude CLI
 # ==========================================================================
 
-@test "integration: _configure_single_mcp calls claude mcp add-json (doppler)" {
+@test "integration: _configure_single_mcp calls claude mcp add-json (fnox)" {
     # Create a mock claude that captures its arguments
     local mock_log="${TEST_TMPDIR}/claude-calls.log"
     cat > "${TEST_TMPDIR}/claude" <<'MOCK'
@@ -228,7 +177,7 @@ MOCK
     chmod +x "${TEST_TMPDIR}/claude"
     export PATH="${TEST_TMPDIR}:${PATH}"
 
-    _configure_single_mcp "brave-search" "doppler"
+    _configure_single_mcp "brave-search" "fnox"
 
     # Verify claude was called with add-json, not add
     local call
@@ -268,7 +217,7 @@ MOCK
     chmod +x "${TEST_TMPDIR}/claude"
     export PATH="${TEST_TMPDIR}:${PATH}"
 
-    run _configure_single_mcp "brave-search" "doppler"
+    run _configure_single_mcp "brave-search" "fnox"
     [ "$status" -eq 0 ]
     [[ "$output" == *"✓"* ]]
 }
@@ -282,7 +231,7 @@ MOCK
     chmod +x "${TEST_TMPDIR}/claude"
     export PATH="${TEST_TMPDIR}:${PATH}"
 
-    run _configure_single_mcp "brave-search" "doppler"
+    run _configure_single_mcp "brave-search" "fnox"
     [[ "$output" == *"⚠"* ]]
     [[ "$output" == *"Manual:"* ]]
 }
@@ -302,7 +251,7 @@ MOCK
     chmod +x "${TEST_TMPDIR}/claude"
     export PATH="${TEST_TMPDIR}:${PATH}"
 
-    _configure_single_mcp "brave-search" "doppler"
+    _configure_single_mcp "brave-search" "fnox"
 
     # Should have two calls: remove then add-json
     local call_count
@@ -333,7 +282,7 @@ MOCK
     chmod +x "${TEST_TMPDIR}/claude"
     export PATH="${TEST_TMPDIR}:${PATH}"
 
-    _configure_single_mcp "brave-search" "doppler"
+    _configure_single_mcp "brave-search" "fnox"
 
     # Should have only one call: add-json (no remove)
     local call_count
@@ -360,7 +309,7 @@ MOCK
     chmod +x "${TEST_TMPDIR}/claude"
     export PATH="${TEST_TMPDIR}:${PATH}"
 
-    _configure_single_mcp "brave-search" "doppler"
+    _configure_single_mcp "brave-search" "fnox"
 
     # Should have only one call: add-json (no remove)
     local call_count
@@ -422,21 +371,19 @@ MOCK
 # REGRESSION TEST: the original bug — short flags after -- are not consumed
 # ==========================================================================
 
-@test "regression: JSON args contain -p and -c without CLI parser conflict" {
+@test "regression: a short flag in the JSON args is not taken by the CLI parser" {
     # This is the core regression test. The old `claude mcp add` approach
     # failed because `-p` and `-c` after `--` were consumed by the CLI parser.
     # With `claude mcp add-json`, flags are inside a JSON string argument,
     # so the CLI parser never sees them.
 
     local result
-    result="$(_build_mcp_json "brave-search" "doppler")"
+    result="$(_build_mcp_json "brave-search" "fnox")"
 
-    # The JSON must contain -p and -c as args elements
-    local has_p has_c
-    has_p="$(echo "${result}" | python3 -c "import sys,json; print('-p' in json.load(sys.stdin)['args'])")"
-    has_c="$(echo "${result}" | python3 -c "import sys,json; print('-c' in json.load(sys.stdin)['args'])")"
-    [ "$has_p" = "True" ]
-    [ "$has_c" = "True" ]
+    # The JSON must contain npx's -y as an args element
+    local has_y
+    has_y="$(echo "${result}" | python3 -c "import sys,json; print('-y' in json.load(sys.stdin)['args'])")"
+    [ "$has_y" = "True" ]
 
     # But they're inside a JSON string, not as CLI flags
     # The mock claude should receive them as part of one JSON argument
@@ -452,7 +399,7 @@ MOCK
     chmod +x "${TEST_TMPDIR}/claude"
     export PATH="${TEST_TMPDIR}:${PATH}"
 
-    _configure_single_mcp "brave-search" "doppler"
+    _configure_single_mcp "brave-search" "fnox"
 
     # -p and -c should NOT appear as standalone arguments
     # They should only appear inside the JSON string argument
@@ -465,6 +412,5 @@ MOCK
     # The JSON argument should contain them
     local json_arg
     json_arg="$(grep 'ARG:{' "${mock_log}")"
-    [[ "$json_arg" == *'"-p"'* ]]
-    [[ "$json_arg" == *'"-c"'* ]]
+    [[ "$json_arg" == *'"-y"'* ]]
 }

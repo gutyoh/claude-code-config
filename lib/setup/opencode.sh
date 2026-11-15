@@ -238,21 +238,17 @@ with open(dest_path, "w", encoding="utf-8") as fh:
 PYTHON_TRANSLATE
 }
 
-# backend = "doppler" → `doppler run -p PROJ -c CONF -- npx -y PKG`
+# backend = "fnox"    → `mcp-fnox-inject VAR npx -y PKG` (only that server's key)
 # backend = "envfile" → `mcp-env-inject npx -y PKG`
 # Wrong wrapper = MCP -32000 "Connection closed" (no keys reach server).
 _opencode_build_mcp_entry() {
-    local pkg="$1" backend="$2"
-    if [[ "${backend}" == "doppler" ]]; then
-        jq -n -c \
-            --arg project "${DOPPLER_PROJECT}" \
-            --arg config "${DOPPLER_CONFIG}" \
-            --arg pkg "${pkg}" \
-            '{
-                type: "local",
-                command: ["doppler", "run", "-p", $project, "-c", $config, "--", "npx", "-y", $pkg],
-                enabled: true
-            }'
+    local pkg="$1" backend="$2" env_var="${3:-}"
+    if [[ "${backend}" == "fnox" ]]; then
+        jq -n -c --arg pkg "${pkg}" --arg env_var "${env_var}" '{
+            type: "local",
+            command: ["mcp-fnox-inject", $env_var, "npx", "-y", $pkg],
+            enabled: true
+        }'
     else
         jq -n -c --arg pkg "${pkg}" '{
             type: "local",
@@ -346,9 +342,7 @@ _opencode_generate_json() {
 
     OPENCODE_JSON="$(_opencode_resolve_config_path)"
 
-    local backend
-    backend="$(detect_mcp_backend)"
-
+    local backend backends=""
     local mcp_section="{}"
     local key
     for key in "${INSTALL_MCP_SERVERS[@]}"; do
@@ -357,8 +351,10 @@ _opencode_generate_json() {
         if [[ -z "${pkg}" ]]; then
             continue
         fi
+        backend="$(detect_mcp_backend "${key}")"
+        backends="${backends:+${backends}, }${key}: ${backend}"
         local entry
-        entry="$(_opencode_build_mcp_entry "${pkg}" "${backend}")"
+        entry="$(_opencode_build_mcp_entry "${pkg}" "${backend}" "$(mcp_get "${key}" env_var)")"
         mcp_section="$(printf '%s' "${mcp_section}" | jq -c \
             --arg name "${key}" \
             --argjson entry "${entry}" \
@@ -387,7 +383,7 @@ _opencode_generate_json() {
         '. + {"$schema": "https://opencode.ai/config.json"} + {mcp: ((.mcp // {}) + $mcp)}')"
 
     printf '%s\n' "${merged}" | jq '.' >"${OPENCODE_JSON}"
-    echo "  ✓ ${OPENCODE_JSON} (${backend} backend)"
+    echo "  ✓ ${OPENCODE_JSON} (${backends:-no servers})"
 }
 
 _opencode_link_agents_md() {

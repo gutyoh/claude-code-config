@@ -12,7 +12,7 @@ $script:McpServers = @{
         label      = "brave-search"
         desc       = "Web, image, video, news, local search (1,000/mo free)"
         env_var    = "BRAVE_API_KEY"
-        package    = "@brave/brave-search-mcp-server"
+        package    = "@brave/brave-search-mcp-server@2.1.4"
         signup_url = "https://api-dashboard.search.brave.com/"
         free_limit = "1,000 searches/month (`$5 free credits)"
     }

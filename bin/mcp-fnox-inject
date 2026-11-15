@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# mcp-fnox-inject
+# Path: claude-code-config/bin/mcp-fnox-inject
+#
+# Starts an MCP server with only its own API key, read from fnox.
+#
+# Usage (in ~/.claude.json mcpServers):
+#   "command": "mcp-fnox-inject",
+#   "args": ["BRAVE_API_KEY", "npx", "-y", "@brave/brave-search-mcp-server@2.1.4"]
+#
+# `fnox exec` would hand the server every secret fnox holds; this passes one.
+# fnox runs from HOME, so a fnox.toml in the repository a session opened is
+# never read. A key fnox cannot decrypt stops the server with a message rather
+# than starting it without one. exec keeps one process, so Claude's signals
+# reach the server and nothing is left behind.
+set -euo pipefail
+
+readonly var="${1:?usage: mcp-fnox-inject VAR command [args...]}"
+shift
+if [[ ! "${var}" =~ ^[A-Z_][A-Z0-9_]*$ ]]; then
+    echo "mcp-fnox-inject: '${var}' is not a variable name" >&2
+    exit 2
+fi
+if (($# == 0)); then
+    echo "mcp-fnox-inject: no server command after ${var}" >&2
+    exit 2
+fi
+
+# A shim path survives fnox upgrades, for launchers whose PATH lacks mise's shims.
+fnox_bin="${MCP_FNOX_BIN:-$(command -v fnox || echo "${HOME}/.local/share/mise/shims/fnox")}"
+# fnox's own reason (a missing age key, say) is shown only when it fails.
+err="$(mktemp)"
+if ! value="$(cd "${HOME}" && "${fnox_bin}" get "${var}" 2>"${err}")" || [[ -z "${value}" ]]; then
+    sed 's/^/mcp-fnox-inject: fnox: /' "${err}" >&2
+    rm -f "${err}"
+    echo "mcp-fnox-inject: fnox could not decrypt ${var}; not starting the server" >&2
+    exit 1
+fi
+rm -f "${err}"
+export "${var}=${value}"
+exec "$@"
