@@ -162,6 +162,8 @@ The system auto-detects the secrets backend:
 1. **Doppler** (enterprise): if the Doppler CLI is installed and configured for the project, uses Doppler secrets management.
 2. **Envfile** (default): reads/writes API keys from `~/.claude/mcp-keys.env`. After rotation, syncs the active key to the envfile.
 
+Launching the servers is separate from rotating keys: setup registers each MCP server through `mcp-fnox-inject`, which gives it only its own key from fnox (read from HOME), when fnox can decrypt that key, and through `mcp-env-inject` with the envfile otherwise. Doppler no longer launches any server.
+
 Key rotation is atomic: find the current key's index in the pool, advance to the next, and write the new active key. Quota checking calls the provider's API (Brave: response headers, Tavily: `/usage` endpoint) with a 5-minute cache to avoid redundant API calls.
 
 ## The setup system

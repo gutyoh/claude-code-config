@@ -507,29 +507,15 @@ EOF
     [ "$first" = "$second" ]
 }
 
-@test "_opencode_build_mcp_entry: doppler backend emits doppler run command" {
+@test "_opencode_build_mcp_entry: fnox backend passes the server only its own key" {
     source "$OPENCODE_SH"
     local entry
-    entry="$(_opencode_build_mcp_entry "@brave/brave-search-mcp-server" "doppler")"
-    local cmd0 cmd1 cmd2 cmd3 cmd4 cmd5 cmd6 cmd7 cmd8
-    cmd0="$(echo "${entry}" | jq -r '.command[0]')"
-    cmd1="$(echo "${entry}" | jq -r '.command[1]')"
-    cmd2="$(echo "${entry}" | jq -r '.command[2]')"
-    cmd3="$(echo "${entry}" | jq -r '.command[3]')"
-    cmd4="$(echo "${entry}" | jq -r '.command[4]')"
-    cmd5="$(echo "${entry}" | jq -r '.command[5]')"
-    cmd6="$(echo "${entry}" | jq -r '.command[6]')"
-    cmd7="$(echo "${entry}" | jq -r '.command[7]')"
-    cmd8="$(echo "${entry}" | jq -r '.command[8]')"
-    [ "$cmd0" = "doppler" ]
-    [ "$cmd1" = "run" ]
-    [ "$cmd2" = "-p" ]
-    [ "$cmd3" = "claude-code-config" ]
-    [ "$cmd4" = "-c" ]
-    [ "$cmd5" = "dev" ]
-    [ "$cmd6" = "--" ]
-    [ "$cmd7" = "npx" ]
-    [ "$cmd8" = "-y" ]
+    entry="$(_opencode_build_mcp_entry "@brave/brave-search-mcp-server@2.1.4" "fnox" "BRAVE_API_KEY")"
+    echo "${entry}" | python3 -c '
+import json, sys
+c = json.load(sys.stdin)["command"]
+assert c == ["mcp-fnox-inject", "BRAVE_API_KEY", "npx", "-y", "@brave/brave-search-mcp-server@2.1.4"], c
+'
 }
 
 @test "_opencode_build_mcp_entry: envfile backend emits mcp-env-inject command" {
@@ -543,7 +529,7 @@ EOF
     [ "$cmd1" = "npx" ]
 }
 
-@test "_opencode_generate_json: respects active backend (doppler vs envfile)" {
+@test "_opencode_generate_json: respects active backend (fnox vs envfile)" {
     INSTALL_MCP_SERVERS=("brave-search")
     mkdir -p "${OPENCODE_CONFIG_DIR_OVERRIDE}"
 
@@ -558,13 +544,14 @@ EOF
     cmd0="$(jq -r '.mcp."brave-search".command[0]' "${OPENCODE_JSON}")"
     [ "$cmd0" = "mcp-env-inject" ]
 
-    # Now switch to doppler and regenerate
-    detect_mcp_backend() { echo "doppler"; }
+    # Now switch to fnox and regenerate
+    detect_mcp_backend() { echo "fnox"; }
     export -f detect_mcp_backend
     _opencode_generate_json
 
     cmd0="$(jq -r '.mcp."brave-search".command[0]' "${OPENCODE_JSON}")"
-    [ "$cmd0" = "doppler" ]
+    [ "$cmd0" = "mcp-fnox-inject" ]
+    [ "$(jq -r '.mcp."brave-search".command[1]' "${OPENCODE_JSON}")" = "BRAVE_API_KEY" ]
 
     unset -f detect_mcp_backend
 }

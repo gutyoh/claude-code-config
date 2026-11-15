@@ -273,24 +273,21 @@ EOF
 # UNIT TESTS: detect_mcp_backend (from lib/setup/mcp.sh)
 # ==========================================================================
 
-@test "detect_mcp_backend: returns doppler when doppler is available" {
-    # Mock doppler is already in PATH and BRAVE_API_KEY is seeded
-    doppler_seed "BRAVE_API_KEY" "${KEY_A}"
-
-    run bash -c '
+@test "detect_mcp_backend: returns fnox when fnox can decrypt the key" {
+    local bin="${BATS_TEST_TMPDIR}/fnox-bin"
+    mkdir -p "${bin}"
+    printf '#!/bin/sh\n[ "$1" = get ] && [ "$2" = BRAVE_API_KEY ] && echo k\n' > "${bin}/fnox"
+    chmod +x "${bin}/fnox"
+    run env PATH="${bin}:/usr/bin:/bin" bash -c '
         source "'"${MCP_SH}"'"
         detect_mcp_backend
     '
     [ "$status" -eq 0 ]
-    [ "$output" = "doppler" ]
+    [ "$output" = "fnox" ]
 }
 
-@test "detect_mcp_backend: returns envfile when doppler is not available" {
-    # Build a minimal PATH with only system dirs, excluding mock doppler AND real doppler
-    # We need basic commands (bash, grep, etc.) but no doppler anywhere
-    local minimal_path="/usr/bin:/bin:/usr/sbin:/sbin"
-
-    run env PATH="${minimal_path}" bash -c '
+@test "detect_mcp_backend: returns envfile when fnox is not available" {
+    run env PATH="/usr/bin:/bin:/usr/sbin:/sbin" bash -c '
         source "'"${MCP_SH}"'"
         detect_mcp_backend
     '
@@ -298,9 +295,12 @@ EOF
     [ "$output" = "envfile" ]
 }
 
-@test "detect_mcp_backend: returns envfile when doppler project is inaccessible" {
-    # Mock doppler is in PATH but no secrets are seeded (secrets get will fail)
-    run bash -c '
+@test "detect_mcp_backend: returns envfile when fnox cannot decrypt the key" {
+    local bin="${BATS_TEST_TMPDIR}/fnox-bin"
+    mkdir -p "${bin}"
+    printf '#!/bin/sh\nexit 1\n' > "${bin}/fnox"
+    chmod +x "${bin}/fnox"
+    run env PATH="${bin}:/usr/bin:/bin" bash -c '
         source "'"${MCP_SH}"'"
         detect_mcp_backend
     '
@@ -464,8 +464,8 @@ REPO_ROOT="$BATS_TEST_DIRNAME/.."
     grep -q "detect_mcp_backend" "${REPO_ROOT}/lib/setup/mcp.sh"
 }
 
-@test "repo: lib/setup/mcp.sh references doppler run wrapper" {
-    grep -q "doppler run" "${REPO_ROOT}/lib/setup/mcp.sh"
+@test "repo: lib/setup/mcp.sh references mcp-fnox-inject wrapper" {
+    grep -q "mcp-fnox-inject" "${REPO_ROOT}/lib/setup/mcp.sh"
 }
 
 @test "repo: lib/setup/mcp.sh references mcp-env-inject wrapper" {

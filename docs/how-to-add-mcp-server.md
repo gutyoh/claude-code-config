@@ -33,15 +33,20 @@ Add the key to `~/.claude/mcp-keys.env`:
 echo 'MY_API_KEY=your-key-here' >> ~/.claude/mcp-keys.env
 ```
 
-### Doppler backend (enterprise)
+### fnox backend (preferred)
 
-If using Doppler for secrets management:
+If [fnox](https://github.com/jdx/fnox) can decrypt a server's key, setup registers that server as
+`mcp-fnox-inject <VAR> npx -y <package>`. The helper reads only that key, from HOME (so a
+repository's `fnox.toml` is never read), exports it alone and `exec`s the server. `fnox exec`
+would hand the server every secret fnox holds. A key fnox cannot decrypt stops the server with
+a message. Add the key from the directory that holds your fnox config:
 
 ```bash
-doppler secrets set MY_API_KEY --project claude-code-config --config dev
+printf %s "$MY_API_KEY" | fnox set MY_API_KEY --provider age
 ```
 
-The setup script auto-detects which backend to use.
+Setup decides per server: fnox when it can decrypt that server's key, the env file otherwise.
+The choice is made at setup time; if fnox later cannot decrypt the key, re-run setup.
 
 ## 3. Verify the server
 

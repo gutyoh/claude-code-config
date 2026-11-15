@@ -432,7 +432,7 @@ Describe "MCP module" {
         It "brave-search has required fields" {
             $server = $script:McpServers["brave-search"]
             $server.env_var | Should -Be "BRAVE_API_KEY"
-            $server.package | Should -Be "@brave/brave-search-mcp-server"
+            $server.package | Should -Be "@brave/brave-search-mcp-server@2.1.4"
             $server.signup_url | Should -Not -BeNullOrEmpty
         }
 

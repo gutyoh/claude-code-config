@@ -20,7 +20,7 @@ mcp_get() {
         brave-search:label) echo "brave-search" ;;
         brave-search:desc) echo "Web, image, video, news, local search (1,000/mo free)" ;;
         brave-search:env_var) echo "BRAVE_API_KEY" ;;
-        brave-search:package) echo "@brave/brave-search-mcp-server" ;;
+        brave-search:package) echo "@brave/brave-search-mcp-server@2.1.4" ;;
         brave-search:signup_url) echo "https://api-dashboard.search.brave.com/" ;;
         brave-search:free_limit) echo "1,000 searches/month (\$5 free credits)" ;;
         tavily:label) echo "tavily" ;;
@@ -34,27 +34,20 @@ mcp_get() {
 }
 
 # --- MCP Backend Detection ---
-# Determines whether to use Doppler wrapper or mcp-env-inject wrapper.
-# Returns: "doppler" or "envfile"
+# Per server: fnox when it can decrypt that server's key, else the env file.
+# Usage: detect_mcp_backend [key]   (key defaults to brave-search)
+# Returns: "fnox" or "envfile"
 
-readonly DOPPLER_PROJECT="${MCP_DOPPLER_PROJECT:-claude-code-config}"
-readonly DOPPLER_CONFIG="${MCP_DOPPLER_CONFIG:-dev}"
 readonly MCP_KEYS_ENV_FILE="${MCP_KEYS_ENV_FILE:-${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/mcp-keys.env}"
 
 detect_mcp_backend() {
-    # Tier 1: Doppler CLI available and project accessible
-    if command -v doppler &>/dev/null; then
-        # Test that at least one MCP key is accessible via Doppler
-        local test_var
-        test_var="$(mcp_get "brave-search" env_var)"
-        if doppler secrets get "${test_var}" --plain \
-            -p "${DOPPLER_PROJECT}" -c "${DOPPLER_CONFIG}" &>/dev/null; then
-            echo "doppler"
-            return
-        fi
+    local key="${1:-brave-search}" env_var
+    env_var="$(mcp_get "${key}" env_var)"
+    # From HOME, so a repository's fnox.toml is never read.
+    if command -v fnox &>/dev/null && (cd "${HOME}" && fnox get "${env_var}") &>/dev/null; then
+        echo "fnox"
+        return
     fi
-
-    # Tier 2: Fall back to env file wrapper
     echo "envfile"
 }
 
@@ -70,18 +63,15 @@ configure_mcp_servers() {
         return
     fi
 
-    local backend
-    backend="$(detect_mcp_backend)"
-    echo "  MCP backend: ${backend}"
-    echo ""
-
-    local key
+    local key backend any_envfile=0
     for key in "${INSTALL_MCP_SERVERS[@]}"; do
+        backend="$(detect_mcp_backend "${key}")"
+        [[ "${backend}" == "envfile" ]] && any_envfile=1
         _configure_single_mcp "${key}" "${backend}"
     done
 
-    # For envfile backend: create the keys env file
-    if [[ "${backend}" == "envfile" ]]; then
+    # For servers on the envfile backend: create the keys env file
+    if ((any_envfile)); then
         _create_mcp_keys_env
     fi
 }
@@ -96,13 +86,14 @@ _build_mcp_json() {
     local package
     package="$(mcp_get "${key}" package)"
 
-    if [[ "${backend}" == "doppler" ]]; then
-        # Doppler wrapper: doppler run -p PROJECT -c CONFIG -- npx -y <package>
+    if [[ "${backend}" == "fnox" ]]; then
+        # mcp-fnox-inject passes the server only its own key, read from fnox in HOME.
+        local env_var
+        env_var="$(mcp_get "${key}" env_var)"
         jq -n -c \
-            --arg project "${DOPPLER_PROJECT}" \
-            --arg config "${DOPPLER_CONFIG}" \
+            --arg env_var "${env_var}" \
             --arg package "${package}" \
-            '{type:"stdio",command:"doppler",args:["run","-p",$project,"-c",$config,"--","npx","-y",$package]}'
+            '{type:"stdio",command:"mcp-fnox-inject",args:[$env_var,"npx","-y",$package]}'
     else
         # Env file wrapper: mcp-env-inject npx -y <package>
         jq -n -c \
@@ -200,33 +191,21 @@ _create_mcp_keys_env() {
 }
 
 check_mcp_env_vars() {
-    local backend
-    backend="$(detect_mcp_backend)"
-
-    if [[ "${backend}" == "doppler" ]]; then
-        echo "  ✓ Doppler backend active — keys injected at MCP server launch"
-        return
-    fi
-
-    # For envfile backend: check the env file exists and has keys
-    if [[ -f "${MCP_KEYS_ENV_FILE}" ]]; then
-        local key
-        for key in "${INSTALL_MCP_SERVERS[@]}"; do
-            local env_var
-            env_var="$(mcp_get "${key}" env_var)"
-            if grep -q "^${env_var}=" "${MCP_KEYS_ENV_FILE}" 2>/dev/null; then
-                echo "  ✓ ${env_var} found in ${MCP_KEYS_ENV_FILE}"
-            else
-                local signup_url free_limit
-                signup_url="$(mcp_get "${key}" signup_url)"
-                free_limit="$(mcp_get "${key}" free_limit)"
-                echo "  ⚠ ${env_var} missing from ${MCP_KEYS_ENV_FILE}"
-                echo "    echo '${env_var}=YOUR_KEY' >> ${MCP_KEYS_ENV_FILE}"
-                echo "    Get a free API key (${free_limit}): ${signup_url}"
-            fi
-        done
-    else
-        echo "  ⚠ ${MCP_KEYS_ENV_FILE} not found."
-        echo "    Re-run setup.sh or create it manually with your MCP API keys."
-    fi
+    local key env_var backend
+    for key in "${INSTALL_MCP_SERVERS[@]}"; do
+        env_var="$(mcp_get "${key}" env_var)"
+        backend="$(detect_mcp_backend "${key}")"
+        if [[ "${backend}" == "fnox" ]]; then
+            echo "  ✓ ${env_var} in fnox — injected alone at ${key} launch"
+        elif [[ -f "${MCP_KEYS_ENV_FILE}" ]] && grep -q "^${env_var}=" "${MCP_KEYS_ENV_FILE}" 2>/dev/null; then
+            echo "  ✓ ${env_var} found in ${MCP_KEYS_ENV_FILE}"
+        else
+            local signup_url free_limit
+            signup_url="$(mcp_get "${key}" signup_url)"
+            free_limit="$(mcp_get "${key}" free_limit)"
+            echo "  ⚠ ${env_var} missing from fnox and ${MCP_KEYS_ENV_FILE}"
+            echo "    echo '${env_var}=YOUR_KEY' >> ${MCP_KEYS_ENV_FILE}"
+            echo "    Get a free API key (${free_limit}): ${signup_url}"
+        fi
+    done
 }
