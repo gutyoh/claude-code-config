@@ -18,7 +18,7 @@ printf '%s|%s\n' "$(pwd)" "$*" >>"$(dirname "$0")/calls"
 case "$2" in
     BRAVE_API_KEY) echo brave-secret ;;
     EMPTY_KEY) echo "" ;;
-    *) exit 1 ;;
+    *) echo "no identity matched" >&2; exit 1 ;;
 esac
 STUB
     chmod +x "${STUB}"
@@ -38,6 +38,7 @@ STUB
     run "${INJECT}" TAVILY_API_KEY sh -c 'echo started'
     [ "$status" -eq 1 ]
     [[ "$output" == *"could not decrypt TAVILY_API_KEY"* ]]
+    [[ "$output" == *"mcp-fnox-inject: fnox: no identity matched"* ]]
     [[ "$output" != *started* ]]
 }
 

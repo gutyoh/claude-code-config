@@ -39,7 +39,8 @@ If [fnox](https://github.com/jdx/fnox) can decrypt a server's key, setup registe
 `mcp-fnox-inject <VAR> npx -y <package>`. The helper reads only that key, from HOME (so a
 repository's `fnox.toml` is never read), exports it alone and `exec`s the server. `fnox exec`
 would hand the server every secret fnox holds. A key fnox cannot decrypt stops the server with
-a message. Add the key from the directory that holds your fnox config:
+fnox's reason. The helper only controls what it adds: keys exported in the shell that starts
+Claude Code (a mise integration of fnox, say) still reach every server. Add the key from the directory that holds your fnox config:
 
 ```bash
 printf %s "$MY_API_KEY" | fnox set MY_API_KEY --provider age

@@ -28,9 +28,14 @@ fi
 
 # A shim path survives fnox upgrades, for launchers whose PATH lacks mise's shims.
 fnox_bin="${MCP_FNOX_BIN:-$(command -v fnox || echo "${HOME}/.local/share/mise/shims/fnox")}"
-if ! value="$(cd "${HOME}" && "${fnox_bin}" get "${var}" 2>/dev/null)" || [[ -z "${value}" ]]; then
+# fnox's own reason (a missing age key, say) is shown only when it fails.
+err="$(mktemp)"
+if ! value="$(cd "${HOME}" && "${fnox_bin}" get "${var}" 2>"${err}")" || [[ -z "${value}" ]]; then
+    sed 's/^/mcp-fnox-inject: fnox: /' "${err}" >&2
+    rm -f "${err}"
     echo "mcp-fnox-inject: fnox could not decrypt ${var}; not starting the server" >&2
     exit 1
 fi
+rm -f "${err}"
 export "${var}=${value}"
 exec "$@"
