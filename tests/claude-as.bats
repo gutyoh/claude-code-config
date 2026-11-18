@@ -1674,7 +1674,7 @@ three_accounts() {
     mkdir -p "${HOME}/keychain"
     printf 'work-secret' >"${HOME}/keychain/$(service_of "${old}")"
     STUB_KEYCHAIN_CUT=4 run "$SCRIPT" --tidy
-    [[ ${output} == *"~/.claude-me@work.example-3 keeps its name: its Keychain login cannot be read here"* ]]
+    [[ ${output} == *"~/.claude-me@work.example-3 keeps its name: its Keychain login could not be copied"* ]]
     [[ ${output} != *"did not survive"* ]]
     [ -d "${old}" ] && [ ! -e "${new}" ]
     [ ! -e "${HOME}/keychain/$(service_of "${new}")" ]
@@ -1687,9 +1687,12 @@ three_accounts() {
     local old="${HOME}/.claude-me@work.example-3" new="${HOME}/.claude-me@work.example"
     mkdir -p "${HOME}/keychain"
     printf 'work-secret' >"${HOME}/keychain/$(service_of "${old}")"
+    STUB_KEYCHAIN_NO_SECRET=1 run "$SCRIPT" --tidy --dry-run
+    [[ ${output} == *"left alone  ~/.claude-me@work.example-3: should be ~/.claude-me@work.example, but its Keychain login cannot be read here"* ]]
+    [[ ${output} != *"would rename ~/.claude-me@work.example-3"* ]]
     STUB_KEYCHAIN_NO_SECRET=1 run "$SCRIPT" --tidy
     [ "$status" -eq 0 ]
-    [[ ${output} == *"keeps its name: its Keychain login cannot be read here; run --tidy in a terminal of the desktop session"* ]]
+    [[ ${output} == *"but its Keychain login cannot be read here; run --tidy in a terminal of the desktop session"* ]]
     [ -d "${old}" ] && [ ! -e "${new}" ]
     [ "$(cat "${HOME}/keychain/$(service_of "${old}")")" = work-secret ]
     [ ! -e "${HOME}/security.stdin" ]
@@ -1720,7 +1723,7 @@ three_accounts() {
     three_accounts
     need_tty
     stub_bin gum 'echo picked-anyway'
-    run on_tty bash -c "'$SCRIPT' 2>/dev/null"
+    run on_tty bash -c "'$SCRIPT' 2>/dev/null" </dev/null
     [[ ${output} == *EMAIL* ]]
     [[ ${output} != *picked-anyway* ]]
 }
@@ -1898,4 +1901,36 @@ EOF
     run on_tty "$SCRIPT" --list </dev/null
     [[ ${output} == *EMAIL* ]]
     [[ ${output} != *picked* ]]
+}
+
+@test "starting an account links what the shared home gained since, and nothing else" {
+    three_accounts
+    local h="${HOME}/.claude-me@work.example"
+    mkdir -p "${HOME}/.claude/rules" "${h}/agents"
+    echo fleet >"${HOME}/.claude/rules/workstation.md"
+    mkdir -p "${HOME}/.claude/agents"
+    run "$SCRIPT" me@work.example -p hi
+    [ "$status" -eq 0 ]
+    [ "$(readlink "${h}/rules")" = "${HOME}/.claude/rules" ]
+    [ "$(cat "${h}/rules/workstation.md")" = fleet ]
+    # A real folder of the account's own stays as it is, and says nothing.
+    [ -d "${h}/agents" ] && [ ! -L "${h}/agents" ]
+    [[ ${output} != *"left alone"* && ${output} != *linked* ]]
+}
+
+@test "two starts racing to make the same link both start" {
+    three_accounts
+    local h="${HOME}/.claude-me@work.example"
+    mkdir -p "${HOME}/.claude/rules"
+    # The other start makes the link between this one's look and its ln.
+    stub_bin ln <<'EOF'
+/bin/ln "$@"
+exit 1
+EOF
+    run "$SCRIPT" --relink
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"linked      ~/.claude-me@work.example/rules"* ]]
+    run "$SCRIPT" me@work.example -p hi
+    [ "$status" -eq 0 ]
+    [[ ${output} == *RAN* ]]
 }

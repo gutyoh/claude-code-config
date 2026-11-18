@@ -596,6 +596,9 @@ run_in() {
         [[ -z ${alias} ]] || export CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX="claude-${alias}"
     fi
     warn_overrides
+    # What the shared home gained since (a reconcile's rules/, say) reaches
+    # this account on its next start; a real file in the way is left alone.
+    [[ ! -d ${home} ]] || link_shared "${home}" >/dev/null 2>&1 || true
     for name in ${DROPPED}; do unset "${name}"; done
     unset CLAUDE_AS_CONFIRMED
     if [[ ${home} == "${HOME}/.claude" ]]; then
@@ -644,9 +647,12 @@ link_shared() {
             continue
         elif [[ -e ${dst} || -L ${dst} ]]; then
             printf 'left alone  %s: not a link to %s\n' "$(short "${dst}")" "$(short "${src}")"
-        else
-            ln -s "${src}" "${dst}"
+        # Sessions herdr restores at once can race to make the same link: one
+        # that another made first counts as made.
+        elif ln -s "${src}" "${dst}" 2>/dev/null || [[ -L ${dst} && $(readlink "${dst}") == "${src}" ]]; then
             printf 'linked      %s\n' "$(short "${dst}")"
+        else
+            printf 'left alone  %s: could not link it to %s\n' "$(short "${dst}")" "$(short "${src}")"
         fi
     done
 }
@@ -712,6 +718,13 @@ copy_secret() {
 # while the Keychain is locked; reading its secret does not.
 keychain_login() {
     keychain && security find-generic-password -s "$(secret_service "$1")" -a "${USER:-$(id -un)}" >/dev/null 2>&1
+}
+
+# Whether <home>'s login is a Keychain entry this session cannot read: an SSH
+# or agent session sees the entry's attributes but is refused its secret.
+secret_unreadable() {
+    keychain_login "$1" || return 1
+    ! security find-generic-password -s "$(secret_service "$1")" -a "${USER:-$(id -un)}" -w >/dev/null 2>&1
 }
 
 drop_secret() {
@@ -796,10 +809,11 @@ relocate() {
     copy_secret "${from}" "${to}" || copied=$?
     case ${copied} in
         1)
-            # Its entry is there but cannot be read (an SSH or agent session has
-            # no access to the login Keychain): a rename would leave it behind.
+            # Its entry is there but did not copy whole (a Keychain that refuses
+            # this session, or a write that did not hold): a rename would leave
+            # it behind. --tidy catches the unreadable case before this.
             if keychain_login "${from}"; then
-                printf 'claude-as: %s keeps its name: its Keychain login cannot be read here; run --tidy in a terminal of the desktop session\n' \
+                printf 'claude-as: %s keeps its name: its Keychain login could not be copied; run --tidy in a terminal of the desktop session\n' \
                     "$(short "${from}")" >&2
                 return 2
             fi
@@ -969,6 +983,13 @@ tidy() {
         if in_use "${home}" && keychain_login "${home}"; then
             printf 'left alone  %s: should be %s, but its Keychain login is in use by %s; run --tidy once it ends\n' \
                 "$(short "${home}")" "$(short "${want}")" "$(users_of "${home}")"
+            held=1
+            continue
+        fi
+        # Known before renaming, so --dry-run promises only what a run does.
+        if secret_unreadable "${home}"; then
+            printf 'left alone  %s: should be %s, but its Keychain login cannot be read here; run --tidy in a terminal of the desktop session\n' \
+                "$(short "${home}")" "$(short "${want}")"
             held=1
             continue
         fi
