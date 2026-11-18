@@ -45,7 +45,9 @@ machines: Claude Code rotates the token, so both copies stop working.
 ## Use an account
 
 ```bash
-claude-as                              # list accounts: email, plan, organization, home
+claude-as                              # at a terminal: pick the account, then start it
+claude-as --pick --continue            # pick, then pass claude's arguments on
+claude-as --list                       # list accounts: email, plan, organization, home
 claude-as you@example.com              # start Claude Code as that account
 claude-as you@example.com --continue   # claude's own arguments follow the email
 claude-as you@example.com --yolo       # the same; bypass permissions is the default
@@ -71,7 +73,23 @@ Ambiguous names list every match and run nothing. `--add` prints the shortest
 name that is whole. A home's path names it directly: `claude-as ~/.claude-work`.
 One account signed in to two homes runs from `~/.claude`, or else the first.
 
-Plain `claude` keeps using `~/.claude`.
+Plain `claude` keeps using `~/.claude`, so it runs as whatever account
+`~/.claude` itself signed in with; `--check` names it. To be asked every time,
+start Claude Code with `claude-as` instead, or alias `claude` to it in your
+shell.
+
+### Pick an account
+
+At a terminal, `claude-as` with no arguments shows every signed-in account
+once, by the name it takes on the command line, with its plan and
+organization, and starts the one you pick. It uses
+[gum](https://github.com/charmbracelet/gum) when installed, else
+[fzf](https://github.com/junegunn/fzf), else a numbered menu that needs
+nothing; `CLAUDE_AS_PICKER=gum|fzf|menu` chooses. Cancelling starts nothing.
+
+Without a terminal (a script, a pipe, a launchd job) it never asks: it lists
+the accounts as before, and `--pick` refuses with status 2 rather than wait.
+With `CLAUDE_AS` set it runs that account without asking.
 
 ## Resume a session as its account
 
@@ -198,7 +216,13 @@ claude-as --tidy             # one home per account, each named after it
   credentials are deleted (not revoked, so the home that stays remains signed
   in). Sessions recorded there resume in the home that stays.
 - A home whose name holds another email, or a retry number such as `-3`, is
-  renamed after its login, along with its Keychain entry on macOS.
+  renamed after its login, along with its Keychain entry on macOS. The entry
+  is copied, read back, and the old one deleted only once the renamed home is
+  signed in; any failure leaves the old home and its entry as they were.
+  `security -i` reads one command per 4096-byte line
+  ([anthropics/claude-code#28901](https://github.com/anthropics/claude-code/issues/28901)),
+  so a login too long for one line, which would be stored cut, keeps its home
+  where it is.
 - A name without an email, such as `~/.claude-work`, is your own choice and
   stays.
 - A home a running session uses is never archived. It is renamed only when its

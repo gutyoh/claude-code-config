@@ -11,7 +11,10 @@
 # continues as another.
 #
 # Usage:
-#   claude-as                         list accounts
+#   claude-as                         at a terminal, pick the account to run (gum, else fzf,
+#                                     else a numbered menu); otherwise list accounts
+#   claude-as --pick [claude args]    pick the account, then run claude with the args
+#   claude-as --list                  list accounts
 #   claude-as <email> [claude args]   run claude as the account that email signed in,
 #                                     in bypass permissions (--dangerously-skip-permissions)
 #                                     unless the args choose a --permission-mode
@@ -59,7 +62,9 @@
 # --wait bounds the wait for an agent to go idle (default 600).
 #
 # Env:
-#   CLAUDE_AS          default account, written as on the command line
+#   CLAUDE_AS          default account, written as on the command line; set, a
+#                      bare claude-as runs it without asking
+#   CLAUDE_AS_PICKER   gum, fzf or menu: the picker to use (default: the first found)
 #   CLAUDE_AS_HOMES    homes to use, colon-separated (default: ~/.claude ~/.claude-*)
 #   CLAUDE_AS_SHARED   the home the others link to (default: ~/.claude)
 #   CLAUDE_AS_SHARE    names linked into each home (default: SHARE below)
@@ -171,6 +176,38 @@ list() {
         printf '%-36s %-14s %-24.24s %s\n' "${email:-(not signed in)}" "${plan:--}" \
             "${org:--}" "$(short "${home}")"
     done < <(accounts)
+}
+
+# The account a person picks: one row per account, "<name>  <plan>  <org>",
+# and the name of the row chosen. Exit 130 when nothing is chosen.
+pick() {
+    local home email org plan uuid row choice tool=${CLAUDE_AS_PICKER:-}
+    local -a rows=()
+    while IFS=$'\037' read -r home email org plan uuid; do
+        [[ -n ${email} ]] || continue
+        row="$(name_of "${home}")"$'\t'"${plan:--}"$'\t'"${org:--}"
+        [[ " ${rows[*]-} " == *" ${row} "* ]] || rows+=("${row}")
+    done < <(accounts)
+    ((${#rows[@]})) || die "no account is signed in; claude-as --add <email> signs one in"
+    if [[ -z ${tool} ]]; then
+        tool=menu
+        command -v fzf >/dev/null 2>&1 && tool=fzf
+        command -v gum >/dev/null 2>&1 && tool=gum
+    fi
+    case ${tool} in
+        gum) choice=$(gum choose --header "Run Claude Code as" -- "${rows[@]}") || exit 130 ;;
+        fzf) choice=$(printf '%s\n' "${rows[@]}" | fzf --prompt 'claude-as> ' --reverse --height 40% --delimiter '\t') || exit 130 ;;
+        menu)
+            local PS3='Run Claude Code as (number): '
+            select choice in "${rows[@]}"; do
+                [[ -n ${choice} ]] && break
+            done
+            [[ -n ${choice:-} ]] || exit 130
+            ;;
+        *) die "CLAUDE_AS_PICKER is gum, fzf or menu, not '${tool}'" 2 ;;
+    esac
+    [[ -n ${choice} ]] || exit 130
+    printf '%s\n' "${choice%%$'\t'*}"
 }
 
 # The one home <who> names: "<email>[/<organization, plan or org id>]", or the
@@ -631,26 +668,38 @@ secret_service() {
 
 keychain() { [[ $(uname -s) == Darwin ]] && command -v security >/dev/null 2>&1; }
 
-# Moves <from>'s Keychain login to <to>. The secret goes to security(1) on
-# stdin: a command line is readable by every process of the machine.
-# Status 1: there may be one, but the Keychain is locked.
-carry_secret() {
-    local from to secret quoted rc=0 user=${USER:-$(id -un)}
+# Copies <from>'s Keychain login to <to>, read back to be sure; <from> keeps
+# its own until the caller drops it. The secret goes to security(1) on stdin:
+# a command line is readable by every process of the machine. security -i
+# reads one command per 4096-byte line (anthropics/claude-code#28901), so a
+# longer one, which would store a cut login, is refused.
+# Status 1: the Keychain is locked or the write did not hold; <to> has none.
+# Status 2: the login cannot go through security -i; nothing was written.
+copy_secret() {
+    local from to secret quoted line back rc=0 user=${USER:-$(id -un)} LC_ALL=C
     keychain || return 0
     from=$(secret_service "$1")
     to=$(secret_service "$2")
     secret=$(security find-generic-password -s "${from}" -a "${user}" -w 2>/dev/null) || rc=$?
-    # 44: no such item, so nothing to carry; anything else: locked or refused.
+    # 44: no such item, so nothing to copy; anything else: locked or refused.
     case ${rc} in
         0) ;;
         44) return 0 ;;
         *) return 1 ;;
     esac
+    # A line break would end the command and start another.
+    [[ ${secret} != *$'\n'* && ${secret} != *$'\r'* ]] || return 2
     quoted=${secret//\\/\\\\}
     quoted=${quoted//\"/\\\"}
-    printf 'add-generic-password -U -s "%s" -a "%s" -w "%s"\n' "${to}" "${user}" "${quoted}" \
-        | security -i >/dev/null 2>&1 || return 1
-    security delete-generic-password -s "${from}" -a "${user}" >/dev/null 2>&1 || true
+    line=$(printf 'add-generic-password -U -s "%s" -a "%s" -w "%s"' "${to}" "${user}" "${quoted}")
+    # The line and its newline within the 4095 bytes fgets reads at once.
+    ((${#line} <= 4094)) || return 2
+    printf '%s\n' "${line}" | security -i >/dev/null 2>&1 || rc=1
+    back=$(security find-generic-password -s "${to}" -a "${user}" -w 2>/dev/null) || rc=1
+    if ((rc)) || [[ ${back} != "${secret}" ]]; then
+        drop_secret "$2"
+        return 1
+    fi
 }
 
 # Whether <home>'s login is a Keychain item. Reading an item's attributes works
@@ -675,15 +724,16 @@ live_homes() {
 in_use() { live_homes | grep -qxF -- "$1"; }
 
 # "herdr (3427), kdeconnectd (76969) and 2 more": who holds <home>. A process
-# that is not Claude Code still hands it to everything it starts.
+# that is not Claude Code still hands it to everything it starts; one that
+# ended between the two ps calls is not counted.
 users_of() {
     local pid name list="" n=0
     # shellcheck disable=SC2009
     while read -r pid; do
+        name=$(ps -p "${pid}" -o comm= 2>/dev/null || true)
+        [[ -n ${name} ]] || continue
         n=$((n + 1))
-        ((n <= 2)) || continue
-        name=$(ps -p "${pid}" -o comm= 2>/dev/null)
-        list+="${list:+, }${name##*/} (${pid})"
+        ((n <= 2)) && list+="${list:+, }${name##*/} (${pid})"
     done < <(ps eww -A -o pid=,command= 2>/dev/null | grep -F -- " CLAUDE_CONFIG_DIR=$1 " | awk '{ print $1 }')
     ((n > 2)) && list+=" and $((n - 2)) more"
     printf '%s\n' "${list:-a running process}"
@@ -726,18 +776,31 @@ retarget_ledger() {
 # A session running in <from> follows a link, so its one .credentials.json is
 # shared; a Keychain login cannot be, and relocate() is not called for it.
 relocate() {
-    local from=$1 to=$2 live=0
+    local from=$1 to=$2 live=0 copied=0
     in_use "${from}" && live=1
-    mv "${from}" "${to}" || return 1
-    carry_secret "${from}" "${to}" \
-        || printf 'claude-as: the Keychain is locked; %s keeps its Keychain login\n' "$(short "${from}")" >&2
-    ((live)) && ln -s "${to}" "${from}"
-    if ! signed_in "${to}"; then
-        [[ -L ${from} ]] && rm "${from}"
-        carry_secret "${to}" "${from}" || true
-        mv "${to}" "${from}"
+    copy_secret "${from}" "${to}" || copied=$?
+    case ${copied} in
+        1) printf 'claude-as: the Keychain is locked or refused the copy; %s keeps its Keychain login\n' "$(short "${from}")" >&2 ;;
+        2)
+            printf 'claude-as: %s keeps its name: its Keychain login does not fit on one security -i line\n' \
+                "$(short "${from}")" >&2
+            return 1
+            ;;
+    esac
+    if ! mv "${from}" "${to}"; then
+        ((copied)) || drop_secret "${to}"
         return 1
     fi
+    ((live)) && ln -s "${to}" "${from}"
+    # Undone, and <from>'s login never written, unless <to> is signed in.
+    if ! signed_in "${to}"; then
+        [[ -L ${from} ]] && rm "${from}"
+        mv "${to}" "${from}"
+        drop_secret "${to}"
+        return 1
+    fi
+    # Dropped once copied, unless a session running through the link reads it.
+    ((live || copied)) || drop_secret "${from}"
     retarget_ledger "${from}" "${to}"
     if ((live)); then
         printf 'renamed     %s -> %s (running sessions use it through a link)\n' "$(short "${from}")" "$(short "${to}")"
@@ -862,7 +925,7 @@ tidy() {
         fi
         [[ ${home} == "${shared}" ]] && continue
         if in_use "${home}"; then
-            printf 'left alone  %s: %s, but %s still holds it; run --tidy once it ends\n' \
+            printf 'left alone  %s: %s, but it is in use by %s; run --tidy once it ends\n' \
                 "$(short "${home}")" "${why}" "$(users_of "${home}")"
             held=1
             continue
@@ -880,7 +943,7 @@ tidy() {
         want=$(home_for "${home}" "${email}" "${org}" "${uuid}")
         [[ ${want} != "${home}" ]] || continue
         if in_use "${home}" && keychain_login "${home}"; then
-            printf 'left alone  %s: should be %s, but %s holds its Keychain login; run --tidy once it ends\n' \
+            printf 'left alone  %s: should be %s, but its Keychain login is in use by %s; run --tidy once it ends\n' \
                 "$(short "${home}")" "$(short "${want}")" "$(users_of "${home}")"
             held=1
             continue
@@ -939,6 +1002,10 @@ check() {
         status=$(cd / && in_home "${home}" auth status --json </dev/null 2>/dev/null || true)
         if jq -e '.loggedIn == true' <<<"${status}" >/dev/null 2>&1; then
             printf '  ok    signed in\n'
+            # The shared home's own login is what a bare claude, an IDE or a
+            # launchd job runs as: worth knowing, not a fault.
+            [[ ${home} == "${shared}" ]] \
+                && printf '  note  a bare claude runs as %s here; claude-as with no arguments asks which account\n' "${email}"
             if [[ -n ${uuid} ]] && grep -qxF -- "$(lower "${email}")/${uuid}" <<<"${kept}"; then
                 printf '  FAIL  the same account and organization as another home: claude-as --tidy archives it\n'
                 problems=$((problems + 1))
@@ -1368,12 +1435,26 @@ case ${1:-} in
         while IFS= read -r home; do link_shared "${home}"; done < <(homes)
         ;;
     "")
-        if [[ -z ${CLAUDE_AS:-} ]]; then
+        # Assigned one step at a time: set -e stops at a failed assignment,
+        # never at a failed $(...) inside a command's arguments.
+        if [[ -n ${CLAUDE_AS:-} ]]; then
+            home=$(resolve "${CLAUDE_AS}")
+            run_in "${home}"
+        elif [[ -t 0 && -t 1 ]]; then
+            who=$(pick)
+            home=$(resolve "${who}")
+            run_in "${home}"
+        else
             list
-            exit 0
         fi
-        home=$(resolve "${CLAUDE_AS}")
-        run_in "${home}"
+        ;;
+    --pick)
+        shift
+        [[ -t 0 && -t 2 ]] || die "--pick needs a terminal to ask at; name the account instead: claude-as <email>" 2
+        who=$(pick)
+        home=$(resolve "${who}")
+        confirm_switch "${home}" "$@"
+        run_in "${home}" "$@"
         ;;
     -*)
         home=$(last_home "$(resumed_id "$@")")

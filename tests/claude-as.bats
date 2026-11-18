@@ -67,6 +67,8 @@ case $1 in
         printf '%s\n' "$line" >>"$HOME/security.stdin"
         svc=$(sed -E 's/.* -s "([^"]*)".*/\1/' <<<"$line")
         secret=$(sed -E 's/.* -w "(.*)"$/\1/' <<<"$line" | sed -e 's/\\"/"/g' -e 's/\\\\/\\/g')
+        # STUB_KEYCHAIN_CUT=<n> stores only the first n bytes, as a write cut short.
+        [[ -z ${STUB_KEYCHAIN_CUT:-} ]] || secret=${secret:0:STUB_KEYCHAIN_CUT}
         printf '%s' "$secret" >"$kc/$svc"
         ;;
 esac
@@ -1371,7 +1373,7 @@ four_retries() {
     four_retries
     STUB_LIVE="${HOME}/.claude-me@work.example-4" run "$SCRIPT" --tidy
     [ "$status" -eq 0 ]
-    [[ ${output} == *"left alone  ~/.claude-me@work.example-4: not signed in, but claude (101) still holds it; run --tidy once it ends"* ]]
+    [[ ${output} == *"left alone  ~/.claude-me@work.example-4: not signed in, but it is in use by claude (101); run --tidy once it ends"* ]]
     [ -d "${HOME}/.claude-me@work.example-4" ]
 }
 
@@ -1451,7 +1453,7 @@ EOF
     printf 'work-secret' >"${HOME}/keychain/$(service_of "${HOME}/.claude-me@work.example-3")"
     STUB_KEYCHAIN_LOCKED=1 run "$SCRIPT" --tidy
     [ "$status" -eq 0 ]
-    [[ ${output} == *"the Keychain is locked; ~/.claude-me@work.example-3 keeps its Keychain login"* ]]
+    [[ ${output} == *"the Keychain is locked or refused the copy; ~/.claude-me@work.example-3 keeps its Keychain login"* ]]
     [ "$(cat "${HOME}/.claude-me@work.example/.credentials.json")" = '{"token": "work"}' ]
 }
 
@@ -1508,7 +1510,7 @@ EOF
     printf 'work-secret' >"${HOME}/keychain/$(service_of "${old}")"
     STUB_LIVE="${old}" run "$SCRIPT" --tidy
     [ "$status" -eq 0 ]
-    [[ ${output} == *"left alone  ~/.claude-me@work.example-3: should be ~/.claude-me@work.example, but claude (101) holds its Keychain login; run --tidy once it ends"* ]]
+    [[ ${output} == *"left alone  ~/.claude-me@work.example-3: should be ~/.claude-me@work.example, but its Keychain login is in use by claude (101); run --tidy once it ends"* ]]
     [ -d "${old}" ] && [ ! -L "${old}" ]
     [ "$(cat "${HOME}/keychain/$(service_of "${old}")")" = work-secret ]
     # Once it ends, the next --tidy renames it and carries the login.
@@ -1579,6 +1581,264 @@ EOF
     STUB_LIVE="${two}:${two}:${two}" run "$SCRIPT" --tidy
     STUB_LIVE="${two}:${two}:${two}" run "$SCRIPT" --tidy
     [ "$status" -eq 0 ]
-    [[ ${output} == *"but claude (101), claude (102) and 1 more still holds it"* ]]
+    [[ ${output} == *"but it is in use by claude (101), claude (102) and 1 more"* ]]
     [[ ${output} != *"nothing to tidy"* ]]
+}
+
+# --- Copying a Keychain login, and picking an account ---
+
+# Runs a command on a terminal, so claude-as sees one: util-linux's script(1)
+# on Linux, the BSD one on macOS. Input comes from stdin. BSD script types an
+# end of file as soon as its input ends, which can reach the terminal before
+# the program reads, so its input is held open a little longer.
+on_tty() {
+    if script --version 2>/dev/null | grep -q util-linux; then
+        script -qec "$(printf '%q ' "$@")" /dev/null
+    else
+        {
+            sleep 1
+            cat
+            sleep 2
+        } | script -q /dev/null "$@"
+    fi
+}
+
+need_tty() {
+    command -v script >/dev/null 2>&1 || skip "script(1) gives the picker a terminal"
+}
+
+# Three accounts, each signed in once.
+three_accounts() {
+    account "${HOME}/.claude" me@home.example claude_max Personal
+    linked_home "${HOME}/.claude-me@work.example" me@work.example claude_team Acme
+    linked_home "${HOME}/.claude-you@other.example" you@other.example claude_pro Other
+}
+
+@test "--tidy keeps a home whose Keychain login does not fit on one security -i line" {
+    four_retries
+    stub_security
+    local old="${HOME}/.claude-me@work.example-3" long
+    long=$(head -c 5000 /dev/zero | tr '\0' 'k')
+    mkdir -p "${HOME}/keychain"
+    printf '%s' "${long}" >"${HOME}/keychain/$(service_of "${old}")"
+    run "$SCRIPT" --tidy
+    [[ ${output} == *"~/.claude-me@work.example-3 keeps its name: its Keychain login does not fit on one security -i line"* ]]
+    [ -d "${old}" ]
+    [ "$(cat "${HOME}/keychain/$(service_of "${old}")")" = "${long}" ]
+    [ ! -e "${HOME}/keychain/$(service_of "${HOME}/.claude-me@work.example")" ]
+    [ ! -e "${HOME}/security.stdin" ]
+    ! grep -q kkkk "${HOME}/security.argv"
+}
+
+@test "--tidy copies a login that fits exactly on one security -i line" {
+    four_retries
+    stub_security
+    local old="${HOME}/.claude-me@work.example-3" new="${HOME}/.claude-me@work.example" fit prefix
+    prefix="add-generic-password -U -s \"$(service_of "${new}")\" -a \"${USER:-$(id -un)}\" -w \"\""
+    fit=$(head -c $((4094 - ${#prefix})) /dev/zero | tr '\0' 'k')
+    mkdir -p "${HOME}/keychain"
+    printf '%s' "${fit}" >"${HOME}/keychain/$(service_of "${old}")"
+    run "$SCRIPT" --tidy
+    [ "$status" -eq 0 ]
+    [ "$(cat "${HOME}/keychain/$(service_of "${new}")")" = "${fit}" ]
+    [ ! -e "${HOME}/keychain/$(service_of "${old}")" ]
+}
+
+@test "--tidy keeps a home whose Keychain login holds a line break" {
+    four_retries
+    stub_security
+    local old="${HOME}/.claude-me@work.example-3"
+    mkdir -p "${HOME}/keychain"
+    printf 'one\ntwo' >"${HOME}/keychain/$(service_of "${old}")"
+    run "$SCRIPT" --tidy
+    [[ ${output} == *"keeps its name: its Keychain login does not fit on one security -i line"* ]]
+    [ -d "${old}" ]
+    [ "$(cat "${HOME}/keychain/$(service_of "${old}")")" = $'one\ntwo' ]
+}
+
+@test "a copy that does not read back whole is deleted, and the old login stays" {
+    four_retries
+    stub_security
+    local old="${HOME}/.claude-me@work.example-3" new="${HOME}/.claude-me@work.example"
+    mkdir -p "${HOME}/keychain"
+    printf 'work-secret' >"${HOME}/keychain/$(service_of "${old}")"
+    STUB_KEYCHAIN_CUT=4 run "$SCRIPT" --tidy
+    [[ ${output} == *"the Keychain is locked or refused the copy; ~/.claude-me@work.example-3 keeps its Keychain login"* ]]
+    [ ! -e "${HOME}/keychain/$(service_of "${new}")" ]
+    [ "$(cat "${HOME}/keychain/$(service_of "${old}")")" = work-secret ]
+}
+
+@test "a rename whose new home does not sign in leaves the old Keychain login as it was" {
+    four_retries
+    stub_security
+    local old="${HOME}/.claude-me@work.example-3" new="${HOME}/.claude-me@work.example"
+    mkdir -p "${HOME}/keychain"
+    printf 'work-secret' >"${HOME}/keychain/$(service_of "${old}")"
+    stub_bin claude <<'EOF'
+home=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
+if [[ $1 == auth && $2 == status ]]; then
+    # Signed in where it always was, never in a home it moved to.
+    if [[ $home == *-3 || $home == "$HOME/.claude" ]]; then echo '{"loggedIn": true}'; else echo '{"loggedIn": false}'; fi
+    exit 0
+fi
+[[ $1 == --version ]] && echo "2.1.296 (Claude Code)"
+exit 0
+EOF
+    run "$SCRIPT" --tidy
+    [ -d "${old}" ] && [ ! -L "${old}" ]
+    [ "$(cat "${HOME}/keychain/$(service_of "${old}")")" = work-secret ]
+    [ ! -e "${HOME}/keychain/$(service_of "${new}")" ]
+    # The old login was only read, never written.
+    ! grep -q "$(service_of "${old}")" "${HOME}/security.stdin"
+}
+
+@test "who holds a home leaves out a process that ended between the two looks" {
+    four_retries
+    local old="${HOME}/.claude-me@work.example-4"
+    stub_bin ps <<'EOF'
+if [[ $1 == -p ]]; then
+    # 101 has ended: BSD ps prints nothing for it, procps fails.
+    [[ $2 == 101 ]] && { [[ -n ${STUB_PS_FAILS:-} ]] && exit 1; exit 0; }
+    echo /opt/bin/claude
+    exit 0
+fi
+IFS=: read -ra live <<<"${STUB_LIVE:-}"
+n=100
+for h in "${live[@]}"; do
+    n=$((n + 1))
+    [[ $* == *pid=* ]] && printf '%s ' "$n"
+    printf '/usr/bin/claude TERM=xterm CLAUDE_CONFIG_DIR=%s HOME=/h\n' "$h"
+done
+EOF
+    STUB_LIVE="${old}:${old}" run "$SCRIPT" --tidy --dry-run
+    [[ ${output} == *"but it is in use by claude (102); run --tidy once it ends"* ]]
+    [[ ${output} != *"(101)"* ]]
+    STUB_PS_FAILS=1 STUB_LIVE="${old}:${old}" run "$SCRIPT" --tidy --dry-run
+    [[ ${output} == *"but it is in use by claude (102); run --tidy once it ends"* ]]
+}
+
+@test "a bare claude-as without a terminal lists the accounts, as scripts read it" {
+    three_accounts
+    run "$SCRIPT" </dev/null
+    [ "$status" -eq 0 ]
+    [[ ${output} == *EMAIL* && ${output} == *me@work.example* && ${output} == *you@other.example* ]]
+    [[ ${output} != *RAN* ]] || { echo "OUT: ${output}" >&3; false; }
+}
+
+@test "a bare claude-as with CLAUDE_AS set runs that account without asking" {
+    three_accounts
+    CLAUDE_AS=you@other.example run "$SCRIPT" </dev/null
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"home=${HOME}/.claude-you@other.example"* ]]
+}
+
+@test "--pick without a terminal refuses instead of waiting" {
+    three_accounts
+    run "$SCRIPT" --pick </dev/null
+    [ "$status" -eq 2 ]
+    [[ ${output} == *"--pick needs a terminal"* ]]
+    [[ ${output} != *RAN* ]] || { echo "OUT: ${output}" >&3; false; }
+}
+
+@test "the picker lists each account once, by the name claude-as takes" {
+    four_retries
+    need_tty
+    stub_bin gum <<'EOF'
+shift 4
+printf '%s\n' "$@" >"$HOME/picker.rows"
+printf '%s\n' "$1"
+EOF
+    on_tty "$SCRIPT" --pick </dev/null >/dev/null 2>&1 || true
+    [ "$(cut -f1 "${HOME}/picker.rows" | sort | uniq -d | wc -l | tr -d ' ')" -eq 0 ]
+    grep -q '^me@work.example	team	Acme$' "${HOME}/picker.rows"
+    grep -q '^me@home.example	' "${HOME}/picker.rows"
+}
+
+@test "the picker runs the account chosen in gum" {
+    three_accounts
+    need_tty
+    stub_bin gum <<'EOF'
+for row in "$@"; do [[ $row == you@other.example* ]] && printf '%s\n' "$row"; done
+exit 0
+EOF
+    run on_tty "$SCRIPT" </dev/null
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"home=${HOME}/.claude-you@other.example"* ]]
+}
+
+@test "the picker passes claude's arguments on after --pick" {
+    three_accounts
+    need_tty
+    stub_bin gum <<'EOF'
+for row in "$@"; do [[ $row == me@work.example* ]] && printf '%s\n' "$row"; done
+exit 0
+EOF
+    run on_tty "$SCRIPT" --pick --model opus </dev/null
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"home=${HOME}/.claude-me@work.example"* ]]
+    [[ ${output} == *"--model opus"* ]]
+}
+
+@test "the picker falls back to fzf without gum" {
+    three_accounts
+    need_tty
+    stub_bin fzf 'grep "^me@work.example"'
+    CLAUDE_AS_PICKER=fzf run on_tty "$SCRIPT" </dev/null
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"home=${HOME}/.claude-me@work.example"* ]]
+}
+
+@test "the picker's numbered menu needs nothing installed" {
+    three_accounts
+    need_tty
+    local first want
+    CLAUDE_AS_PICKER=menu run on_tty "$SCRIPT" <<<'1'
+    [ "$status" -eq 0 ]
+    first=$(grep -o '1) [^[:space:]]*' <<<"${output}" | head -n 1 | cut -c4-)
+    [ -n "${first}" ]
+    case ${first} in
+        me@home.example) want="home= " ;;
+        *) want="home=${HOME}/.claude-${first} " ;;
+    esac
+    [[ ${output} == *"${want}"* ]]
+}
+
+@test "a cancelled pick runs nothing and says so by its status" {
+    three_accounts
+    need_tty
+    stub_bin gum 'exit 130'
+    run on_tty "$SCRIPT" --pick </dev/null
+    [[ ${output} != *RAN* ]] || { echo "OUT: ${output}" >&3; false; }
+    [ ! -e "${HOME}/logins" ]
+}
+
+@test "a bare claude-as whose pick fails runs nothing, not the shared home" {
+    three_accounts
+    need_tty
+    stub_bin gum 'exit 1'
+    run on_tty "$SCRIPT" </dev/null
+    [[ ${output} != *RAN* ]] || { echo "OUT: ${output}" >&3; false; }
+}
+
+@test "CLAUDE_AS_PICKER names only a picker claude-as knows" {
+    three_accounts
+    need_tty
+    CLAUDE_AS_PICKER=dmenu run on_tty "$SCRIPT" </dev/null
+    [[ ${output} == *"CLAUDE_AS_PICKER is gum, fzf or menu, not 'dmenu'"* ]]
+    [[ ${output} != *RAN* ]] || { echo "OUT: ${output}" >&3; false; }
+}
+
+@test "--check notes which account a bare claude runs as" {
+    three_accounts
+    run "$SCRIPT" --check
+    [[ ${output} == *"note  a bare claude runs as me@home.example here; claude-as with no arguments asks which account"* ]]
+}
+
+@test "--list lists even at a terminal" {
+    three_accounts
+    need_tty
+    stub_bin gum 'echo picked; exit 1'
+    run on_tty "$SCRIPT" --list </dev/null
+    [[ ${output} == *EMAIL* ]]
+    [[ ${output} != *picked* ]]
 }
