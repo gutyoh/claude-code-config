@@ -271,7 +271,7 @@ EOF
     [ "$(grep -Fc 'claude-code-config: end claude launch shortcuts' "$profile")" -eq 1 ]
     grep -Fq 'keep-before' "$profile"
     grep -Fq 'keep-after' "$profile"
-    ! grep -Fq 'old body' "$profile"
+    ! grep -Fq 'old body' "$profile" || false
 }
 
 @test "configure_claude_shortcuts: generated functions forward arguments correctly" {
@@ -362,6 +362,6 @@ EOF
 
     grep -Fq 'keep-before' "$profile"
     grep -Fq 'keep-after' "$profile"
-    ! grep -Fq 'old body' "$profile"
+    ! grep -Fq 'old body' "$profile" || false
     [ "$(grep -Fc 'claude-code-config: claude launch shortcuts' "$profile")" -eq 1 ]
 }

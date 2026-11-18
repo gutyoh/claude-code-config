@@ -173,5 +173,5 @@ EOF
     for p in '~/.oci/**' '~/.ssh/id_*' '~/.config/fnox/age.txt' '~/.azure/**' '~/.config/gh/hosts.yml'; do
         [[ "$output" == *"Read(${p})"* ]]
     done
-    ! grep -qv '^Read(' <<<"$output"
+    ! grep -qv '^Read(' <<<"$output" || false
 }

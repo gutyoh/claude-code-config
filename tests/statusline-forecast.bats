@@ -2,8 +2,11 @@
 # forecast.sh: run-out suffix and level for the 5-hour and weekly windows.
 
 setup() {
+    source "${BATS_TEST_DIRNAME}/helpers.bash"
     L="${BATS_TEST_DIRNAME}/../.claude/scripts/lib/statusline"
-    PLATFORM=linux
+    # The real platform: a pinned one runs GNU stat on BSD, where the mod
+    # file's age reads as unknown and the mod's forecast is never used.
+    PLATFORM="$(detect_test_platform)"
     source "${L}/utils.sh"
     source "${L}/cache.sh"
     source "${L}/color.sh"

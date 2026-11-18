@@ -83,7 +83,7 @@ settings_commands() {
     run settings_commands "$dest"
     [ "$status" -eq 0 ]
     [ -n "$output" ]
-    ! grep -q '^~/\.claude/' <<<"$output"
+    ! grep -q '^~/\.claude/' <<<"$output" || false
     while IFS= read -r cmd; do
         [[ "$cmd" == "~/.claude-work/"* ]] || [[ "$cmd" != "~/"* ]]
     done <<<"$output"
@@ -132,7 +132,7 @@ settings_commands() {
     [ "$(readlink "${CLAUDE_CONFIG_DIR}/scripts/statusline.sh")" = "${REPO_ROOT}/.claude/scripts/statusline.sh" ]
     [ "$(jq -r '.statusLine.command' "${CLAUDE_CONFIG_DIR}/settings.json")" = "~/.claude-work/scripts/statusline.sh" ]
     run settings_commands "${CLAUDE_CONFIG_DIR}/settings.json"
-    ! grep -q '^~/\.claude/' <<<"$output"
+    ! grep -q '^~/\.claude/' <<<"$output" || false
 }
 
 # bats test_tags=smoke

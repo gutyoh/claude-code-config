@@ -405,7 +405,7 @@ prompt_input() { # <title> <prompt> [transcript]
     stub_claude
     export HERDR_ENV=1 HERDR_TAB_ID=w1:t9 HERDR_PANE_ID=w1:p9 HERDR_SOCKET_PATH=/tmp/x
     hook prompt "$(prompt_input "" "anything at all")"
-    ! grep -q '^HERDR_' "${BATS_TEST_TMPDIR}/claude.env"
+    ! grep -q '^HERDR_' "${BATS_TEST_TMPDIR}/claude.env" || false
     grep -qx 'CLAUDE_SESSION_NAME=off' "${BATS_TEST_TMPDIR}/claude.env"
 }
 
@@ -469,7 +469,7 @@ prompt_input() { # <title> <prompt> [transcript]
 @test "topic: no prompt text is kept in the state directory" {
     stub_claude
     hook prompt "$(prompt_input "" "secret-marker-7731 do the thing")"
-    ! grep -rq 'secret-marker-7731' "${STATE}" 2>/dev/null
+    ! grep -rq 'secret-marker-7731' "${STATE}" 2>/dev/null || false
 }
 
 # --- herdr tab ----------------------------------------------------------------

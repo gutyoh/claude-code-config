@@ -15,7 +15,7 @@ setup() {
     source "$BATS_TEST_DIRNAME/helpers.bash"
     isolate_home
     debug() { :; }
-    PLATFORM=macos
+    PLATFORM=macos # pinned: the Keychain branch, with security(1) stubbed
     LOG="$BATS_TEST_TMPDIR/security.log"
     stub_bin security "echo \"\$*\" >>'${LOG}'; printf '%s' '{\"claudeAiOauth\":{\"accessToken\":\"tok\"}}'"
     source "$MODULES_DIR/api.sh"

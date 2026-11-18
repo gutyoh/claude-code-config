@@ -399,7 +399,7 @@ set_file_mtime() {
 
 @test "status.sh does NOT use hardcoded /tmp path" {
     local status_file="$BATS_TEST_DIRNAME/../.claude/scripts/lib/statusline/status.sh"
-    ! grep -q 'STATUS_CACHE_FILE="/tmp/' "$status_file"
+    ! grep -q 'STATUS_CACHE_FILE="/tmp/' "$status_file" || false
 }
 
 # ============================================================

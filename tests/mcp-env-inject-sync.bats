@@ -322,7 +322,7 @@ EOF
     grep -q "^TAVILY_API_KEY=${KEY_A}" "${env_file}"
 
     # brave key should NOT be written (not in INSTALL_MCP_SERVERS)
-    ! grep -q "^BRAVE_API_KEY=" "${env_file}"
+    ! grep -q "^BRAVE_API_KEY=" "${env_file}" || false
 
     # Output should NOT warn about BRAVE_API_KEY
     [[ "$output" != *"BRAVE_API_KEY"* ]]
@@ -346,7 +346,7 @@ EOF
     grep -q "^BRAVE_API_KEY=${KEY_B}" "${env_file}"
 
     # tavily key should NOT be written
-    ! grep -q "^TAVILY_API_KEY=" "${env_file}"
+    ! grep -q "^TAVILY_API_KEY=" "${env_file}" || false
 
     # Output should NOT mention TAVILY_API_KEY
     [[ "$output" != *"TAVILY_API_KEY"* ]]

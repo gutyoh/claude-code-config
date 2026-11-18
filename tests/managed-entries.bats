@@ -296,7 +296,7 @@ install_hooks() {
     [ -d "${CLAUDE_DIR}/skills" ] && [ ! -L "${CLAUDE_DIR}/skills" ]
     [ "$(readlink "${CLAUDE_DIR}/skills/a")" = "${REPO_DIR}/.claude/skills/a" ]
     # No backup: the chain ended in the repo, so it was ours.
-    ! ls "${CLAUDE_DIR}" | grep -q 'skills.bak'
+    ! ls "${CLAUDE_DIR}" | grep -q 'skills.bak' || false
     # The first profile still sees its foreign file where it left it.
     [ -f "${REPO_DIR}/.claude/skills/foreign" ]
     [ -L "${HOME}/.claude-first/skills" ]
@@ -332,5 +332,5 @@ install_hooks() {
     run install_hooks
     [ "$status" -eq 0 ]
     [ -f "${CLAUDE_DIR}/hooks/foreign.sh" ] && [ ! -L "${CLAUDE_DIR}/hooks/foreign.sh" ]
-    ! ls "${CLAUDE_DIR}" | grep -q 'hooks.bak'
+    ! ls "${CLAUDE_DIR}" | grep -q 'hooks.bak' || false
 }

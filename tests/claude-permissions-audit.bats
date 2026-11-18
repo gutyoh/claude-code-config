@@ -383,7 +383,7 @@ git_project() {
     git_project
     run bash "$SCRIPT" --fix --include-tracked "${HOME}/work"
     [[ "$output" == *"removed 4 (backup:"* ]]
-    ! grep -q "${FAKE_PW}" "${SETTINGS}"
+    ! grep -q "${FAKE_PW}" "${SETTINGS}" || false
     [ -n "$(git -C "${PROJ}" status --porcelain)" ]
 }
 
@@ -401,7 +401,7 @@ git_project() {
     run bash "$SCRIPT" --fix "${HOME}/work"
     [[ "$output" == *"removed 4 (backup:"* ]]
     [[ "$output" != *"tracked by git"* ]]
-    ! grep -q "${FAKE_PW}" "${SETTINGS}"
+    ! grep -q "${FAKE_PW}" "${SETTINGS}" || false
     [ -z "$(git -C "${PROJ}" status --porcelain)" ]
 }
 

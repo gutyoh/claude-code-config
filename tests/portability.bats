@@ -530,7 +530,7 @@ tracked_text_files() {
     [ -x /bin/bash ] || skip "no /bin/bash on this platform"
     run /bin/bash -c "
         set -euo pipefail
-        PLATFORM=macos
+        PLATFORM=macos # pinned: bar.sh reads no clock and no file
         source '$REPO_ROOT/.claude/scripts/lib/statusline/bar.sh'
         b='....................'
         _overlay_pct_inside b 42 20 '#' '.'
@@ -572,6 +572,37 @@ tracked_text_files() {
     hits="$(grep -rn 'sammcj/claude-sync' "$REPO_ROOT/README.md" "$REPO_ROOT/docs/" 2>/dev/null || true)"
     [ -z "$hits" ] || {
         echo "Link to a non-existent repository:"
+        echo "$hits"
+        false
+    }
+}
+
+# bats test_tags=unit,portability
+@test "no bats assertion negates a command that cannot fail the test" {
+    # bash exempts a negated command from errexit, so a bare `! cmd` fails a
+    # test only on its last line. `! cmd || false` (or `|| { …; false; }`) fails
+    # it anywhere.
+    # A negation that starts the line, or follows `&&` or `;` outside a
+    # condition, must end in `|| false`, `|| {` or `|| { …; false; }`:
+    # `|| true` fails nothing either.
+    local hits
+    hits="$(cd "$REPO_ROOT" && grep -nE '^[[:space:]]+! |(&&|;)[[:space:]]*! ' tests/*.bats tests/helpers.bash |
+        grep -vE '^[^:]+:[0-9]+:[[:space:]]*(if|elif|while|until)[[:space:]]' |
+        grep -vE '[|][|][[:space:]]*(false|[{]|[{].*false;?[[:space:]]*[}])[[:space:]]*$' || true)"
+    [ -z "$hits" ] || {
+        echo "Bare negations never fail a bats test; end each with || false:"
+        echo "$hits"
+        false
+    }
+}
+
+# bats test_tags=unit,portability
+@test "no test pins the platform that statusline modules branch on, unless it says why" {
+    local hits
+    hits="$(cd "$REPO_ROOT" && grep -nE '^[[:space:]]*((local|export|declare|readonly)[[:space:]]+(-[a-z]+[[:space:]]+)?)?PLATFORM=["'\'']?(linux|macos|windows)["'\'']?([[:space:]]|$)' tests/*.bats tests/helpers.bash |
+        grep -v '# pinned: ' || true)"
+    [ -z "$hits" ] || {
+        echo "Use PLATFORM=\"\$(detect_test_platform)\" (helpers.bash), or end the line with # pinned: <why>:"
         echo "$hits"
         false
     }
