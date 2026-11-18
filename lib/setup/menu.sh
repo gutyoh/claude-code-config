@@ -26,6 +26,11 @@ show_install_menu() {
     echo "  core (hooks, scripts, commands):  always"
     local teams_label="yes"
     [[ "${INSTALL_AGENT_TEAMS}" == "false" ]] && teams_label="no"
+    local code_mode_label="no"
+    case "${INSTALL_CODE_MODE}" in
+        true) code_mode_label="yes" ;;
+        "") settings_env_on CLAUDE_CODE_EXPERIMENTAL_CODE_MODE && code_mode_label="yes (as it is)" || code_mode_label="no (as it is)" ;;
+    esac
 
     echo "  agents & skills:                  ${agents_label}"
     echo "  MCP search servers:               ${mcp_label}"
@@ -33,6 +38,7 @@ show_install_menu() {
     [[ "${INSTALL_PROXY_PATH}" == "false" ]] && proxy_path_label="no"
 
     echo "  agent teams (experimental):       ${teams_label}"
+    echo "  Code Mode (experimental):         ${code_mode_label}"
     echo "  proxy PATH + claude/clp shortcuts: ${proxy_path_label}"
     local bypass_label="yes"
     [[ "${INSTALL_BYPASS_DEFAULT}" == "false" ]] && bypass_label="no"
@@ -131,6 +137,19 @@ customize_installation() {
         INSTALL_AGENT_TEAMS="true"
     else
         INSTALL_AGENT_TEAMS="false"
+    fi
+
+    # --- Code Mode ---
+    # The default is what settings.json has now, so Enter changes nothing.
+    local code_mode_default="no"
+    if [[ "${INSTALL_CODE_MODE}" == "true" ]] \
+        || { [[ -z "${INSTALL_CODE_MODE}" ]] && settings_env_on CLAUDE_CODE_EXPERIMENTAL_CODE_MODE; }; then
+        code_mode_default="yes"
+    fi
+    if tui_confirm "Turn on Code Mode? (experimental; its sessions run without Remote Control)" "${code_mode_default}"; then
+        INSTALL_CODE_MODE="true"
+    else
+        INSTALL_CODE_MODE="false"
     fi
 
     # --- Proxy Launcher PATH and shell shortcuts ---

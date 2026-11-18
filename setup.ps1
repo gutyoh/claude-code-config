@@ -14,11 +14,13 @@
 #   -NoAgents              Skip agents & skills installation
 #   -AgentTeams            Enable agent teams (experimental)
 #   -NoAgentTeams          Disable agent teams
+#   -CodeMode              Turn on Code Mode (experimental; no Remote Control in its sessions)
+#   -NoCodeMode            Turn off Code Mode (default: leave it as it is)
 #   -ProxyPath             Add bin/ to PATH and install claude/clp shortcuts (default)
 #   -NoProxyPath           Skip proxy launcher PATH and shortcut setup
 #   -BypassDefault         Start every session in bypass permissions via settings.json (default)
 #   -NoBypassDefault       Leave permissions.defaultMode in settings.json alone
-#   -Minimal               Core only (no agents, skills, MCP, agent teams, proxy PATH, or OpenCode)
+#   -Minimal               Core only (no agents, skills, MCP, agent teams, Code Mode, proxy PATH, or OpenCode)
 #   -OverwriteSettings     Replace settings.json with repo defaults
 #   -SkipSettings          Don't modify settings.json
 #   -Theme THEME           Statusline color theme (dark|light|colorblind|none)
@@ -50,6 +52,8 @@ param(
     [switch]$NoAgents,
     [switch]$AgentTeams,
     [switch]$NoAgentTeams,
+    [switch]$CodeMode,
+    [switch]$NoCodeMode,
     [switch]$ProxyPath,
     [switch]$NoProxyPath,
     [switch]$BypassDefault,
@@ -130,6 +134,7 @@ $script:StatuslineCcStatusPosition = "inline"
 $script:StatuslineCcStatusVisibility = "always"
 $script:StatuslineCcStatusColor = "full"
 $script:InstallAgentTeamsFlag = $true
+$script:InstallCodeModeFlag = $null                  # $null leaves settings.json as it is
 $script:InstallProxyPath = $true
 $script:InstallBypassDefault = $true
 $script:InstallOpenCode = "auto"                        # auto | yes | no
@@ -166,6 +171,7 @@ if ($Minimal) {
     $script:InstallAgentsSkills = $false
     $script:InstallMcpServers = @()
     $script:InstallAgentTeamsFlag = $false
+    $script:InstallCodeModeFlag = $false
     $script:InstallProxyPath = $false
     $script:InstallBypassDefault = $false
     $script:InstallOpenCode = "no"
@@ -183,6 +189,8 @@ if ($Mcp) {
 }
 if ($AgentTeams) { $script:InstallAgentTeamsFlag = $true }
 if ($NoAgentTeams) { $script:InstallAgentTeamsFlag = $false }
+if ($CodeMode) { $script:InstallCodeModeFlag = $true }
+if ($NoCodeMode) { $script:InstallCodeModeFlag = $false }
 if ($ProxyPath) { $script:InstallProxyPath = $true }
 if ($NoProxyPath) { $script:InstallProxyPath = $false }
 if ($BypassDefault) { $script:InstallBypassDefault = $true }
@@ -229,11 +237,13 @@ if ($Help) {
     Write-Status "  -NoAgents              Skip agents & skills installation"
     Write-Status "  -AgentTeams            Enable agent teams (experimental)"
     Write-Status "  -NoAgentTeams          Disable agent teams"
+    Write-Status "  -CodeMode              Turn on Code Mode (experimental; no Remote Control in its sessions)"
+    Write-Status "  -NoCodeMode            Turn off Code Mode (default: leave it as it is)"
     Write-Status "  -ProxyPath             Add bin/ to PATH and install claude/clp shortcuts (default)"
     Write-Status "  -NoProxyPath           Skip proxy launcher PATH and shortcut setup"
     Write-Status "  -BypassDefault         Start every session in bypass permissions via settings.json (default)"
     Write-Status "  -NoBypassDefault       Leave permissions.defaultMode in settings.json alone"
-    Write-Status "  -Minimal               Core only (no agents, skills, MCP, agent teams, proxy PATH, or OpenCode)"
+    Write-Status "  -Minimal               Core only (no agents, skills, MCP, agent teams, Code Mode, proxy PATH, or OpenCode)"
     Write-Status "  -OverwriteSettings     Replace settings.json with repo defaults"
     Write-Status "  -SkipSettings          Don't modify settings.json"
     Write-Status "  -Theme THEME           Statusline color theme (dark|light|colorblind|none)"
@@ -427,6 +437,14 @@ if ($script:SettingsMode -eq "overwrite") {
     Write-Status ""
 
     Update-AgentTeam
+
+    Write-Status ""
+
+    $step++
+    Write-Status "Step ${step}: Configuring Code Mode..." -Color Yellow
+    Write-Status ""
+
+    Update-CodeMode
 }
 elseif ($script:SettingsMode -eq "merge") {
     $step++
@@ -499,6 +517,14 @@ elseif ($script:SettingsMode -eq "merge") {
     Write-Status ""
 
     Update-AgentTeam
+
+    Write-Status ""
+
+    $step++
+    Write-Status "Step ${step}: Configuring Code Mode..." -Color Yellow
+    Write-Status ""
+
+    Update-CodeMode
 }
 else {
     $step++

@@ -45,6 +45,7 @@ BeforeAll {
     $script:StatuslineCcStatusVisibility = "always"
     $script:StatuslineCcStatusColor = "full"
     $script:InstallAgentTeamsFlag = $true
+    $script:InstallCodeModeFlag = $null
     $script:InstallMcpServers = @("brave-search", "tavily")
     $script:InstallAgentsSkills = $true
     $script:InstallProxyPath = $true
@@ -413,6 +414,40 @@ Describe "Settings JSON manipulation" {
             Update-AgentTeam
             $settings = Get-Content $script:SettingsJson -Raw | ConvertFrom-Json
             $settings.env | Should -BeNullOrEmpty
+        }
+    }
+
+    Context "Update-CodeMode" {
+        AfterEach {
+            $script:InstallCodeModeFlag = $null
+        }
+
+        It "turns Code Mode on beside the env already there, and off again" {
+            '{"env": {"OTHER": "x"}}' | Set-Content $script:SettingsJson
+            $script:InstallCodeModeFlag = $true
+            Update-CodeMode
+            $settings = Get-Content $script:SettingsJson -Raw | ConvertFrom-Json
+            $settings.env.CLAUDE_CODE_EXPERIMENTAL_CODE_MODE | Should -Be "1"
+            $settings.env.OTHER | Should -Be "x"
+            $script:InstallCodeModeFlag = $false
+            Update-CodeMode
+            $settings = Get-Content $script:SettingsJson -Raw | ConvertFrom-Json
+            $settings.env.PSObject.Properties["CLAUDE_CODE_EXPERIMENTAL_CODE_MODE"] | Should -BeNullOrEmpty
+            $settings.env.OTHER | Should -Be "x"
+        }
+
+        It "leaves Code Mode as it is when neither switch is given" {
+            '{"env": {"CLAUDE_CODE_EXPERIMENTAL_CODE_MODE": "1"}}' | Set-Content $script:SettingsJson
+            $before = Get-Content $script:SettingsJson -Raw
+            $script:InstallCodeModeFlag = $null
+            Update-CodeMode
+            Get-Content $script:SettingsJson -Raw | Should -Be $before
+            Test-SettingsEnvFlag -Name "CLAUDE_CODE_EXPERIMENTAL_CODE_MODE" | Should -BeTrue
+        }
+
+        It "reads a missing or broken settings file as off" {
+            'not json' | Set-Content $script:SettingsJson
+            Test-SettingsEnvFlag -Name "CLAUDE_CODE_EXPERIMENTAL_CODE_MODE" | Should -BeFalse
         }
     }
 }

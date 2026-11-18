@@ -19,6 +19,11 @@ function Show-InstallMenu {
     }
     $mcpLabel = if ($script:InstallMcpServers.Count -gt 0) { $script:InstallMcpServers -join ", " } else { "none" }
     $teamsLabel = if ($script:InstallAgentTeamsFlag) { "yes" } else { "no" }
+    $codeModeLabel = switch ($script:InstallCodeModeFlag) {
+        $true { "yes" }
+        $false { "no" }
+        default { if (Test-SettingsEnvFlag -Name "CLAUDE_CODE_EXPERIMENTAL_CODE_MODE") { "yes (as it is)" } else { "no (as it is)" } }
+    }
     $proxyLabel = if ($script:InstallProxyPath) { "yes" } else { "no" }
     $bypassLabel = if ($script:InstallBypassDefault) { "yes" } else { "no" }
     $compactLabel = if ($script:StatuslineCompact) { "yes" } else { "no" }
@@ -39,6 +44,7 @@ function Show-InstallMenu {
     Write-Status "  agents & skills:                  ${agentsLabel}"
     Write-Status "  MCP search servers:               ${mcpLabel}"
     Write-Status "  agent teams (experimental):       ${teamsLabel}"
+    Write-Status "  Code Mode (experimental):         ${codeModeLabel}"
     Write-Status "  proxy PATH + claude/clp shortcuts: ${proxyLabel}"
     Write-Status "  sessions start in bypass:         ${bypassLabel}"
     Write-Status "  OpenCode parallel install:        ${openCodeLabel}"
@@ -111,6 +117,11 @@ function Invoke-CustomizeInstallation {
     # --- Agent Teams ---
     $script:InstallAgentTeamsFlag = Confirm-TuiYesNo -Question "Enable agent teams? (experimental)" `
         -Default $(if ($script:InstallAgentTeamsFlag) { "yes" } else { "no" })
+
+    # --- Code Mode --- (the default is what settings.json has now, so Enter changes nothing)
+    $codeModeOn = if ($null -ne $script:InstallCodeModeFlag) { $script:InstallCodeModeFlag } else { Test-SettingsEnvFlag -Name "CLAUDE_CODE_EXPERIMENTAL_CODE_MODE" }
+    $script:InstallCodeModeFlag = Confirm-TuiYesNo -Question "Turn on Code Mode? (experimental; its sessions run without Remote Control)" `
+        -Default $(if ($codeModeOn) { "yes" } else { "no" })
 
     # --- Proxy Launcher PATH ---
     $script:InstallProxyPath = Confirm-TuiYesNo `

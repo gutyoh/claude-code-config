@@ -34,7 +34,8 @@
 #   claude-as --tidy [--dry-run]      one home per account, named after it: archives
 #                                     signed-out and duplicate homes, renames the rest
 #   claude-as --check                 every home: login, name, links, shared history
-#   claude-as --relink                link shared items a home is missing
+#   claude-as --relink                link shared items a home is missing, and
+#                                     record Code Mode's answer where it is on
 #
 # The email is matched whole, in any case; never a part of one, which a later
 # account could make name another. One email can sign in to several
@@ -51,6 +52,12 @@
 # --tidy archives into $XDG_STATE_HOME/claude-as/removed (credentials deleted,
 # history kept) and leaves alone a home a running Claude Code still uses; a
 # renamed home in use keeps its old path as a link until a later --tidy.
+#
+# Code Mode (CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1, set by setup.sh
+# --code-mode) asks each account once before its first session: a start,
+# --add and --relink record that answer in every home where it is on. A
+# session started in Code Mode resumes in it, without Remote Control, which
+# does not run there.
 #
 # --move <email> [--pane <id>] [--dry-run] [--force] [--wait <seconds>]
 # moves each Claude session herdr runs on this machine to that account, in its
@@ -506,14 +513,63 @@ remote_control_on() {
     [[ -n ${on} ]]
 }
 
+# Whether Code Mode is on for <home>: CLAUDE_CODE_EXPERIMENTAL_CODE_MODE is 1
+# in the environment or the home's user settings, and 0 in none of those nor
+# in managed settings (Claude Code reads a 0 anywhere as off).
+code_mode_on() {
+    local home=$1 on="" value file
+    for file in "${home}/settings.json" /etc/claude-code/managed-settings.json \
+        "/Library/Application Support/ClaudeCode/managed-settings.json"; do
+        value=$(jq -r '.env.CLAUDE_CODE_EXPERIMENTAL_CODE_MODE // empty' "${file}" 2>/dev/null || true)
+        [[ ${value} == 0 ]] && return 1
+        [[ ${value} == 1 && ${file} == "${home}/settings.json" ]] && on=1
+    done
+    case ${CLAUDE_CODE_EXPERIMENTAL_CODE_MODE-} in
+        0) return 1 ;;
+        1) on=1 ;;
+    esac
+    [[ -n ${on} ]]
+}
+
+# Code Mode asks each account once, before its first session; a session a
+# launcher starts unattended would stop at that question. Where Code Mode is
+# on, <home>'s answer is recorded up front. The file is written beside itself
+# and renamed over, as Claude Code writes it; a linked one is left alone.
+accept_code_mode() {
+    local file tmp
+    file=$(account_file "$1")
+    [[ -f ${file} && ! -L ${file} ]] && code_mode_on "$1" || return 0
+    jq -e '.codeModeCaveatsAcceptedV1 == true and .codeModeAutoModeCaveatAcceptedV1 == true' \
+        "${file}" >/dev/null 2>&1 && return 0
+    tmp=$(mktemp "${file}.XXXXXX") || return 1
+    if jq '.codeModeCaveatsAcceptedV1 = true | .codeModeAutoModeCaveatAcceptedV1 = true' \
+        "${file}" >"${tmp}" 2>/dev/null && mv -f "${tmp}" "${file}"; then
+        printf 'accepted    Code Mode for %s\n' "$(short "$1")"
+        return 0
+    fi
+    rm -f "${tmp}"
+    printf 'left alone  %s: could not record the Code Mode answer\n' "$(short "${file}")"
+    return 1
+}
+
+# Whether session <id> runs in Code Mode: the last repl-mode entry of its
+# transcript says so (Claude Code keeps only the last).
+code_mode_session() {
+    local file
+    file=$(session_transcript "$1")
+    [[ -n ${file} ]] || return 1
+    [[ $(grep -F '"type":"repl-mode"' "${file}" | tail -n 1 | jq -r '.replMode // false' 2>/dev/null) == true ]]
+}
+
 # The name Remote Control should keep for the session these claude arguments
 # resume in <home>, or nothing. Resumed, a session gets a made-up name
 # instead of its own (anthropics/claude-code#59960), and one moving to
 # another account is registered anew. Only a name given with
 # --remote-control survives that, so a resume passes the session's own:
 # -n/--name when given, else its newest title. Nothing for --print, a fork
-# (a new session), a Remote Control choice already made, or a name the
-# command line would read as an option.
+# (a new session), a Remote Control choice already made, a Code Mode session
+# (Remote Control does not run in one), or a name the command line would
+# read as an option.
 rc_name() {
     local home=$1 arg prev="" given="" id file newest title=""
     shift
@@ -528,6 +584,7 @@ rc_name() {
     remote_control_on "${home}" || return 0
     id=$(full_id "$(resumed_id "$@")")
     [[ -n ${id} ]] || return 0
+    ! code_mode_session "${id}" || return 0
     title=${given}
     if [[ -z ${title} ]]; then
         # A folder moved or renamed keeps an older copy under its old name:
@@ -581,7 +638,7 @@ in_home() {
 # arguments name a mode (launch_mode); a first -a, --yolo, --unsafe, --bypass
 # or -adskp is dropped.
 run_in() {
-    local home=$1 name mode rc alias
+    local home=$1 name mode rc alias id
     shift
     case ${1:-} in
         -a | --yolo | --unsafe | --bypass | -adskp) shift ;;
@@ -589,6 +646,12 @@ run_in() {
     mode=$(launch_mode "$@")
     rc=$(rc_name "${home}" "$@")
     [[ -z ${rc} ]] || set -- --remote-control "${rc}" "$@"
+    # A Code Mode session resumes only with Code Mode on, even once it was
+    # turned off for new sessions; a 0 set anywhere still keeps it off.
+    id=$(full_id "$(resumed_id "$@")")
+    if [[ -n ${id} && -z ${CLAUDE_CODE_EXPERIMENTAL_CODE_MODE+set} ]] && code_mode_session "${id}"; then
+        export CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1
+    fi
     set -- "${mode}" "$@"
     # Remote Control's made-up names start with the machine's short name.
     if [[ -z ${CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX:-} ]]; then
@@ -599,6 +662,7 @@ run_in() {
     # What the shared home gained since (a reconcile's rules/, say) reaches
     # this account on its next start; a real file in the way is left alone.
     [[ ! -d ${home} ]] || link_shared "${home}" >/dev/null 2>&1 || true
+    accept_code_mode "${home}" >/dev/null 2>&1 || true
     for name in ${DROPPED}; do unset "${name}"; done
     unset CLAUDE_AS_CONFIRMED
     if [[ ${home} == "${HOME}/.claude" ]]; then
@@ -891,6 +955,7 @@ add() {
         >"$(account_file "${adding}")" 2>/dev/null \
         || jq -n '{hasCompletedOnboarding: true}' >"$(account_file "${adding}")"
     chmod 600 "$(account_file "${adding}")"
+    accept_code_mode "${adding}" >/dev/null || true
     printf 'Signing in %s\n' "${email}"
     (cd / && in_home "${adding}" auth login --email "${email}" "$@") \
         || die "sign-in did not finish; nothing was kept. Run it again: claude-as --add ${email}"
@@ -1479,7 +1544,10 @@ case ${1:-} in
         host_alias "${CLAUDE_CONFIG_DIR:-${shared}}"
         ;;
     --relink)
-        while IFS= read -r home; do link_shared "${home}"; done < <(homes)
+        while IFS= read -r home; do
+            link_shared "${home}"
+            accept_code_mode "${home}" || true
+        done < <(homes)
         ;;
     "")
         # Assigned one step at a time: set -e stops at a failed assignment,

@@ -12,6 +12,8 @@
 #   --no-agents            Skip agents & skills installation
 #   --agent-teams          Enable agent teams (experimental)
 #   --no-agent-teams       Disable agent teams
+#   --code-mode            Turn on Code Mode (experimental; no Remote Control in its sessions)
+#   --no-code-mode         Turn off Code Mode (default: leave it as it is)
 #   --no-proxy-path        Skip proxy launcher PATH and shell shortcut setup
 #   --bypass-default       Start every session in bypass permissions via settings.json (default)
 #   --no-bypass-default    Leave permissions.defaultMode in settings.json alone
@@ -22,7 +24,7 @@
 #   --with-opencode        Force OpenCode parallel install (default: auto-detect)
 #   --no-opencode          Skip OpenCode setup
 #   --no-weekly-show-reset Hide weekly reset countdown (default)
-#   --minimal              Core only (no agents, skills, MCP, agent teams, proxy PATH, or shell shortcuts)
+#   --minimal              Core only (no agents, skills, MCP, agent teams, Code Mode, proxy PATH, or shell shortcuts)
 #   --overwrite-settings   Replace settings.json with repo defaults
 #   --skip-settings        Don't modify settings.json
 #   --theme THEME          Statusline color theme (dark|light|colorblind|none)
@@ -93,6 +95,7 @@ STATUSLINE_CC_STATUS_POSITION="inline"   # inline | newline
 STATUSLINE_CC_STATUS_VISIBILITY="always" # always | problem_only
 STATUSLINE_CC_STATUS_COLOR="full"        # none | full | status_only
 INSTALL_AGENT_TEAMS="true"
+INSTALL_CODE_MODE="" # "" leaves settings.json as it is | "true" | "false"
 INSTALL_PROXY_PATH="true"
 INSTALL_BYPASS_DEFAULT="true"
 INSTALL_OPENCODE="auto" # "auto" | "yes" | "no" — auto = detect_opencode result
@@ -290,6 +293,14 @@ main() {
         echo ""
 
         step=$((step + 1))
+        echo "Step ${step}: Configuring Code Mode..."
+        echo ""
+
+        configure_code_mode
+
+        echo ""
+
+        step=$((step + 1))
         echo "Step ${step}: Pinning the Bash tool shell..."
         echo ""
 
@@ -359,6 +370,14 @@ main() {
         echo ""
 
         configure_agent_teams
+
+        echo ""
+
+        step=$((step + 1))
+        echo "Step ${step}: Configuring Code Mode..."
+        echo ""
+
+        configure_code_mode
 
         echo ""
 

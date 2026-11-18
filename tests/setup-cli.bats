@@ -27,6 +27,7 @@ setup() {
     [ "$STATUSLINE_THEME" = "dark" ]
     [ "$STATUSLINE_BAR_STYLE" = "text" ]
     [ "$STATUSLINE_COMPACT" = "true" ]
+    [ -z "$INSTALL_CODE_MODE" ]
 }
 
 # --- Flag parsing ---
@@ -87,11 +88,21 @@ setup() {
     [ "$INSTALL_AGENTS_SKILLS" = "false" ]
 }
 
-@test "parse_arguments: --minimal disables MCP, agents, agent teams, and proxy PATH" {
+@test "parse_arguments: --code-mode and --no-code-mode set the Code Mode choice, the last one winning" {
+    parse_arguments --code-mode
+    [ "$INSTALL_CODE_MODE" = "true" ]
+    parse_arguments --no-code-mode
+    [ "$INSTALL_CODE_MODE" = "false" ]
+    parse_arguments --no-code-mode --code-mode
+    [ "$INSTALL_CODE_MODE" = "true" ]
+}
+
+@test "parse_arguments: --minimal disables MCP, agents, agent teams, Code Mode, and proxy PATH" {
     parse_arguments --minimal
     [ "${#INSTALL_MCP_SERVERS[@]}" -eq 0 ]
     [ "$INSTALL_AGENTS_SKILLS" = "false" ]
     [ "$INSTALL_AGENT_TEAMS" = "false" ]
+    [ "$INSTALL_CODE_MODE" = "false" ]
     [ "$INSTALL_PROXY_PATH" = "false" ]
     [ "$INSTALL_BYPASS_DEFAULT" = "false" ]
 }

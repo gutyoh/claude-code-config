@@ -14,7 +14,9 @@ show_usage() {
     echo "  --no-agents            Skip agents & skills installation"
     echo "  --agent-teams          Enable agent teams (experimental)"
     echo "  --no-agent-teams       Disable agent teams"
-    echo "  --minimal              Core only (no agents, skills, MCP, agent teams, proxy PATH, or OpenCode)"
+    echo "  --code-mode            Turn on Code Mode (experimental; no Remote Control in its sessions)"
+    echo "  --no-code-mode         Turn off Code Mode (default: leave it as it is)"
+    echo "  --minimal              Core only (no agents, skills, MCP, agent teams, Code Mode, proxy PATH, or OpenCode)"
     echo "  --overwrite-settings   Replace settings.json with repo defaults"
     echo "  --skip-settings        Don't modify settings.json"
     echo "  --theme THEME          Statusline color theme (dark|light|colorblind|none)"
@@ -121,10 +123,19 @@ parse_arguments() {
                 INSTALL_AGENT_TEAMS="false"
                 shift
                 ;;
+            --code-mode)
+                INSTALL_CODE_MODE="true"
+                shift
+                ;;
+            --no-code-mode)
+                INSTALL_CODE_MODE="false"
+                shift
+                ;;
             --minimal)
                 INSTALL_AGENTS_SKILLS="false"
                 INSTALL_MCP_SERVERS=()
                 INSTALL_AGENT_TEAMS="false"
+                INSTALL_CODE_MODE="false"
                 INSTALL_PROXY_PATH="false"
                 INSTALL_BYPASS_DEFAULT="false"
                 INSTALL_OPENCODE="no"

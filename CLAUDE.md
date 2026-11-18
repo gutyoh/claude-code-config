@@ -209,7 +209,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 │   │   ├── tui.sh               # tui_readkey, tui_select, tui_multiselect, tui_confirm
 │   │   ├── preview.sh           # render_bar_preview, show_statusline_preview, show_preview_box
 │   │   ├── filesystem.sh        # install_managed_entries, check_prerequisite
-│   │   ├── settings.sh          # configure_ide_hook, configure_file_suggestion, configure_statusline, configure_agent_teams
+│   │   ├── settings.sh          # configure_ide_hook, configure_file_suggestion, configure_statusline, configure_agent_teams, configure_code_mode
 │   │   ├── statusline-conf.sh   # configure_statusline_conf
 │   │   ├── mcp.sh               # configure_mcp_servers
 │   │   ├── cli.sh               # show_usage, parse_arguments
@@ -288,6 +288,7 @@ A Git-versioned, portable configuration for Claude Code that works across macOS,
 
 ### Experimental Features
 - **agent-teams**: Multi-session coordinated teams (lead + teammates with shared task list). Enabled by default in macOS/Linux `setup.sh`. Use `--no-agent-teams` to disable. Sets `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `~/.claude/settings.json` env.
+- **code-mode**: Claude writes JavaScript that makes its tool calls. Off unless asked: `--code-mode` / `--no-code-mode` (`-CodeMode` / `-NoCodeMode`) set or remove `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1`, and a rerun without either leaves it as it is, because Code Mode sessions run without Remote Control. `claude-as` records each account's one-time answer and resumes Code Mode sessions in Code Mode.
 
 ### Hooks
 - **enforce-git-pull-rebase**: Automatically adds `--rebase` to all `git pull` commands
