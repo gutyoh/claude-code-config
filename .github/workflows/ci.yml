@@ -140,8 +140,10 @@ jobs:
   # Claude Code runs the status line, /full-search and the session hooks
   # through Git Bash on Windows, where each process is an MSYS2 fork: their
   # tests there, on x64 and arm64, when one of them moves.
+  # One job per suite: each MSYS2 fork costs milliseconds, so the suites run
+  # side by side, and one that grows never pushes another past the timeout.
   windows-bash:
-    name: git bash (${{ matrix.os }})
+    name: git bash (${{ matrix.os }}, ${{ matrix.suite.name }})
     needs: plan
     if: ${{ !cancelled() && (needs.plan.result != 'success' || needs.plan.outputs.windows-bash == 'true') }}
     runs-on: ${{ matrix.os }}
@@ -152,6 +154,13 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-latest, windows-11-arm]
+        suite:
+          - name: status line
+            files: tests/statusline-*.bats tests/cc-status.bats
+          - name: full-search
+            files: tests/full-search.bats
+          - name: remote title hook
+            files: tests/session-remote-title.bats
     defaults:
       run:
         # Git for Windows' bash, the one Claude Code uses.
@@ -179,16 +188,13 @@ jobs:
           jq --version
           echo "OSTYPE=${OSTYPE} uname=$(uname -s)"
 
-      - name: Status line tests
-        run: bats tests/statusline-*.bats tests/cc-status.bats
-
-      - name: full-search tests
-        if: ${{ !cancelled() }}
-        run: bats tests/full-search.bats </dev/null
-
-      - name: Remote title hook tests
-        if: ${{ !cancelled() }}
-        run: bats tests/session-remote-title.bats </dev/null
+      # Unquoted on purpose: the suite's files are a list, and globs expand.
+      - name: ${{ matrix.suite.name }} tests
+        env:
+          FILES: ${{ matrix.suite.files }}
+        run: |
+          # shellcheck disable=SC2086
+          bats ${FILES} </dev/null
 
   # Linux on every change; macOS (ten times the minutes) when shell code moves.
   test:
