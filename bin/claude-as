@@ -181,14 +181,20 @@ list() {
 # The account a person picks: one row per account, "<name>  <plan>  <org>",
 # and the name of the row chosen. Exit 130 when nothing is chosen.
 pick() {
-    local home email org plan uuid row choice tool=${CLAUDE_AS_PICKER:-}
+    local home email org plan uuid name names="" choice tool=${CLAUDE_AS_PICKER:-}
     local -a rows=()
     while IFS=$'\037' read -r home email org plan uuid; do
         [[ -n ${email} ]] || continue
-        row="$(name_of "${home}")"$'\t'"${plan:--}"$'\t'"${org:--}"
-        [[ " ${rows[*]-} " == *" ${row} "* ]] || rows+=("${row}")
+        name=$(name_of "${home}")
+        # One account in two homes is one row; resolve() picks between them.
+        grep -qxF -- "${name}" <<<"${names}" && continue
+        names+="${name}"$'\n'
+        rows+=("${name}"$'\t'"${plan:--}"$'\t'"${org:--}")
     done < <(accounts)
     ((${#rows[@]})) || die "no account is signed in; claude-as --add <email> signs one in"
+    if [[ ${tool} == gum || ${tool} == fzf ]] && ! command -v "${tool}" >/dev/null 2>&1; then
+        die "CLAUDE_AS_PICKER is ${tool}, which is not installed" 2
+    fi
     if [[ -z ${tool} ]]; then
         tool=menu
         command -v fzf >/dev/null 2>&1 && tool=fzf
@@ -734,7 +740,14 @@ users_of() {
         [[ -n ${name} ]] || continue
         n=$((n + 1))
         ((n <= 2)) && list+="${list:+, }${name##*/} (${pid})"
-    done < <(ps eww -A -o pid=,command= 2>/dev/null | grep -F -- " CLAUDE_CONFIG_DIR=$1 " | awk '{ print $1 }')
+    done < <(ps eww -A -o pid=,command= 2>/dev/null | awk -v want="$1" '{
+        for (i = 2; i <= NF; i++) {
+            if (substr($i, 1, 18) != "CLAUDE_CONFIG_DIR=") continue
+            v = substr($i, 19)
+            sub(/\/+$/, "", v)
+            if (v == want) { print $1; break }
+        }
+    }')
     ((n > 2)) && list+=" and $((n - 2)) more"
     printf '%s\n' "${list:-a running process}"
 }
@@ -773,6 +786,8 @@ retarget_ledger() {
 }
 
 # Moves <from> to <to> with its login, undone unless it is still signed in.
+# Status 1: moved and moved back, its login did not survive; status 2: left
+# where it is, its Keychain login cannot be copied (relocate says why).
 # A session running in <from> follows a link, so its one .credentials.json is
 # shared; a Keychain login cannot be, and relocate() is not called for it.
 relocate() {
@@ -780,11 +795,20 @@ relocate() {
     in_use "${from}" && live=1
     copy_secret "${from}" "${to}" || copied=$?
     case ${copied} in
-        1) printf 'claude-as: the Keychain is locked or refused the copy; %s keeps its Keychain login\n' "$(short "${from}")" >&2 ;;
+        1)
+            # Its entry is there but cannot be read (an SSH or agent session has
+            # no access to the login Keychain): a rename would leave it behind.
+            if keychain_login "${from}"; then
+                printf 'claude-as: %s keeps its name: its Keychain login cannot be read here; run --tidy in a terminal of the desktop session\n' \
+                    "$(short "${from}")" >&2
+                return 2
+            fi
+            printf 'claude-as: the Keychain is locked or refused the copy; %s keeps its Keychain login\n' "$(short "${from}")" >&2
+            ;;
         2)
             printf 'claude-as: %s keeps its name: its Keychain login does not fit on one security -i line\n' \
                 "$(short "${from}")" >&2
-            return 1
+            return 2
             ;;
     esac
     if ! mv "${from}" "${to}"; then
@@ -866,7 +890,7 @@ add() {
         fi
     done < <(accounts)
     home=$(home_for "" "${email}" "${org}" "${uuid}") || die "no free name for ${email} in ~/.claude-${email}*; run claude-as --tidy"
-    relocate "${adding}" "${home}" >/dev/null || die "the new login did not survive the move to $(short "${home}"); nothing was kept"
+    relocate "${adding}" "${home}" >/dev/null || die "the new login could not be moved to $(short "${home}"); nothing was kept"
     adding=""
     trap - EXIT INT TERM HUP
     case ${plan} in
@@ -896,7 +920,7 @@ tidy_plan() {
 # duplicate homes are archived, never deleted; misnamed ones renamed with
 # their login. A home a running session uses is left alone.
 tidy() {
-    local dry=0 link to home email org plan uuid action why twin kept="" keep_homes="" want changed=0 held=0
+    local dry=0 link to home email org plan uuid action why twin kept="" keep_homes="" want changed=0 held=0 rc
     case ${1:-} in
         "") ;;
         --dry-run) dry=1 ;;
@@ -951,9 +975,11 @@ tidy() {
         changed=1
         if ((dry)); then
             printf 'would rename %s -> %s\n' "$(short "${home}")" "$(short "${want}")"
-        elif ! relocate "${home}" "${want}"; then
-            printf 'left alone  %s: its login did not survive the move to %s\n' "$(short "${home}")" "$(short "${want}")"
-            held=1
+        else
+            rc=0
+            relocate "${home}" "${want}" || rc=$?
+            ((rc != 1)) || printf 'left alone  %s: its login did not survive the move to %s\n' "$(short "${home}")" "$(short "${want}")"
+            ((rc == 0)) || held=1
         fi
     done < <(while IFS= read -r home; do [[ -z ${home} ]] || CLAUDE_AS_HOMES=${home} accounts; done <<<"${keep_homes}")
     ((changed || held)) || printf 'nothing to tidy: one home per account, each named after it\n'
@@ -1440,7 +1466,8 @@ case ${1:-} in
         if [[ -n ${CLAUDE_AS:-} ]]; then
             home=$(resolve "${CLAUDE_AS}")
             run_in "${home}"
-        elif [[ -t 0 && -t 1 ]]; then
+        elif [[ -t 0 && -t 1 && -t 2 ]]; then
+            # The picker draws on stderr: all three, or nobody would see it.
             who=$(pick)
             home=$(resolve "${who}")
             run_in "${home}"

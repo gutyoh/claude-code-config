@@ -41,7 +41,11 @@ n=100
 for h in "${live[@]}"; do
     n=$((n + 1))
     [[ $* == *pid=* ]] && printf '%s ' "$n"
-    [[ -n $h ]] && printf '/usr/bin/claude --resume x TERM=xterm CLAUDE_CONFIG_DIR=%s HOME=/h\n' "$h"
+    if [[ -n $h && -n ${STUB_PS_LAST:-} ]]; then
+        printf '/usr/bin/claude --resume x TERM=xterm HOME=/h CLAUDE_CONFIG_DIR=%s/\n' "$h"
+    elif [[ -n $h ]]; then
+        printf '/usr/bin/claude --resume x TERM=xterm CLAUDE_CONFIG_DIR=%s HOME=/h\n' "$h"
+    fi
 done
 exit 0
 EOF
@@ -60,7 +64,14 @@ svc=""
 args=("$@")
 for ((i = 0; i < ${#args[@]}; i++)); do [[ ${args[i]} == -s ]] && svc=${args[i + 1]}; done
 case $1 in
-    find-generic-password) [[ -f $kc/$svc ]] || exit 44; cat "$kc/$svc" ;;
+    find-generic-password)
+        [[ -f $kc/$svc ]] || exit 44
+        # STUB_KEYCHAIN_NO_SECRET=1: attributes read, secrets refused, as over SSH.
+        if [[ " $* " == *" -w "* ]]; then
+            [[ -z ${STUB_KEYCHAIN_NO_SECRET:-} ]] || exit 36
+            cat "$kc/$svc"
+        fi
+        ;;
     delete-generic-password) [[ -f $kc/$svc ]] || exit 44; rm "$kc/$svc" ;;
     -i)
         line=$(cat)
@@ -1656,16 +1667,62 @@ three_accounts() {
     [ "$(cat "${HOME}/keychain/$(service_of "${old}")")" = $'one\ntwo' ]
 }
 
-@test "a copy that does not read back whole is deleted, and the old login stays" {
+@test "a copy that does not read back whole is deleted, and the home and its login stay" {
     four_retries
     stub_security
     local old="${HOME}/.claude-me@work.example-3" new="${HOME}/.claude-me@work.example"
     mkdir -p "${HOME}/keychain"
     printf 'work-secret' >"${HOME}/keychain/$(service_of "${old}")"
     STUB_KEYCHAIN_CUT=4 run "$SCRIPT" --tidy
-    [[ ${output} == *"the Keychain is locked or refused the copy; ~/.claude-me@work.example-3 keeps its Keychain login"* ]]
+    [[ ${output} == *"~/.claude-me@work.example-3 keeps its name: its Keychain login cannot be read here"* ]]
+    [[ ${output} != *"did not survive"* ]]
+    [ -d "${old}" ] && [ ! -e "${new}" ]
     [ ! -e "${HOME}/keychain/$(service_of "${new}")" ]
     [ "$(cat "${HOME}/keychain/$(service_of "${old}")")" = work-secret ]
+}
+
+@test "--tidy over SSH, where the Keychain login exists but cannot be read, renames nothing" {
+    four_retries
+    stub_security
+    local old="${HOME}/.claude-me@work.example-3" new="${HOME}/.claude-me@work.example"
+    mkdir -p "${HOME}/keychain"
+    printf 'work-secret' >"${HOME}/keychain/$(service_of "${old}")"
+    STUB_KEYCHAIN_NO_SECRET=1 run "$SCRIPT" --tidy
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"keeps its name: its Keychain login cannot be read here; run --tidy in a terminal of the desktop session"* ]]
+    [ -d "${old}" ] && [ ! -e "${new}" ]
+    [ "$(cat "${HOME}/keychain/$(service_of "${old}")")" = work-secret ]
+    [ ! -e "${HOME}/security.stdin" ]
+}
+
+@test "who holds a home finds it as the last word of a process's environment" {
+    four_retries
+    local old="${HOME}/.claude-me@work.example-4"
+    STUB_PS_LAST=1 STUB_LIVE="${old}" run "$SCRIPT" --tidy --dry-run
+    [[ ${output} == *"but it is in use by claude (101); run --tidy once it ends"* ]]
+}
+
+@test "a picker named but not installed says so, rather than reading as a cancel" {
+    three_accounts
+    need_tty
+    local bin="${BATS_TEST_TMPDIR}/nopick"
+    mkdir -p "${bin}"
+    for c in bash jq sed grep awk cut tr sort head cat mkdir dirname basename ps id uname readlink env script sha256sum shasum; do
+        command -v "${c}" >/dev/null 2>&1 && ln -sf "$(command -v "${c}")" "${bin}/${c}"
+    done
+    ln -sf "${STUB_DIR}/claude" "${bin}/claude"
+    CLAUDE_AS_PICKER=gum PATH="${bin}" run on_tty "$SCRIPT" </dev/null
+    [[ ${output} == *"CLAUDE_AS_PICKER is gum, which is not installed"* ]]
+    [[ ${output} != *RAN* ]]
+}
+
+@test "a bare claude-as with stderr away from the terminal lists instead of asking unseen" {
+    three_accounts
+    need_tty
+    stub_bin gum 'echo picked-anyway'
+    run on_tty bash -c "'$SCRIPT' 2>/dev/null"
+    [[ ${output} == *EMAIL* ]]
+    [[ ${output} != *picked-anyway* ]]
 }
 
 @test "a rename whose new home does not sign in leaves the old Keychain login as it was" {
