@@ -14,7 +14,9 @@ show_usage() {
     echo "  --no-agents            Skip agents & skills installation"
     echo "  --agent-teams          Enable agent teams (experimental)"
     echo "  --no-agent-teams       Disable agent teams"
-    echo "  --minimal              Core only (no agents, skills, MCP, agent teams, proxy PATH, or OpenCode)"
+    echo "  --code-mode            Turn on Code Mode (experimental; no Remote Control in its sessions)"
+    echo "  --no-code-mode         Turn off Code Mode (default: leave it as it is)"
+    echo "  --minimal              Core only (no agents, skills, MCP, agent teams, Code Mode, proxy PATH, or OpenCode)"
     echo "  --overwrite-settings   Replace settings.json with repo defaults"
     echo "  --skip-settings        Don't modify settings.json"
     echo "  --theme THEME          Statusline color theme (dark|light|colorblind|none)"
@@ -59,6 +61,9 @@ show_usage() {
 }
 
 parse_arguments() {
+    # Applied after the loop, so --code-mode outranks --minimal in any order,
+    # as -CodeMode does in setup.ps1; asking for both is refused in both.
+    local code_mode_asked=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -y | --yes)
@@ -121,10 +126,19 @@ parse_arguments() {
                 INSTALL_AGENT_TEAMS="false"
                 shift
                 ;;
+            --code-mode)
+                code_mode_asked+=" true"
+                shift
+                ;;
+            --no-code-mode)
+                code_mode_asked+=" false"
+                shift
+                ;;
             --minimal)
                 INSTALL_AGENTS_SKILLS="false"
                 INSTALL_MCP_SERVERS=()
                 INSTALL_AGENT_TEAMS="false"
+                INSTALL_CODE_MODE="false"
                 INSTALL_PROXY_PATH="false"
                 INSTALL_BYPASS_DEFAULT="false"
                 INSTALL_OPENCODE="no"
@@ -301,4 +315,12 @@ parse_arguments() {
                 ;;
         esac
     done
+    case "${code_mode_asked}" in
+        *true*false* | *false*true*)
+            echo "Error: --code-mode and --no-code-mode contradict each other"
+            exit 1
+            ;;
+        *true*) INSTALL_CODE_MODE="true" ;;
+        *false*) INSTALL_CODE_MODE="false" ;;
+    esac
 }

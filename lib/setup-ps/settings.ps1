@@ -1,4 +1,4 @@
-# settings.ps1 -- IDE hook, file suggestion, statusline, and agent teams settings
+# settings.ps1 -- IDE hook, file suggestion, statusline, agent teams and Code Mode settings
 # Path: lib/setup-ps/settings.ps1
 # Dot-sourced by setup.ps1 -- do not execute directly.
 #
@@ -330,51 +330,96 @@ function Update-Statusline {
     }
 }
 
+# What Claude Code reads as an on flag.
+$script:FlagOnValues = @("1", "true", "yes", "on")
+
+function Set-SettingsEnvFlag {
+    <#
+    .SYNOPSIS
+    Set env.<Name> to "1" in settings.json when -Enabled (a value Claude Code
+    already reads as on stays), remove it otherwise, and an env left empty:
+    one switch per experimental feature.
+    #>
+    param(
+        [string]$Name,
+        [bool]$Enabled,
+        [string]$Label
+    )
+
+    try {
+        $settings = Read-Utf8Text $script:SettingsJson | ConvertFrom-Json
+        $present = $settings.env -and $settings.env.PSObject.Properties[$Name]
+
+        if ($Enabled) {
+            if ($present -and $script:FlagOnValues -contains "$($settings.env.$Name)".Trim().ToLower()) {
+                Write-Status "  + ${Label} already enabled" -Color Green
+                return
+            }
+            if (-not $settings.env) {
+                $settings | Add-Member -NotePropertyName "env" -NotePropertyValue ([PSCustomObject]@{}) -Force
+            }
+            $settings.env | Add-Member -NotePropertyName $Name -NotePropertyValue "1" -Force
+            Write-JsonFile -Path $script:SettingsJson -InputObject $settings
+            Write-Status "  + ${Label} enabled" -Color Green
+        }
+        elseif ($present) {
+            $settings.env.PSObject.Properties.Remove($Name)
+            if ($settings.env.PSObject.Properties.Count -eq 0) {
+                $settings.PSObject.Properties.Remove("env")
+            }
+            Write-JsonFile -Path $script:SettingsJson -InputObject $settings
+            Write-Status "  + ${Label} disabled (removed from settings)" -Color Green
+        }
+        else {
+            Write-Status "  - ${Label} not enabled (nothing to remove)" -Color DarkGray
+        }
+    }
+    catch {
+        Write-Status "  ! Failed to configure $($Label.ToLower()): $_" -Color Yellow
+    }
+}
+
 function Update-AgentTeam {
     <#
     .SYNOPSIS
     Enable or disable agent teams in settings.json env block.
     #>
+    Set-SettingsEnvFlag -Name "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS" -Enabled $script:InstallAgentTeamsFlag -Label "Agent teams"
+}
+
+function Test-SettingsEnvFlag {
+    <#
+    .SYNOPSIS
+    Whether settings.json turns env.<Name> on, read as Claude Code reads a flag.
+    #>
+    param([string]$Name)
+
     try {
         $settings = Read-Utf8Text $script:SettingsJson | ConvertFrom-Json
-
-        if ($script:InstallAgentTeamsFlag) {
-            $currentValue = $null
-            if ($settings.env) {
-                $currentValue = $settings.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS
-            }
-
-            if ($currentValue -eq "1") {
-                Write-Status "  + Agent teams already enabled" -Color Green
-            }
-            else {
-                Write-Status "  Adding agent teams env to settings..."
-
-                if (-not $settings.env) {
-                    $settings | Add-Member -NotePropertyName "env" -NotePropertyValue ([PSCustomObject]@{}) -Force
-                }
-                $settings.env | Add-Member -NotePropertyName "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS" -NotePropertyValue "1" -Force
-
-                Write-JsonFile -Path $script:SettingsJson -InputObject $settings
-                Write-Status "  + Agent teams enabled" -Color Green
-            }
-        }
-        else {
-            if ($settings.env -and $settings.env.PSObject.Properties['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS']) {
-                $settings.env.PSObject.Properties.Remove("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS")
-                if ($settings.env.PSObject.Properties.Count -eq 0) {
-                    $settings.PSObject.Properties.Remove("env")
-                }
-                Write-JsonFile -Path $script:SettingsJson -InputObject $settings
-                Write-Status "  + Agent teams disabled (removed from settings)" -Color Green
-            }
-            else {
-                Write-Status "  - Agent teams not enabled (nothing to remove)" -Color DarkGray
-            }
-        }
+        return [bool]($settings.env -and $script:FlagOnValues -contains "$($settings.env.$Name)".Trim().ToLower())
     }
     catch {
-        Write-Status "  ! Failed to configure agent teams: $_" -Color Yellow
+        return $false
+    }
+}
+
+function Update-CodeMode {
+    <#
+    .SYNOPSIS
+    Turn Code Mode on or off only when asked ($script:InstallCodeModeFlag
+    $true or $false): its sessions run without Remote Control, so a rerun
+    never flips it. Claude Code asks each account once before its first
+    Code Mode session.
+    #>
+    $name = "CLAUDE_CODE_EXPERIMENTAL_CODE_MODE"
+    if ($null -ne $script:InstallCodeModeFlag) {
+        Set-SettingsEnvFlag -Name $name -Enabled $script:InstallCodeModeFlag -Label "Code Mode"
+    }
+    elseif (Test-SettingsEnvFlag -Name $name) {
+        Write-Status "  - Code Mode left on (-NoCodeMode turns it off)" -Color DarkGray
+    }
+    else {
+        Write-Status "  - Code Mode left off (-CodeMode turns it on; its sessions run without Remote Control)" -Color DarkGray
     }
 }
 

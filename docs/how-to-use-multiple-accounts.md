@@ -203,7 +203,7 @@ On another machine, run it there: `ssh <host> claude-as --move other@example.com
 
 ```bash
 claude-as --check            # signed in, named after its login, links in place, sees the shared history
-claude-as --relink           # link what a home is missing; anything else is left alone
+claude-as --relink           # link what a home is missing, record Code Mode's answer where it is on
 claude-as --tidy --dry-run   # what --tidy would do
 claude-as --tidy             # one home per account, each named after it
 ```
@@ -244,6 +244,12 @@ herdr pane `--check` runs in, so the pane keeps its own session.
 
 - Remote Control, claude.ai connectors and usage limits belong to each account.
   On your phone, switch the Claude app to the account whose sessions you want.
+- [Code Mode](https://code.claude.com/docs/en/code-mode) asks each account once
+  before its first session. Where it is on (`setup.sh --code-mode`), a start,
+  `--add` and `--relink` record that answer, so a session started unattended
+  does not stop at it. A session started in Code Mode resumes in it, even once
+  Code Mode is off for new sessions, and without Remote Control, which does
+  not run in Code Mode.
 - `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`,
   `ANTHROPIC_PROFILE` and the cloud provider switches outrank every login.
   `claude-as` warns when one is set.

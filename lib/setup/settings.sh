@@ -1,4 +1,4 @@
-# settings.sh -- IDE hook, file suggestion, statusline, and agent teams settings configuration
+# settings.sh -- IDE hook, file suggestion, statusline, agent teams and Code Mode settings configuration
 # Path: lib/setup/settings.sh
 # Sourced by setup.sh — do not execute directly.
 
@@ -360,71 +360,84 @@ PYTHON_SCRIPT
     fi
 }
 
-configure_agent_teams() {
-    if [[ "${INSTALL_AGENT_TEAMS}" == "true" ]]; then
-        if python3 - "${SETTINGS_JSON}" <<'PYTHON_CHECK' 2>/dev/null; then
-import json
-import sys
-try:
-    with open(sys.argv[1]) as f:
-        data = json.load(f)
-    if data.get('env', {}).get('CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS') == '1':
-        sys.exit(0)
-    sys.exit(1)
-except Exception:
-    sys.exit(1)
-PYTHON_CHECK
-            echo "  ✓ Agent teams already enabled"
-        else
-            echo "  Adding agent teams env to settings..."
-            python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
+# Sets env.<name> to "1" in settings.json when <enabled> is true (a value
+# Claude Code already reads as on stays), removes it otherwise, and an env
+# left empty: one switch per experimental feature.
+# Usage: set_settings_env <true|false> <name> <label>
+set_settings_env() {
+    python3 - "${SETTINGS_JSON}" "$@" <<'PYTHON_SCRIPT'
 import json
 import sys
 
-settings_file = sys.argv[1]
-
-try:
-    with open(settings_file) as f:
-        data = json.load(f)
-
-    data.setdefault('env', {})['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'] = '1'
-
-    with open(settings_file, 'w') as f:
-        json.dump(data, f, indent=2)
-
-    print("  ✓ Agent teams enabled")
-    sys.exit(0)
-except Exception as e:
-    print(f"  ⚠ Failed to enable agent teams: {e}", file=sys.stderr)
-    sys.exit(1)
-PYTHON_SCRIPT
-        fi
-    else
-        python3 - "${SETTINGS_JSON}" <<'PYTHON_SCRIPT'
-import json
-import sys
-
-settings_file = sys.argv[1]
+settings_file, enabled, name, label = sys.argv[1], sys.argv[2] == 'true', sys.argv[3], sys.argv[4]
+ON = ('1', 'true', 'yes', 'on')  # what Claude Code reads as on
 
 try:
     with open(settings_file) as f:
         data = json.load(f)
 
     env = data.get('env', {})
-    if 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS' in env:
-        del env['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS']
+    if enabled and str(env.get(name, '')).strip().lower() in ON:
+        print(f"  ✓ {label} already enabled")
+        sys.exit(0)
+    if not enabled and name not in env:
+        print(f"  ⊘ {label} not enabled (nothing to remove)")
+        sys.exit(0)
+    if enabled:
+        data.setdefault('env', {})[name] = '1'
+    else:
+        del env[name]
         if not env:
             data.pop('env', None)
-        with open(settings_file, 'w') as f:
-            json.dump(data, f, indent=2)
-        print("  ✓ Agent teams disabled (removed from settings)")
-    else:
-        print("  ⊘ Agent teams not enabled (nothing to remove)")
+
+    with open(settings_file, 'w') as f:
+        json.dump(data, f, indent=2)
+
+    print(f"  ✓ {label} enabled" if enabled else f"  ✓ {label} disabled (removed from settings)")
     sys.exit(0)
 except Exception as e:
-    print(f"  ⚠ Failed to disable agent teams: {e}", file=sys.stderr)
+    print(f"  ⚠ Failed to configure {label.lower()}: {e}", file=sys.stderr)
     sys.exit(1)
 PYTHON_SCRIPT
+}
+
+configure_agent_teams() {
+    set_settings_env "${INSTALL_AGENT_TEAMS}" CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS "Agent teams"
+}
+
+# Whether settings.json turns env.<name> on, read as Claude Code reads a flag.
+settings_env_on() {
+    python3 - "${SETTINGS_JSON}" "$1" <<'PYTHON_SCRIPT' 2>/dev/null
+import json
+import sys
+
+try:
+    with open(sys.argv[1]) as f:
+        value = str(json.load(f).get('env', {}).get(sys.argv[2], '')).strip().lower()
+    sys.exit(0 if value in ('1', 'true', 'yes', 'on') else 1)
+except Exception:
+    sys.exit(1)
+PYTHON_SCRIPT
+}
+
+# Code Mode, turned on or off only when asked (INSTALL_CODE_MODE true or
+# false): its sessions run without Remote Control, so a rerun never flips it.
+# Where it is on, claude-as --relink records each account's one-time answer,
+# so a session a launcher starts unattended does not stop at the question.
+configure_code_mode() {
+    local out
+    if [[ -n "${INSTALL_CODE_MODE}" ]]; then
+        set_settings_env "${INSTALL_CODE_MODE}" CLAUDE_CODE_EXPERIMENTAL_CODE_MODE "Code Mode" || return 1
+    elif settings_env_on CLAUDE_CODE_EXPERIMENTAL_CODE_MODE; then
+        echo "  ⊘ Code Mode left on (--no-code-mode turns it off)"
+    else
+        echo "  ⊘ Code Mode left off (--code-mode turns it on; its sessions run without Remote Control)"
+    fi
+    settings_env_on CLAUDE_CODE_EXPERIMENTAL_CODE_MODE && [[ -x "${REPO_DIR}/bin/claude-as" ]] || return 0
+    if out=$("${REPO_DIR}/bin/claude-as" --relink 2>&1); then
+        [[ -z "${out}" ]] || printf '%s\n' "${out}" | sed 's/^/  /'
+    else
+        echo "  ⚠ claude-as --relink failed, so each account asks about Code Mode once: ${out}"
     fi
 }
 

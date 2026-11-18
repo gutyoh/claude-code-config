@@ -20,6 +20,7 @@ setup() {
     # A session started by claude-as passes these on to the tests run in it.
     unset CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX CLAUDE_HOST_ALIAS ${!HERDR_@}
     unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_PROFILE
+    unset CLAUDE_CODE_EXPERIMENTAL_CODE_MODE
     export XDG_STATE_HOME="${HOME}/.local/state"
     mkdir -p "${HOME}/.claude/projects" "${HOME}/.claude/skills" "${HOME}/.claude/hooks"
     echo '{}' >"${HOME}/.claude/settings.json"
@@ -135,6 +136,7 @@ printf 'ENV oauth=%s key=%s store=%s\n' "${CLAUDE_CODE_OAUTH_TOKEN-unset}" "${AN
 printf 'RC prefix=%s\n' "${CLAUDE_REMOTE_CONTROL_SESSION_NAME_PREFIX-unset}"
 printf 'PANE env=%s pane=%s\n' "${HERDR_ENV-unset}" "${HERDR_PANE_ID-unset}"
 printf 'CONFIRMED=%s\n' "${CLAUDE_AS_CONFIRMED-unset}"
+printf 'CODEMODE=%s\n' "${CLAUDE_CODE_EXPERIMENTAL_CODE_MODE-unset}"
 EOF
 }
 
@@ -1708,10 +1710,18 @@ three_accounts() {
 @test "a picker named but not installed says so, rather than reading as a cancel" {
     three_accounts
     need_tty
-    local bin="${BATS_TEST_TMPDIR}/nopick"
+    local bin="${BATS_TEST_TMPDIR}/nopick" p
     mkdir -p "${bin}"
-    for c in bash jq sed grep awk cut tr sort head cat mkdir dirname basename ps id uname readlink env script sha256sum shasum; do
-        command -v "${c}" >/dev/null 2>&1 && ln -sf "$(command -v "${c}")" "${bin}/${c}"
+    for c in bash jq sed grep awk cut tr sort head tail cat mkdir dirname basename ps id uname readlink env \
+        script sha256sum shasum sleep wc find ls mktemp date stat; do
+        # A version manager's shim works only beside its manager: link the
+        # first real copy on PATH.
+        p=$(type -ap "${c}" | grep -vF '/shims/' | head -n 1 || true)
+        if [[ -n ${p} ]]; then
+            ln -sf "${p}" "${bin}/${c}"
+        elif [[ ${c} == bash || ${c} == jq ]]; then
+            skip "${c} is reachable only through a shim"
+        fi
     done
     ln -sf "${STUB_DIR}/claude" "${bin}/claude"
     CLAUDE_AS_PICKER=gum PATH="${bin}" run on_tty "$SCRIPT" </dev/null
@@ -1933,4 +1943,190 @@ EOF
     run "$SCRIPT" me@work.example -p hi
     [ "$status" -eq 0 ]
     [[ ${output} == *RAN* ]]
+}
+
+# --- Code Mode: each account's one-time answer, and resumes ------------------
+
+# code_mode [value]: the shared settings turn Code Mode on (or set <value>).
+code_mode() {
+    jq --arg v "${1:-1}" '.env.CLAUDE_CODE_EXPERIMENTAL_CODE_MODE = $v' "${HOME}/.claude/settings.json" >"${HOME}/cm.json"
+    mv "${HOME}/cm.json" "${HOME}/.claude/settings.json"
+}
+
+accepted() {
+    jq -e '.codeModeCaveatsAcceptedV1 == true and .codeModeAutoModeCaveatAcceptedV1 == true' "$1" >/dev/null
+}
+
+# repl_mode <id> <true|false>...: a transcript whose repl-mode entries are, in order, these.
+repl_mode() {
+    local id=$1 v
+    shift
+    mkdir -p "${HOME}/.claude/projects/-work"
+    for v in "$@"; do
+        jq -nc --argjson v "${v}" --arg id "${id}" '{type: "repl-mode", replMode: $v, sessionId: $id}'
+    done >>"${HOME}/.claude/projects/-work/${id}.jsonl"
+}
+
+@test "--relink records Code Mode's answer once in every home where it is on, keeping the rest" {
+    two_accounts
+    code_mode
+    run "$SCRIPT" --relink
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"accepted    Code Mode for ~/.claude"$'\n'* ]]
+    [[ ${output} == *"accepted    Code Mode for ~/.claude-home"* ]]
+    accepted "${HOME}/.claude.json"
+    accepted "${HOME}/.claude-home/.claude.json"
+    [ "$(jq -r .oauthAccount.emailAddress "${HOME}/.claude-home/.claude.json")" = me@home.example ]
+    [ "$(file_mode "${HOME}/.claude-home/.claude.json")" = 600 ]
+    run "$SCRIPT" --relink
+    [ "$status" -eq 0 ]
+    [[ ${output} != *accepted* ]]
+    [ -z "$(find "${HOME}" -maxdepth 2 -name '.claude.json.*')" ]
+}
+
+@test "--relink records no answer where Code Mode is off, or a 0 keeps it off" {
+    two_accounts
+    run "$SCRIPT" --relink
+    [ "$status" -eq 0 ]
+    [[ ${output} != *accepted* ]]
+    code_mode 0
+    CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1 run "$SCRIPT" --relink
+    [ "$status" -eq 0 ]
+    [[ ${output} != *accepted* ]]
+    code_mode 1
+    CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=0 run "$SCRIPT" --relink
+    [ "$status" -eq 0 ]
+    [[ ${output} != *accepted* ]]
+    run jq -e 'has("codeModeCaveatsAcceptedV1")' "${HOME}/.claude-home/.claude.json"
+    [ "$status" -ne 0 ]
+}
+
+@test "Code Mode turned on in the environment alone counts too" {
+    two_accounts
+    CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1 run "$SCRIPT" --relink
+    [ "$status" -eq 0 ]
+    accepted "${HOME}/.claude-home/.claude.json"
+}
+
+@test "Code Mode reads true, yes and on as on, and false, no and off as off, as Claude Code does" {
+    two_accounts
+    code_mode TRUE
+    CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=off run "$SCRIPT" --relink
+    [[ ${output} != *accepted* ]]
+    code_mode false
+    CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=" yes " run "$SCRIPT" --relink
+    [[ ${output} != *accepted* ]]
+    jq '.env.CLAUDE_CODE_EXPERIMENTAL_CODE_MODE = false' "${HOME}/.claude/settings.json" >"${HOME}/cm.json"
+    mv "${HOME}/cm.json" "${HOME}/.claude/settings.json"
+    CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1 run "$SCRIPT" --relink
+    [[ ${output} != *accepted* ]]
+    code_mode On
+    run "$SCRIPT" --relink
+    accepted "${HOME}/.claude-home/.claude.json"
+    # Blanks around the word count for nothing, as Claude Code trims them.
+    jq 'del(.codeModeCaveatsAcceptedV1, .codeModeAutoModeCaveatAcceptedV1)' \
+        "${HOME}/.claude-home/.claude.json" >"${HOME}/a.json"
+    mv "${HOME}/a.json" "${HOME}/.claude-home/.claude.json"
+    echo '{}' >"${HOME}/.claude/settings.json"
+    CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=" on " run "$SCRIPT" --relink
+    [ "$status" -eq 0 ]
+    accepted "${HOME}/.claude-home/.claude.json"
+}
+
+@test "a linked account file is left to whoever owns it" {
+    two_accounts
+    code_mode
+    mv "${HOME}/.claude-home/.claude.json" "${HOME}/elsewhere.json"
+    ln -s "${HOME}/elsewhere.json" "${HOME}/.claude-home/.claude.json"
+    run "$SCRIPT" --relink
+    [ "$status" -eq 0 ]
+    [ -L "${HOME}/.claude-home/.claude.json" ]
+    run accepted "${HOME}/elsewhere.json"
+    [ "$status" -ne 0 ]
+}
+
+@test "a start and --add record the answer before Claude Code runs" {
+    two_accounts
+    code_mode
+    run "$SCRIPT" me@home.example
+    [ "$status" -eq 0 ]
+    [[ ${output} == *RAN* ]]
+    accepted "${HOME}/.claude-home/.claude.json"
+    run "$SCRIPT" --add New@Home.example
+    [ "$status" -eq 0 ]
+    accepted "${HOME}/.claude-new@home.example/.claude.json"
+    [ "$(jq -r .oauthAccount.emailAddress "${HOME}/.claude-new@home.example/.claude.json")" = New@Home.example ]
+}
+
+@test "a Code Mode session resumes in Code Mode, without Remote Control, once it is off for new ones" {
+    two_accounts
+    rc_on
+    titled "${SID}" claude-dev-20261018T0100Z-x-3f2a9c1e
+    repl_mode "${SID}" true
+    ran "${SID}" "${HOME}/.claude-home"
+    run "$SCRIPT" -r "${SID}"
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"CODEMODE=1"* ]]
+    [[ ${output} != *--remote-control* ]]
+    run "$SCRIPT" --rc-name --resume "${SID}"
+    [ -z "$output" ]
+}
+
+@test "a session that left Code Mode, or never ran in it, keeps Remote Control and the environment" {
+    two_accounts
+    rc_on
+    titled "${SID}" claude-dev-20261018T0100Z-x-3f2a9c1e
+    ran "${SID}" "${HOME}/.claude-home"
+    run "$SCRIPT" -r "${SID}"
+    [[ ${output} == *"--remote-control claude-dev-20261018T0100Z-x-3f2a9c1e"* ]]
+    [[ ${output} == *"CODEMODE=unset"* ]]
+    repl_mode "${SID}" true false
+    run "$SCRIPT" -r "${SID}"
+    [[ ${output} == *"--remote-control claude-dev-20261018T0100Z-x-3f2a9c1e"* ]]
+    [[ ${output} == *"CODEMODE=unset"* ]]
+}
+
+@test "a 0 kept for a Code Mode session stays, and so does its Remote Control name" {
+    two_accounts
+    rc_on
+    titled "${SID}" claude-dev-20261018T0100Z-x-3f2a9c1e
+    repl_mode "${SID}" true
+    ran "${SID}" "${HOME}/.claude-home"
+    CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=0 run "$SCRIPT" -r "${SID}"
+    [[ ${output} == *"CODEMODE=0"* ]]
+    [[ ${output} == *"--remote-control claude-dev-20261018T0100Z-x-3f2a9c1e"* ]]
+    jq '.env.CLAUDE_CODE_EXPERIMENTAL_CODE_MODE = "0"' "${HOME}/.claude/settings.json" >"${HOME}/cm.json"
+    mv "${HOME}/cm.json" "${HOME}/.claude/settings.json"
+    run "$SCRIPT" -r "${SID}"
+    [[ ${output} == *"CODEMODE=unset"* ]]
+    [[ ${output} == *"--remote-control claude-dev-20261018T0100Z-x-3f2a9c1e"* ]]
+    run "$SCRIPT" --rc-name --resume "${SID}"
+    [ "$output" = "claude-dev-20261018T0100Z-x-3f2a9c1e" ]
+}
+
+# filler <bytes>: that many bytes of transcript lines that are not repl-mode.
+filler() { head -c "$1" /dev/zero | tr '\0' 'x' | fold -w 1000 && echo; }
+
+@test "a long transcript is read at its two ends only" {
+    two_accounts
+    local dir="${HOME}/.claude/projects/-work" id
+    mkdir -p "${dir}"
+    # An entry at the start, then a long session: found in the first 2 MB.
+    id=00000000-0000-4000-8000-0000000000a1
+    { jq -nc '{type: "repl-mode", replMode: true}'; filler 5000000; } >"${dir}/${id}.jsonl"
+    ran "${id}" "${HOME}/.claude-home"
+    run "$SCRIPT" -r "${id}"
+    [[ ${output} == *"CODEMODE=1"* ]]
+    # Only at the end: found in the last 4 MB.
+    id=00000000-0000-4000-8000-0000000000a2
+    { filler 5000000; jq -nc '{type: "repl-mode", replMode: true}'; } >"${dir}/${id}.jsonl"
+    ran "${id}" "${HOME}/.claude-home"
+    run "$SCRIPT" -r "${id}"
+    [[ ${output} == *"CODEMODE=1"* ]]
+    # Only between the two ends: not read.
+    id=00000000-0000-4000-8000-0000000000a3
+    { filler 3000000; jq -nc '{type: "repl-mode", replMode: true}'; filler 5000000; } >"${dir}/${id}.jsonl"
+    ran "${id}" "${HOME}/.claude-home"
+    run "$SCRIPT" -r "${id}"
+    [[ ${output} == *"CODEMODE=unset"* ]]
 }
