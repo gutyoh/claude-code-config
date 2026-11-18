@@ -3,7 +3,7 @@
 # Path: claude-code-config/bin/mcp-key-rotate
 #
 # API key rotation for MCP servers (Brave Search, Tavily, etc.).
-# Auto-detects backend: Doppler → .env file.
+# Auto-detects backend: fnox → .env file.
 #
 # Usage:
 #   mcp-key-rotate <service>            # Rotate to next key in pool
@@ -12,10 +12,16 @@
 #   mcp-key-rotate <service> --add KEY  # Add a new key to the pool
 #
 # Services: brave, tavily (or any MCP service with {SERVICE}_API_KEY vars)
-# Backends: doppler (auto-detected), dotenv (.env file)
-# Override: KEY_ROTATE_BACKEND=doppler|dotenv
+# Backends: fnox (auto-detected), dotenv (.env file)
+# Override: KEY_ROTATE_BACKEND=fnox|dotenv
 #
-# Requires: doppler CLI (for doppler backend) or .env file (for dotenv backend)
+# fnox: KEY_ROTATE_FNOX_DIR names the folder whose fnox.toml the keys come
+# from (such as a checkout that machines import a deployed copy of). Every
+# read and write of a change goes there, so two changes before a deploy
+# build on each other. Without it, keys are read from HOME, as mcp-fnox-inject
+# reads them at server launch, and a change is refused: HOME may read a
+# deployed copy that a write would be lost from. A name that file does not
+# hold yet goes to KEY_ROTATE_FNOX_PROVIDER (fnox's default_provider when unset).
 
 set -euo pipefail
 
@@ -29,8 +35,8 @@ readonly SCRIPT_DIR
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly REPO_ROOT
 readonly DOTENV_FILE="${KEY_ROTATE_DOTENV:-${REPO_ROOT}/.env}"
-readonly DOPPLER_PROJECT="${KEY_ROTATE_DOPPLER_PROJECT:-claude-code-config}"
-readonly DOPPLER_CONFIG="${KEY_ROTATE_DOPPLER_CONFIG:-dev}"
+readonly FNOX_DIR="${KEY_ROTATE_FNOX_DIR:-}"
+readonly FNOX_PROVIDER="${KEY_ROTATE_FNOX_PROVIDER:-}"
 
 # --- Parse service argument ---
 SERVICE="${1:-}"
@@ -38,8 +44,8 @@ if [[ -z "${SERVICE}" || "${SERVICE}" == --* ]]; then
     echo "Usage: mcp-key-rotate <service> [--status|--add KEY|--help]"
     echo ""
     echo "Services: brave, tavily (or any MCP service with {SERVICE}_API_KEY vars)"
-    echo "Backends: doppler (auto-detected), dotenv (.env file)"
-    echo "Override: KEY_ROTATE_BACKEND=doppler|dotenv"
+    echo "Backends: fnox (auto-detected), dotenv (.env file)"
+    echo "Override: KEY_ROTATE_BACKEND=fnox|dotenv"
     exit 1
 fi
 shift
@@ -49,13 +55,62 @@ SERVICE_UPPER="$(echo "${SERVICE}" | tr '[:lower:]' '[:upper:]')"
 readonly KEY_VAR="${SERVICE_UPPER}_API_KEY"
 readonly POOL_VAR="${SERVICE_UPPER}_API_KEY_POOL"
 
-# --- Backend: Doppler ---
-doppler_get() {
-    doppler secrets get "$1" --plain -p "${DOPPLER_PROJECT}" -c "${DOPPLER_CONFIG}" 2>/dev/null
+# --- Backend: fnox ---
+# fnox's value of <name> as read from folder <dir>, with no stdin, so neither
+# a prompt nor another repository's fnox.toml is involved. A name fnox does not
+# hold reads as empty, as the dotenv backend reads one its file lacks.
+fnox_get_in() {
+    (cd "$1" && fnox get "$2" </dev/null 2>/dev/null) || true
 }
 
-doppler_set() {
-    doppler secrets set "$1=$2" -p "${DOPPLER_PROJECT}" -c "${DOPPLER_CONFIG}" >/dev/null
+# What machines read: fnox from HOME, as mcp-fnox-inject does at launch.
+fnox_live() { fnox_get_in "${HOME}" "$1"; }
+
+# The source of truth: KEY_ROTATE_FNOX_DIR's fnox.toml when named, else HOME.
+fnox_get() {
+    if [[ -n "${FNOX_DIR}" && -f "${FNOX_DIR}/fnox.toml" ]]; then
+        fnox_get_in "${FNOX_DIR}" "$1"
+    else
+        fnox_live "$1"
+    fi
+}
+
+# A change needs the source file, and is refused before anything is read
+# without it: HOME's copy may lag, and show a pool the source has outgrown.
+fnox_require_dir() {
+    [[ -z "${FNOX_DIR}" || ! -f "${FNOX_DIR}/fnox.toml" ]] || return 0
+    echo "Error: fnox keys change in the folder whose fnox.toml holds ${KEY_VAR}:" >&2
+    echo "  KEY_ROTATE_FNOX_DIR=<that folder> mcp-key-rotate ${SERVICE} ..., then commit and push it." >&2
+    echo "  HOME may read a deployed copy of that file, which a write would be lost from." >&2
+    exit 1
+}
+
+# The value goes in on stdin, never on the command line, where `ps` shows it,
+# and is read back from the same file before the rotation counts.
+fnox_set() {
+    local name="$1" value="$2" back
+    fnox_require_dir
+    local -a with_provider=()
+    [[ -z "${FNOX_PROVIDER}" ]] || with_provider=(--provider "${FNOX_PROVIDER}")
+    if ! printf '%s' "${value}" | (cd "${FNOX_DIR}" && fnox set "${name}" ${with_provider[@]+"${with_provider[@]}"} >/dev/null 2>&1); then
+        echo "Error: fnox could not store ${name} in ${FNOX_DIR}/fnox.toml; check that fnox can decrypt there." >&2
+        exit 1
+    fi
+    back="$(fnox_get_in "${FNOX_DIR}" "${name}")"
+    if [[ "${back}" != "${value}" ]]; then
+        echo "Error: ${name} in ${FNOX_DIR}/fnox.toml does not read back as written." >&2
+        exit 1
+    fi
+}
+
+# Where a change to <name> stored in KEY_ROTATE_FNOX_DIR takes effect.
+fnox_where() {
+    if [[ "$(fnox_live "$1")" == "$(fnox_get_in "${FNOX_DIR}" "$1")" ]]; then
+        echo "This machine reads it already: MCP servers use it at their next start."
+    else
+        echo "Stored in ${FNOX_DIR}/fnox.toml. Machines read a copy of it: commit and push it,"
+        echo "and each machine uses the new key once its copy updates."
+    fi
 }
 
 # --- Backend: dotenv ---
@@ -92,17 +147,22 @@ dotenv_set() {
 detect_backend() {
     local requested="${KEY_ROTATE_BACKEND:-auto}"
 
-    if [[ "${requested}" != "auto" ]]; then
-        echo "${requested}"
-        return
-    fi
-
-    # Tier 1: Doppler CLI available and project configured
-    if command -v doppler &>/dev/null; then
-        if doppler secrets get "${KEY_VAR}" --plain -p "${DOPPLER_PROJECT}" -c "${DOPPLER_CONFIG}" &>/dev/null; then
-            echo "doppler"
+    case "${requested}" in
+        auto) ;;
+        fnox | dotenv)
+            echo "${requested}"
             return
-        fi
+            ;;
+        *)
+            echo "Error: KEY_ROTATE_BACKEND is fnox, dotenv or auto, not '${requested}'." >&2
+            exit 2
+            ;;
+    esac
+
+    # Tier 1: fnox holds the active key, here or in the named source file
+    if command -v fnox &>/dev/null && [[ -n "$(fnox_live "${KEY_VAR}")" || -n "$(fnox_get "${KEY_VAR}")" ]]; then
+        echo "fnox"
+        return
     fi
 
     # Tier 2: .env file with pool variable
@@ -125,19 +185,21 @@ if [[ -z "${BACKEND}" ]]; then
     echo "Error: No backend available for service '${SERVICE}'."
     echo ""
     echo "Options:"
-    echo "  1. Install doppler CLI and run: doppler setup"
+    echo "  1. Store both in fnox, from the folder of the fnox.toml they belong in:"
+    echo "       printf %s KEY | fnox set ${KEY_VAR}"
+    echo "       printf %s KEY1,KEY2 | fnox set ${POOL_VAR}"
     echo "  2. Add to ${DOTENV_FILE}:"
     echo "       ${KEY_VAR}=your-active-key"
     echo "       ${POOL_VAR}=key1,key2"
     echo ""
-    echo "Override: KEY_ROTATE_BACKEND=doppler|dotenv"
+    echo "Override: KEY_ROTATE_BACKEND=fnox|dotenv"
     exit 1
 fi
 
 # --- Unified read/write ---
 secret_get() {
     case "${BACKEND}" in
-        doppler) doppler_get "$1" ;;
+        fnox) fnox_get "$1" ;;
         dotenv) dotenv_get "$1" ;;
         *)
             echo "Unknown backend: ${BACKEND}" >&2
@@ -148,7 +210,7 @@ secret_get() {
 
 secret_set() {
     case "${BACKEND}" in
-        doppler) doppler_set "$1" "$2" ;;
+        fnox) fnox_set "$1" "$2" ;;
         dotenv) dotenv_set "$1" "$2" ;;
         *)
             echo "Unknown backend: ${BACKEND}" >&2
@@ -163,8 +225,8 @@ secret_set() {
 readonly MCP_KEYS_ENV_FILE="${MCP_KEYS_ENV_FILE:-${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/mcp-keys.env}"
 
 sync_mcp_keys_env() {
-    # Only sync for dotenv backend (Doppler injects keys live at MCP launch)
-    if [[ "${BACKEND}" == "doppler" ]]; then
+    # Only for the dotenv backend: mcp-fnox-inject reads fnox at MCP launch.
+    if [[ "${BACKEND}" == "fnox" ]]; then
         return
     fi
 
@@ -398,6 +460,7 @@ cmd_status() {
 
 cmd_rotate() {
     local current pool
+    [[ "${BACKEND}" != "fnox" ]] || fnox_require_dir
     current="$(secret_get "${KEY_VAR}")"
     pool="$(secret_get "${POOL_VAR}")"
 
@@ -434,6 +497,7 @@ cmd_rotate() {
 
     # Auto-sync to mcp-keys.env for mcp-env-inject wrapper
     sync_mcp_keys_env
+    [[ "${BACKEND}" != "fnox" ]] || fnox_where "${KEY_VAR}"
 }
 
 cmd_quota() {
@@ -499,13 +563,16 @@ cmd_quota() {
 cmd_add() {
     local new_key="$1"
     local pool
+    [[ "${BACKEND}" != "fnox" ]] || fnox_require_dir
     pool="$(secret_get "${POOL_VAR}")"
 
     if [[ -z "${pool}" ]]; then
-        # Initialize pool with just the new key and set it as active
-        secret_set "${POOL_VAR}" "${new_key}"
+        # Initialize pool with just the new key and set it as active. The
+        # active key first: if the pool write then fails, the key still works.
         secret_set "${KEY_VAR}" "${new_key}"
+        secret_set "${POOL_VAR}" "${new_key}"
         echo "Initialized ${SERVICE} pool with $(mask_key "${new_key}") (backend: ${BACKEND})"
+        [[ "${BACKEND}" != "fnox" ]] || fnox_where "${POOL_VAR}"
         return
     fi
 
@@ -520,6 +587,7 @@ cmd_add() {
 
     secret_set "${POOL_VAR}" "${pool},${new_key}"
     echo "Added $(mask_key "${new_key}") to ${SERVICE} pool (now $((${#keys[@]} + 1)) keys, backend: ${BACKEND})"
+    [[ "${BACKEND}" != "fnox" ]] || fnox_where "${POOL_VAR}"
 }
 
 # --- Main ---
@@ -551,8 +619,9 @@ case "${1:-}" in
         echo "  --help, -h    Show this help"
         echo ""
         echo "Services: brave, tavily (or any MCP service with {SERVICE}_API_KEY + {SERVICE}_API_KEY_POOL)"
-        echo "Backends: doppler (auto-detected), dotenv (.env file)"
-        echo "Override: KEY_ROTATE_BACKEND=doppler|dotenv"
+        echo "Backends: fnox (auto-detected), dotenv (.env file)"
+        echo "Override: KEY_ROTATE_BACKEND=fnox|dotenv"
+        echo "fnox: rotations go to KEY_ROTATE_FNOX_DIR/fnox.toml, the file the keys come from"
         ;;
     "")
         cmd_rotate

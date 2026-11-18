@@ -159,10 +159,10 @@ The `mcp-key-rotate` script manages pools of API keys for MCP servers. This solv
 
 The system auto-detects the secrets backend:
 
-1. **Doppler** (enterprise): if the Doppler CLI is installed and configured for the project, uses Doppler secrets management.
+1. **fnox**: when fnox, run from HOME, holds the service's active key. Reads go through HOME, as `mcp-fnox-inject` reads at server launch. A rotation is written to the `fnox.toml` in `KEY_ROTATE_FNOX_DIR`, the file the keys come from, with the value on stdin, and read back before it counts. When HOME reads a deployed copy of that file, the new key reaches each machine once its copy updates.
 2. **Envfile** (default): reads/writes API keys from `~/.claude/mcp-keys.env`. After rotation, syncs the active key to the envfile.
 
-Launching the servers is separate from rotating keys: setup registers each MCP server through `mcp-fnox-inject`, which gives it only its own key from fnox (read from HOME), when fnox can decrypt that key, and through `mcp-env-inject` with the envfile otherwise. Doppler no longer launches any server.
+Launching the servers is separate from rotating keys: setup registers each MCP server through `mcp-fnox-inject`, which gives it only its own key from fnox (read from HOME), when fnox can decrypt that key, and through `mcp-env-inject` with the envfile otherwise. Both installers decide this per server.
 
 Key rotation is atomic: find the current key's index in the pool, advance to the next, and write the new active key. Quota checking calls the provider's API (Brave: response headers, Tavily: `/usage` endpoint) with a 5-minute cache to avoid redundant API calls.
 

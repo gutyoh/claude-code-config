@@ -488,10 +488,58 @@ Describe "MCP module" {
     }
 
     Context "Backend detection" {
-        It "falls back to envfile when doppler is not available" {
-            # In test environment, doppler is unlikely to be configured
-            $backend = Get-McpBackend
-            $backend | Should -BeIn @("doppler", "envfile")
+        BeforeEach {
+            $script:FnoxSecretCache = @{}
+        }
+
+        AfterEach {
+            Remove-Item Function:\global:fnox -ErrorAction SilentlyContinue
+        }
+
+        It "picks fnox per server: the one whose key fnox decrypts, and envfile for the other" {
+            Mock Test-FnoxSecret { $Name -eq "BRAVE_API_KEY" }
+            Get-McpBackend -Key "brave-search" | Should -Be "fnox"
+            Get-McpBackend -Key "tavily" | Should -Be "envfile"
+        }
+
+        It "asks fnox from HOME, never from the folder setup runs in" {
+            function global:fnox {
+                (Get-Location).Path | Set-Content (Join-Path $TestDrive "fnox-cwd")
+                $global:LASTEXITCODE = 0
+                "secret-value"
+            }
+            Push-Location $TestDrive
+            try { Test-FnoxSecret -Name "BRAVE_API_KEY" | Should -BeTrue }
+            finally { Pop-Location }
+            (Get-Content (Join-Path $TestDrive "fnox-cwd")) | Should -Be $HOME
+        }
+
+        It "reads a failed or empty answer from fnox as no key" {
+            function global:fnox { $global:LASTEXITCODE = 1 }
+            Test-FnoxSecret -Name "BRAVE_API_KEY" | Should -BeFalse
+            $script:FnoxSecretCache = @{}
+            function global:fnox { $global:LASTEXITCODE = 0; "" }
+            Test-FnoxSecret -Name "BRAVE_API_KEY" | Should -BeFalse
+        }
+
+        It "asks fnox once per name per run, and a warning on stderr does not hide the key" {
+            function global:fnox {
+                Add-Content (Join-Path $TestDrive "fnox-calls") "get"
+                [Console]::Error.WriteLine("warning: something")
+                $global:LASTEXITCODE = 0
+                "secret-value"
+            }
+            $ErrorActionPreference = "Stop"
+            Test-FnoxSecret -Name "TAVILY_API_KEY" | Should -BeTrue
+            Test-FnoxSecret -Name "TAVILY_API_KEY" | Should -BeTrue
+            @(Get-Content (Join-Path $TestDrive "fnox-calls")).Count | Should -Be 1
+        }
+
+        It "builds an mcp-fnox-inject command that passes only the server's own key" {
+            $json = Get-McpJson -Key "tavily" -Backend "fnox" | ConvertFrom-Json
+            $json.command | Should -Be "mcp-fnox-inject"
+            $json.args | Should -Be @("TAVILY_API_KEY", "npx", "-y", "tavily-mcp@0.2.17")
+            (Get-McpJson -Key "tavily" -Backend "envfile" | ConvertFrom-Json).command | Should -Be "mcp-env-inject"
         }
     }
 }
@@ -1177,7 +1225,7 @@ Describe "Native commands under the Stop preference" {
         $ErrorActionPreference = "Stop"
         $script:Messages = New-Object System.Collections.Generic.List[string]
         Mock Write-Status { $script:Messages.Add($Message) }
-        Install-SingleMcp -Key "tavily" -Backend "doppler"
+        Install-SingleMcp -Key "tavily" -Backend "fnox"
         ($script:Messages -join "`n") | Should -Match "tavily MCP added"
     }
 }
@@ -1382,18 +1430,18 @@ Describe "OpenCode" {
             Read-Utf8Text (Get-OpenCodeConfigPath) | Should -BeExactly $first
         }
 
-        It "emits a doppler run command for the doppler backend" {
-            $script:DopplerProject = "claude-code-config"
-            $script:DopplerConfig = "dev"
-            $entry = Get-OpenCodeMcpEntry -Package "tavily-mcp@0.2.17" -Backend "doppler"
-            $entry.command | Should -Be @("doppler", "run", "-p", "claude-code-config", "-c", "dev", "--", "npx", "-y", "tavily-mcp@0.2.17")
+        It "emits mcp-fnox-inject with the server's own key for the fnox backend" {
+            $entry = Get-OpenCodeMcpEntry -Package "tavily-mcp@0.2.17" -Backend "fnox" -EnvVar "TAVILY_API_KEY"
+            $entry.command | Should -Be @("mcp-fnox-inject", "TAVILY_API_KEY", "npx", "-y", "tavily-mcp@0.2.17")
             (Get-OpenCodeMcpEntry -Package "pkg" -Backend "envfile").command | Should -Be @("mcp-env-inject", "npx", "-y", "pkg")
         }
 
-        It "follows the active backend" {
-            Mock Get-McpBackend { "doppler" }
+        It "follows each server's own backend" {
+            Mock Get-McpBackend { if ($Key -eq "tavily") { "fnox" } else { "envfile" } }
             Update-OpenCodeConfig
-            (Read-Utf8Text (Get-OpenCodeConfigPath) | ConvertFrom-Json).mcp.tavily.command[0] | Should -Be "doppler"
+            $mcp = (Read-Utf8Text (Get-OpenCodeConfigPath) | ConvertFrom-Json).mcp
+            @($mcp.tavily.command)[0..1] | Should -Be @("mcp-fnox-inject", "TAVILY_API_KEY")
+            @($mcp."brave-search".command)[0] | Should -Be "mcp-env-inject"
         }
 
         It "writes into an existing opencode.jsonc instead of splitting the config" {

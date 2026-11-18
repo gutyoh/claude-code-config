@@ -74,7 +74,7 @@ Dot-sourced by `setup.ps1`. PowerShell port of `lib/setup/` with arrow-key TUI, 
 | `opencode.ps1` | `Install-OpenCode`, `Update-OpenCodeConfig`, `Convert-OpenCodeAgentSet` | OpenCode parallel install, same as `opencode.sh` |
 | `settings.ps1` | `Update-IdeHook`, `Update-FileSuggestion`, `Update-Statusline`, `Update-AgentTeam`, `Update-ProxyPath`, `Update-ClaudeShortcut` | settings.json manipulation, `claude`/`clp` profile shortcuts |
 | `statusline-conf.ps1` | `Update-StatuslineConf` | `~/.claude/statusline.conf` management |
-| `mcp.ps1` | `Get-McpBackend`, `Install-McpServer`, `Test-McpEnvVar` | MCP server registration + Doppler/envfile detection |
+| `mcp.ps1` | `Get-McpBackend`, `Install-McpServer`, `Test-McpEnvVar` | MCP server registration + per-server fnox/envfile detection |
 | `menu.ps1` | `Show-InstallMenu`, `Invoke-CustomizeInstallation`, `Invoke-CustomizeStatuslineWithPreview` | Interactive menus with preview loop |
 
 ### lib/proxy/

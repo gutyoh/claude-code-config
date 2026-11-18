@@ -3,10 +3,8 @@
 # Path: claude-code-config/bin/mcp-env-inject
 #
 # Wrapper script that injects MCP API keys into a child process.
-# Used as the MCP server command on machines without Doppler.
-#
-# The `doppler run --` command does the same thing on Doppler machines;
-# this script provides the identical pattern using a local env file.
+# Used as the MCP server command for a key fnox does not hold; where fnox
+# holds it, mcp-fnox-inject passes the server that key alone.
 #
 # Usage (in ~/.claude.json mcpServers):
 #   "command": "mcp-env-inject",

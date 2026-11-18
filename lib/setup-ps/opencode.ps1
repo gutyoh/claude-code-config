@@ -315,11 +315,12 @@ function Get-OpenCodeMcpEntry {
     #>
     param(
         [string]$Package,
-        [string]$Backend
+        [string]$Backend,
+        [string]$EnvVar = ""
     )
 
-    if ($Backend -eq "doppler") {
-        $command = @("doppler", "run", "-p", $script:DopplerProject, "-c", $script:DopplerConfig, "--", "npx", "-y", $Package)
+    if ($Backend -eq "fnox") {
+        $command = @("mcp-fnox-inject", $EnvVar, "npx", "-y", $Package)
     }
     else {
         $command = @("mcp-env-inject", "npx", "-y", $Package)
@@ -351,13 +352,15 @@ function Update-OpenCodeConfig {
     }
 
     $path = Get-OpenCodeConfigPath
-    $backend = Get-McpBackend
 
     $ours = [ordered]@{}
+    $backends = @()
     foreach ($key in $script:InstallMcpServers) {
         $server = $script:McpServers[$key]
         if (-not $server -or -not $server.package) { continue }
-        $ours[$key] = Get-OpenCodeMcpEntry -Package $server.package -Backend $backend
+        $backend = Get-McpBackend -Key $key
+        $backends += "${key}: ${backend}"
+        $ours[$key] = Get-OpenCodeMcpEntry -Package $server.package -Backend $backend -EnvVar $server.env_var
     }
 
     $existing = $null
@@ -390,7 +393,7 @@ function Update-OpenCodeConfig {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
     Write-JsonFile -Path $path -InputObject $merged
-    Write-Status "  + ${path} (${backend} backend)" -Color Green
+    Write-Status "  + ${path} ($($backends -join ', '))" -Color Green
 }
 
 function Set-AgentsMdLink {

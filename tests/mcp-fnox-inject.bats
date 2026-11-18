@@ -65,3 +65,11 @@ STUB
     run "${INJECT}" BRAVE_API_KEY
     [ "$status" -eq 2 ]
 }
+
+# bats test_tags=unit
+@test "both installers put mcp-fnox-inject on PATH, and neither names Doppler" {
+    local repo="$BATS_TEST_DIRNAME/.."
+    grep -q 'bin/mcp-fnox-inject" "${bin_dir}/mcp-fnox-inject"' "$repo/setup.sh"
+    grep -qE 'foreach \(\$util in @\(.*"mcp-fnox-inject"' "$repo/setup.ps1"
+    ! grep -rqi doppler "$repo/setup.sh" "$repo/setup.ps1" "$repo/lib/setup" "$repo/lib/setup-ps" "$repo/bin/mcp-key-rotate" || false
+}

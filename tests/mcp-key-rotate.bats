@@ -3,7 +3,7 @@
 # Path: tests/mcp-key-rotate.bats
 #
 # Unit + integration tests for the mcp-key-rotate script.
-# Covers both backends (doppler mock, dotenv real), all commands,
+# Covers both backends (fnox mock, dotenv real), all commands,
 # and edge cases.
 #
 # Run: bats tests/mcp-key-rotate.bats
@@ -24,39 +24,33 @@ setup() {
     TEST_TMPDIR="$(mktemp -d)"
     export TEST_DOTENV="${TEST_TMPDIR}/.env"
 
-    # Create a mock doppler script in temp dir
-    export MOCK_DOPPLER="${TEST_TMPDIR}/doppler"
-    export MOCK_DOPPLER_STORE="${TEST_TMPDIR}/doppler_store"
-    mkdir -p "${MOCK_DOPPLER_STORE}"
-
-    cat > "${MOCK_DOPPLER}" <<'MOCK_EOF'
+    # A mock fnox. From HOME it reads what machines see (MOCK_FNOX_HOME); in
+    # a folder with a fnox.toml it reads and writes that file's store. By
+    # default HOME imports the source live; a test can give HOME a copy.
+    export HOME="${TEST_TMPDIR}/home" KEY_ROTATE_FNOX_DIR="${TEST_TMPDIR}/src"
+    export MOCK_FNOX_HOME="${KEY_ROTATE_FNOX_DIR}/.store" MOCK_FNOX_LOG="${TEST_TMPDIR}/fnox.log"
+    mkdir -p "${HOME}" "${MOCK_FNOX_HOME}"
+    : >"${KEY_ROTATE_FNOX_DIR}/fnox.toml"
+    unset KEY_ROTATE_FNOX_PROVIDER
+    cat > "${TEST_TMPDIR}/fnox" <<'MOCK_EOF'
 #!/usr/bin/env bash
-# Mock doppler CLI that reads/writes from flat files in MOCK_DOPPLER_STORE
-set -euo pipefail
-
-# Parse: doppler secrets get <name> --plain -p <project> -c <config>
-# Parse: doppler secrets set <name>=<value> -p <project> -c <config>
-if [[ "${1:-}" == "secrets" ]]; then
-    if [[ "${2:-}" == "get" ]]; then
-        local_name="${3:-}"
-        store_file="${MOCK_DOPPLER_STORE}/${local_name}"
-        if [[ -f "${store_file}" ]]; then
-            cat "${store_file}"
-        else
-            exit 1
-        fi
-    elif [[ "${2:-}" == "set" ]]; then
-        # Parse NAME=VALUE from $3
-        local_pair="${3:-}"
-        local_name="${local_pair%%=*}"
-        local_value="${local_pair#*=}"
-        echo -n "${local_value}" > "${MOCK_DOPPLER_STORE}/${local_name}"
-    fi
-fi
+printf '%s|%s\n' "$PWD" "$*" >>"${MOCK_FNOX_LOG}"
+if [[ "$PWD" == "$HOME" ]]; then store="${MOCK_FNOX_HOME}"; else store="$PWD/.store"; fi
+case "${1:-}" in
+    get) [[ -f "${store}/$2" ]] && cat "${store}/$2" || exit 1 ;;
+    set)
+        [[ -f "$PWD/fnox.toml" && -z "${MOCK_FNOX_SET_FAILS:-}" ]] || exit 1
+        value="$(cat)"
+        [[ -z "${MOCK_FNOX_SET_DROPS:-}" ]] || value=""
+        mkdir -p "${store}"
+        printf '%s' "${value}" >"${store}/$2"
+        ;;
+    *) exit 1 ;;
+esac
 MOCK_EOF
-    chmod +x "${MOCK_DOPPLER}"
+    chmod +x "${TEST_TMPDIR}/fnox"
 
-    # Put mock doppler first in PATH
+    # Put mock fnox first in PATH
     export PATH="${TEST_TMPDIR}:${PATH}"
 }
 
@@ -64,16 +58,15 @@ teardown() {
     rm -rf "${TEST_TMPDIR}"
 }
 
-# --- Helper: seed doppler mock store ---
-doppler_seed() {
+# --- Helper: seed the fnox source store ---
+fnox_seed() {
     local name="$1" value="$2"
-    echo -n "${value}" > "${MOCK_DOPPLER_STORE}/${name}"
+    printf '%s' "${value}" >"${KEY_ROTATE_FNOX_DIR}/.store/${name}"
 }
 
-# --- Helper: read doppler mock store ---
-doppler_read() {
-    local name="$1"
-    cat "${MOCK_DOPPLER_STORE}/${name}" 2>/dev/null
+# --- Helper: read the fnox source store ---
+fnox_read() {
+    cat "${KEY_ROTATE_FNOX_DIR}/.store/$1" 2>/dev/null
 }
 
 # --- Helper: seed .env file ---
@@ -107,19 +100,18 @@ dotenv_seed() {
 }
 
 @test "unknown option exits 1" {
-    doppler_seed "TEST_API_KEY" "${KEY_A}"
-    doppler_seed "TEST_API_KEY_POOL" "${KEY_A},${KEY_B}"
-    run env KEY_ROTATE_BACKEND=doppler \
-        KEY_ROTATE_DOPPLER_PROJECT=mock KEY_ROTATE_DOPPLER_CONFIG=mock \
+    fnox_seed "TEST_API_KEY" "${KEY_A}"
+    fnox_seed "TEST_API_KEY_POOL" "${KEY_A},${KEY_B}"
+    run env KEY_ROTATE_BACKEND=fnox \
         bash "$SCRIPT" test --bogus
     [ "$status" -eq 1 ]
     [[ "$output" == *"Unknown option"* ]]
 }
 
 @test "--add without key argument exits 1" {
-    doppler_seed "TEST_API_KEY" "${KEY_A}"
-    doppler_seed "TEST_API_KEY_POOL" "${KEY_A}"
-    run env KEY_ROTATE_BACKEND=doppler \
+    fnox_seed "TEST_API_KEY" "${KEY_A}"
+    fnox_seed "TEST_API_KEY_POOL" "${KEY_A}"
+    run env KEY_ROTATE_BACKEND=fnox \
         bash "$SCRIPT" test --add
     [ "$status" -eq 1 ]
     [[ "$output" == *"Usage: mcp-key-rotate"* ]]
@@ -130,18 +122,18 @@ dotenv_seed() {
 # ==========================================================================
 
 @test "status masks long keys as first6...last4" {
-    doppler_seed "FAKE_API_KEY" "${KEY_A}"
-    doppler_seed "FAKE_API_KEY_POOL" "${KEY_A}"
-    run env KEY_ROTATE_BACKEND=doppler \
+    fnox_seed "FAKE_API_KEY" "${KEY_A}"
+    fnox_seed "FAKE_API_KEY_POOL" "${KEY_A}"
+    run env KEY_ROTATE_BACKEND=fnox \
         bash "$SCRIPT" fake --status
     [ "$status" -eq 0 ]
     [[ "$output" == *"test-k...1111"* ]]
 }
 
 @test "status masks short keys (< 12 chars) as first3***" {
-    doppler_seed "TINY_API_KEY" "${SHORT_KEY}"
-    doppler_seed "TINY_API_KEY_POOL" "${SHORT_KEY}"
-    run env KEY_ROTATE_BACKEND=doppler \
+    fnox_seed "TINY_API_KEY" "${SHORT_KEY}"
+    fnox_seed "TINY_API_KEY_POOL" "${SHORT_KEY}"
+    run env KEY_ROTATE_BACKEND=fnox \
         bash "$SCRIPT" tiny --status
     [ "$status" -eq 0 ]
     [[ "$output" == *"abc***"* ]]
@@ -152,9 +144,9 @@ dotenv_seed() {
 # ==========================================================================
 
 @test "service name is case-insensitive (brave == BRAVE)" {
-    doppler_seed "BRAVE_API_KEY" "${KEY_A}"
-    doppler_seed "BRAVE_API_KEY_POOL" "${KEY_A},${KEY_B}"
-    run env KEY_ROTATE_BACKEND=doppler \
+    fnox_seed "BRAVE_API_KEY" "${KEY_A}"
+    fnox_seed "BRAVE_API_KEY_POOL" "${KEY_A},${KEY_B}"
+    run env KEY_ROTATE_BACKEND=fnox \
         bash "$SCRIPT" brave --status
     [ "$status" -eq 0 ]
     [[ "$output" == *"Service: brave"* ]]
@@ -162,132 +154,132 @@ dotenv_seed() {
 }
 
 @test "mixed case service name works (Tavily)" {
-    doppler_seed "TAVILY_API_KEY" "${KEY_A}"
-    doppler_seed "TAVILY_API_KEY_POOL" "${KEY_A}"
-    run env KEY_ROTATE_BACKEND=doppler \
+    fnox_seed "TAVILY_API_KEY" "${KEY_A}"
+    fnox_seed "TAVILY_API_KEY_POOL" "${KEY_A}"
+    run env KEY_ROTATE_BACKEND=fnox \
         bash "$SCRIPT" Tavily --status
     [ "$status" -eq 0 ]
     [[ "$output" == *"Service: Tavily"* ]]
 }
 
 # ==========================================================================
-# DOPPLER BACKEND: Status
+# FNOX BACKEND: Status
 # ==========================================================================
 
-@test "doppler: --status shows pool with active marker" {
-    doppler_seed "MYSERVICE_API_KEY" "${KEY_B}"
-    doppler_seed "MYSERVICE_API_KEY_POOL" "${KEY_A},${KEY_B},${KEY_C}"
-    run env KEY_ROTATE_BACKEND=doppler \
+@test "fnox: --status shows pool with active marker" {
+    fnox_seed "MYSERVICE_API_KEY" "${KEY_B}"
+    fnox_seed "MYSERVICE_API_KEY_POOL" "${KEY_A},${KEY_B},${KEY_C}"
+    run env KEY_ROTATE_BACKEND=fnox \
         bash "$SCRIPT" myservice --status
     [ "$status" -eq 0 ]
-    [[ "$output" == *"backend: doppler"* ]]
+    [[ "$output" == *"backend: fnox"* ]]
     [[ "$output" == *"Pool: 3 keys"* ]]
     [[ "$output" == *"> [2]"* ]]
 }
 
-@test "doppler: --status with empty pool exits 1" {
-    doppler_seed "EMPTY_API_KEY" "${KEY_A}"
-    doppler_seed "EMPTY_API_KEY_POOL" ""
-    run env KEY_ROTATE_BACKEND=doppler \
+@test "fnox: --status with empty pool exits 1" {
+    fnox_seed "EMPTY_API_KEY" "${KEY_A}"
+    fnox_seed "EMPTY_API_KEY_POOL" ""
+    run env KEY_ROTATE_BACKEND=fnox \
         bash "$SCRIPT" empty --status
     [ "$status" -eq 1 ]
     [[ "$output" == *"No pool found"* ]]
 }
 
 # ==========================================================================
-# DOPPLER BACKEND: Rotate
+# FNOX BACKEND: Rotate
 # ==========================================================================
 
-@test "doppler: rotate advances to next key" {
-    doppler_seed "SVC_API_KEY" "${KEY_A}"
-    doppler_seed "SVC_API_KEY_POOL" "${KEY_A},${KEY_B},${KEY_C}"
-    run env KEY_ROTATE_BACKEND=doppler \
+@test "fnox: rotate advances to next key" {
+    fnox_seed "SVC_API_KEY" "${KEY_A}"
+    fnox_seed "SVC_API_KEY_POOL" "${KEY_A},${KEY_B},${KEY_C}"
+    run env KEY_ROTATE_BACKEND=fnox \
         bash "$SCRIPT" svc
     [ "$status" -eq 0 ]
     [[ "$output" == *"Rotated svc"* ]]
 
     # Verify the active key changed
     local new_key
-    new_key="$(doppler_read "SVC_API_KEY")"
+    new_key="$(fnox_read "SVC_API_KEY")"
     [ "${new_key}" = "${KEY_B}" ]
 }
 
-@test "doppler: rotate wraps around from last to first" {
-    doppler_seed "SVC_API_KEY" "${KEY_C}"
-    doppler_seed "SVC_API_KEY_POOL" "${KEY_A},${KEY_B},${KEY_C}"
-    run env KEY_ROTATE_BACKEND=doppler \
+@test "fnox: rotate wraps around from last to first" {
+    fnox_seed "SVC_API_KEY" "${KEY_C}"
+    fnox_seed "SVC_API_KEY_POOL" "${KEY_A},${KEY_B},${KEY_C}"
+    run env KEY_ROTATE_BACKEND=fnox \
         bash "$SCRIPT" svc
     [ "$status" -eq 0 ]
     [[ "$output" == *"key [1] of 3"* ]]
 
     local new_key
-    new_key="$(doppler_read "SVC_API_KEY")"
+    new_key="$(fnox_read "SVC_API_KEY")"
     [ "${new_key}" = "${KEY_A}" ]
 }
 
-@test "doppler: rotate with single key exits 1" {
-    doppler_seed "SOLO_API_KEY" "${KEY_A}"
-    doppler_seed "SOLO_API_KEY_POOL" "${KEY_A}"
-    run env KEY_ROTATE_BACKEND=doppler \
+@test "fnox: rotate with single key exits 1" {
+    fnox_seed "SOLO_API_KEY" "${KEY_A}"
+    fnox_seed "SOLO_API_KEY_POOL" "${KEY_A}"
+    run env KEY_ROTATE_BACKEND=fnox \
         bash "$SCRIPT" solo
     [ "$status" -eq 1 ]
     [[ "$output" == *"Only 1 key"* ]]
 }
 
-@test "doppler: rotate when current key not in pool advances to index 0" {
-    doppler_seed "DRIFT_API_KEY" "unknown-key-not-in-pool"
-    doppler_seed "DRIFT_API_KEY_POOL" "${KEY_A},${KEY_B}"
-    run env KEY_ROTATE_BACKEND=doppler \
+@test "fnox: rotate when current key not in pool advances to index 0" {
+    fnox_seed "DRIFT_API_KEY" "unknown-key-not-in-pool"
+    fnox_seed "DRIFT_API_KEY_POOL" "${KEY_A},${KEY_B}"
+    run env KEY_ROTATE_BACKEND=fnox \
         bash "$SCRIPT" drift
     [ "$status" -eq 0 ]
 
     # current_idx=-1, next=((-1+1)%2)=0 → KEY_A
     local new_key
-    new_key="$(doppler_read "DRIFT_API_KEY")"
+    new_key="$(fnox_read "DRIFT_API_KEY")"
     [ "${new_key}" = "${KEY_A}" ]
 }
 
 # ==========================================================================
-# DOPPLER BACKEND: Add
+# FNOX BACKEND: Add
 # ==========================================================================
 
-@test "doppler: --add appends key to pool" {
-    doppler_seed "ADD_API_KEY" "${KEY_A}"
-    doppler_seed "ADD_API_KEY_POOL" "${KEY_A}"
-    run env KEY_ROTATE_BACKEND=doppler \
+@test "fnox: --add appends key to pool" {
+    fnox_seed "ADD_API_KEY" "${KEY_A}"
+    fnox_seed "ADD_API_KEY_POOL" "${KEY_A}"
+    run env KEY_ROTATE_BACKEND=fnox \
         bash "$SCRIPT" add --add "${KEY_B}"
     [ "$status" -eq 0 ]
     [[ "$output" == *"Added"* ]]
     [[ "$output" == *"2 keys"* ]]
 
     local pool
-    pool="$(doppler_read "ADD_API_KEY_POOL")"
+    pool="$(fnox_read "ADD_API_KEY_POOL")"
     [ "${pool}" = "${KEY_A},${KEY_B}" ]
 }
 
-@test "doppler: --add rejects duplicate key" {
-    doppler_seed "DUP_API_KEY" "${KEY_A}"
-    doppler_seed "DUP_API_KEY_POOL" "${KEY_A},${KEY_B}"
-    run env KEY_ROTATE_BACKEND=doppler \
+@test "fnox: --add rejects duplicate key" {
+    fnox_seed "DUP_API_KEY" "${KEY_A}"
+    fnox_seed "DUP_API_KEY_POOL" "${KEY_A},${KEY_B}"
+    run env KEY_ROTATE_BACKEND=fnox \
         bash "$SCRIPT" dup --add "${KEY_A}"
     [ "$status" -eq 1 ]
     [[ "$output" == *"already in"* ]]
 }
 
-@test "doppler: --add initializes empty pool" {
+@test "fnox: --add initializes empty pool" {
     # Pool exists but is empty
-    doppler_seed "NEW_API_KEY" ""
-    doppler_seed "NEW_API_KEY_POOL" ""
-    run env KEY_ROTATE_BACKEND=doppler \
+    fnox_seed "NEW_API_KEY" ""
+    fnox_seed "NEW_API_KEY_POOL" ""
+    run env KEY_ROTATE_BACKEND=fnox \
         bash "$SCRIPT" new --add "${KEY_A}"
     [ "$status" -eq 0 ]
     [[ "$output" == *"Initialized"* ]]
 
     local pool
-    pool="$(doppler_read "NEW_API_KEY_POOL")"
+    pool="$(fnox_read "NEW_API_KEY_POOL")"
     [ "${pool}" = "${KEY_A}" ]
     local active
-    active="$(doppler_read "NEW_API_KEY")"
+    active="$(fnox_read "NEW_API_KEY")"
     [ "${active}" = "${KEY_A}" ]
 }
 
@@ -445,7 +437,7 @@ dotenv_seed() {
 @test "backend override: KEY_ROTATE_BACKEND=dotenv forces dotenv" {
     dotenv_seed "FORCE_API_KEY" "${KEY_A}"
     dotenv_seed "FORCE_API_KEY_POOL" "${KEY_A},${KEY_B}"
-    # Even though mock doppler is in PATH, dotenv is forced
+    # Even though mock fnox is in PATH, dotenv is forced
     run env KEY_ROTATE_BACKEND=dotenv KEY_ROTATE_DOTENV="${TEST_DOTENV}" \
         bash "$SCRIPT" force --status
     [ "$status" -eq 0 ]
@@ -453,7 +445,7 @@ dotenv_seed() {
 }
 
 @test "backend detection: fails gracefully when no backend available" {
-    # Remove mock doppler from PATH, no .env file
+    # Remove mock fnox from PATH, no .env file
     run env -i PATH="/usr/bin:/bin" HOME="${TEST_TMPDIR}" \
         KEY_ROTATE_BACKEND=auto KEY_ROTATE_DOTENV="${TEST_TMPDIR}/nonexistent.env" \
         bash "$SCRIPT" ghost --status
@@ -553,30 +545,30 @@ dotenv_seed() {
 }
 
 # ==========================================================================
-# INTEGRATION: Full cycle with doppler mock
+# INTEGRATION: Full cycle with fnox mock
 # ==========================================================================
 
-@test "integration: full rotate cycle with doppler backend" {
-    doppler_seed "MOCK_API_KEY" "${KEY_A}"
-    doppler_seed "MOCK_API_KEY_POOL" "${KEY_A},${KEY_B},${KEY_C}"
+@test "integration: full rotate cycle with fnox backend" {
+    fnox_seed "MOCK_API_KEY" "${KEY_A}"
+    fnox_seed "MOCK_API_KEY_POOL" "${KEY_A},${KEY_B},${KEY_C}"
 
     # Rotate A -> B
-    run env KEY_ROTATE_BACKEND=doppler \
+    run env KEY_ROTATE_BACKEND=fnox \
         bash "$SCRIPT" mock
     [ "$status" -eq 0 ]
-    [ "$(doppler_read "MOCK_API_KEY")" = "${KEY_B}" ]
+    [ "$(fnox_read "MOCK_API_KEY")" = "${KEY_B}" ]
 
     # Rotate B -> C
-    run env KEY_ROTATE_BACKEND=doppler \
+    run env KEY_ROTATE_BACKEND=fnox \
         bash "$SCRIPT" mock
     [ "$status" -eq 0 ]
-    [ "$(doppler_read "MOCK_API_KEY")" = "${KEY_C}" ]
+    [ "$(fnox_read "MOCK_API_KEY")" = "${KEY_C}" ]
 
     # Rotate C -> A (wrap)
-    run env KEY_ROTATE_BACKEND=doppler \
+    run env KEY_ROTATE_BACKEND=fnox \
         bash "$SCRIPT" mock
     [ "$status" -eq 0 ]
-    [ "$(doppler_read "MOCK_API_KEY")" = "${KEY_A}" ]
+    [ "$(fnox_read "MOCK_API_KEY")" = "${KEY_A}" ]
 }
 
 # ==========================================================================
@@ -598,10 +590,10 @@ CURL_EOF
 }
 
 @test "quota: tavily shows per-key usage" {
-    doppler_seed "TAVILY_API_KEY" "${KEY_A}"
-    doppler_seed "TAVILY_API_KEY_POOL" "${KEY_A},${KEY_B}"
+    fnox_seed "TAVILY_API_KEY" "${KEY_A}"
+    fnox_seed "TAVILY_API_KEY_POOL" "${KEY_A},${KEY_B}"
     create_tavily_curl_mock 150 1000
-    run env KEY_ROTATE_BACKEND=doppler \
+    run env KEY_ROTATE_BACKEND=fnox \
         CURL_CMD="${TEST_TMPDIR}/curl" \
         MCP_KEY_ROTATE_CACHE_DIR="${TEST_TMPDIR}/cache" \
         bash "$SCRIPT" tavily --quota
@@ -611,10 +603,10 @@ CURL_EOF
 }
 
 @test "quota: tavily shows zero usage for fresh key" {
-    doppler_seed "TAVILY_API_KEY" "${KEY_A}"
-    doppler_seed "TAVILY_API_KEY_POOL" "${KEY_A}"
+    fnox_seed "TAVILY_API_KEY" "${KEY_A}"
+    fnox_seed "TAVILY_API_KEY_POOL" "${KEY_A}"
     create_tavily_curl_mock 0 1000
-    run env KEY_ROTATE_BACKEND=doppler \
+    run env KEY_ROTATE_BACKEND=fnox \
         CURL_CMD="${TEST_TMPDIR}/curl" \
         MCP_KEY_ROTATE_CACHE_DIR="${TEST_TMPDIR}/cache" \
         bash "$SCRIPT" tavily --quota
@@ -624,8 +616,8 @@ CURL_EOF
 }
 
 @test "quota: tavily handles API error gracefully" {
-    doppler_seed "TAVILY_API_KEY" "${KEY_A}"
-    doppler_seed "TAVILY_API_KEY_POOL" "${KEY_A}"
+    fnox_seed "TAVILY_API_KEY" "${KEY_A}"
+    fnox_seed "TAVILY_API_KEY_POOL" "${KEY_A}"
     # Create a mock curl that returns 401
     local mock_curl="${TEST_TMPDIR}/curl"
     cat > "${mock_curl}" <<'CURL_EOF'
@@ -634,7 +626,7 @@ echo '{"error":"unauthorized"}'
 echo "401"
 CURL_EOF
     chmod +x "${mock_curl}"
-    run env KEY_ROTATE_BACKEND=doppler \
+    run env KEY_ROTATE_BACKEND=fnox \
         CURL_CMD="${TEST_TMPDIR}/curl" \
         MCP_KEY_ROTATE_CACHE_DIR="${TEST_TMPDIR}/cache" \
         bash "$SCRIPT" tavily --quota
@@ -643,13 +635,13 @@ CURL_EOF
 }
 
 @test "quota: tavily uses cache on second call" {
-    doppler_seed "TAVILY_API_KEY" "${KEY_A}"
-    doppler_seed "TAVILY_API_KEY_POOL" "${KEY_A}"
+    fnox_seed "TAVILY_API_KEY" "${KEY_A}"
+    fnox_seed "TAVILY_API_KEY_POOL" "${KEY_A}"
     create_tavily_curl_mock 100 1000
     local cache_dir="${TEST_TMPDIR}/cache"
 
     # First call — populates cache
-    run env KEY_ROTATE_BACKEND=doppler \
+    run env KEY_ROTATE_BACKEND=fnox \
         CURL_CMD="${TEST_TMPDIR}/curl" \
         MCP_KEY_ROTATE_CACHE_DIR="${cache_dir}" \
         bash "$SCRIPT" tavily --quota
@@ -659,7 +651,7 @@ CURL_EOF
     create_tavily_curl_mock 999 1000
 
     # Second call — should still show cached data (100, not 999)
-    run env KEY_ROTATE_BACKEND=doppler \
+    run env KEY_ROTATE_BACKEND=fnox \
         CURL_CMD="${TEST_TMPDIR}/curl" \
         MCP_KEY_ROTATE_CACHE_DIR="${cache_dir}" \
         bash "$SCRIPT" tavily --quota
@@ -668,13 +660,13 @@ CURL_EOF
 }
 
 @test "quota: cache expires after TTL" {
-    doppler_seed "TAVILY_API_KEY" "${KEY_A}"
-    doppler_seed "TAVILY_API_KEY_POOL" "${KEY_A}"
+    fnox_seed "TAVILY_API_KEY" "${KEY_A}"
+    fnox_seed "TAVILY_API_KEY_POOL" "${KEY_A}"
     create_tavily_curl_mock 100 1000
     local cache_dir="${TEST_TMPDIR}/cache"
 
     # First call
-    run env KEY_ROTATE_BACKEND=doppler \
+    run env KEY_ROTATE_BACKEND=fnox \
         CURL_CMD="${TEST_TMPDIR}/curl" \
         MCP_KEY_ROTATE_CACHE_DIR="${cache_dir}" \
         MCP_KEY_ROTATE_CACHE_TTL=0 \
@@ -685,7 +677,7 @@ CURL_EOF
     create_tavily_curl_mock 200 1000
 
     # With TTL=0, cache is always expired → should fetch fresh
-    run env KEY_ROTATE_BACKEND=doppler \
+    run env KEY_ROTATE_BACKEND=fnox \
         CURL_CMD="${TEST_TMPDIR}/curl" \
         MCP_KEY_ROTATE_CACHE_DIR="${cache_dir}" \
         MCP_KEY_ROTATE_CACHE_TTL=0 \
@@ -715,10 +707,10 @@ CURL_EOF
 }
 
 @test "quota: brave shows per-key usage from headers" {
-    doppler_seed "BRAVE_API_KEY" "${KEY_A}"
-    doppler_seed "BRAVE_API_KEY_POOL" "${KEY_A}"
+    fnox_seed "BRAVE_API_KEY" "${KEY_A}"
+    fnox_seed "BRAVE_API_KEY_POOL" "${KEY_A}"
     create_brave_curl_mock 1500 2000 86400
-    run env KEY_ROTATE_BACKEND=doppler \
+    run env KEY_ROTATE_BACKEND=fnox \
         CURL_CMD="${TEST_TMPDIR}/curl" \
         MCP_KEY_ROTATE_CACHE_DIR="${TEST_TMPDIR}/cache" \
         bash "$SCRIPT" brave --quota
@@ -728,10 +720,10 @@ CURL_EOF
 }
 
 @test "quota: brave shows exhausted key" {
-    doppler_seed "BRAVE_API_KEY" "${KEY_A}"
-    doppler_seed "BRAVE_API_KEY_POOL" "${KEY_A}"
+    fnox_seed "BRAVE_API_KEY" "${KEY_A}"
+    fnox_seed "BRAVE_API_KEY_POOL" "${KEY_A}"
     create_brave_curl_mock 0 2000 43200
-    run env KEY_ROTATE_BACKEND=doppler \
+    run env KEY_ROTATE_BACKEND=fnox \
         CURL_CMD="${TEST_TMPDIR}/curl" \
         MCP_KEY_ROTATE_CACHE_DIR="${TEST_TMPDIR}/cache" \
         bash "$SCRIPT" brave --quota
@@ -742,8 +734,8 @@ CURL_EOF
 }
 
 @test "quota: brave handles missing headers gracefully" {
-    doppler_seed "BRAVE_API_KEY" "${KEY_A}"
-    doppler_seed "BRAVE_API_KEY_POOL" "${KEY_A}"
+    fnox_seed "BRAVE_API_KEY" "${KEY_A}"
+    fnox_seed "BRAVE_API_KEY_POOL" "${KEY_A}"
     # Create a mock curl that returns no rate limit headers
     local mock_curl="${TEST_TMPDIR}/curl"
     cat > "${mock_curl}" <<'CURL_EOF'
@@ -752,7 +744,7 @@ echo "HTTP/2 500"
 echo ""
 CURL_EOF
     chmod +x "${mock_curl}"
-    run env KEY_ROTATE_BACKEND=doppler \
+    run env KEY_ROTATE_BACKEND=fnox \
         CURL_CMD="${TEST_TMPDIR}/curl" \
         MCP_KEY_ROTATE_CACHE_DIR="${TEST_TMPDIR}/cache" \
         bash "$SCRIPT" brave --quota
@@ -765,9 +757,9 @@ CURL_EOF
 # ==========================================================================
 
 @test "quota: unsupported service exits 1" {
-    doppler_seed "CUSTOM_API_KEY" "${KEY_A}"
-    doppler_seed "CUSTOM_API_KEY_POOL" "${KEY_A}"
-    run env KEY_ROTATE_BACKEND=doppler \
+    fnox_seed "CUSTOM_API_KEY" "${KEY_A}"
+    fnox_seed "CUSTOM_API_KEY_POOL" "${KEY_A}"
+    run env KEY_ROTATE_BACKEND=fnox \
         bash "$SCRIPT" custom --quota
     [ "$status" -eq 1 ]
     [[ "$output" == *"No quota provider"* ]]
@@ -822,13 +814,173 @@ REPO_ROOT="$BATS_TEST_DIRNAME/.."
 }
 
 @test "option-e: help output lists all subcommands" {
-    doppler_seed "BRAVE_API_KEY" "${KEY_A}"
-    doppler_seed "BRAVE_API_KEY_POOL" "${KEY_A}"
-    run env KEY_ROTATE_BACKEND=doppler \
+    fnox_seed "BRAVE_API_KEY" "${KEY_A}"
+    fnox_seed "BRAVE_API_KEY_POOL" "${KEY_A}"
+    run env KEY_ROTATE_BACKEND=fnox \
         bash "$SCRIPT" brave --help
     [ "$status" -eq 0 ]
     [[ "$output" == *"--status"* ]]
     [[ "$output" == *"--quota"* ]]
     [[ "$output" == *"--add"* ]]
     [[ "$output" == *"--help"* ]]
+}
+
+# ==========================================================================
+# FNOX BACKEND: where it reads and writes, and what never leaks
+# ==========================================================================
+
+@test "fnox: auto-detected when fnox holds the active key, dotenv otherwise" {
+    fnox_seed "AUTO_API_KEY" "${KEY_A}"
+    fnox_seed "AUTO_API_KEY_POOL" "${KEY_A},${KEY_B}"
+    run bash "$SCRIPT" auto --status
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"backend: fnox"* ]]
+    dotenv_seed "ENVONLY_API_KEY" "${KEY_A}"
+    dotenv_seed "ENVONLY_API_KEY_POOL" "${KEY_A},${KEY_B}"
+    run env KEY_ROTATE_DOTENV="${TEST_DOTENV}" bash "$SCRIPT" envonly --status
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"backend: dotenv"* ]]
+}
+
+@test "fnox: detection reads HOME, a change reads and writes KEY_ROTATE_FNOX_DIR, and no key is ever an argument" {
+    fnox_seed "WHERE_API_KEY" "${KEY_A}"
+    fnox_seed "WHERE_API_KEY_POOL" "${KEY_A},${KEY_B}"
+    run bash "$SCRIPT" where
+    [ "$status" -eq 0 ]
+    [ "$(fnox_read WHERE_API_KEY)" = "${KEY_B}" ]
+    grep -qx "${HOME}|get WHERE_API_KEY" "${MOCK_FNOX_LOG}"
+    grep -qx "${KEY_ROTATE_FNOX_DIR}|get WHERE_API_KEY_POOL" "${MOCK_FNOX_LOG}"
+    grep -qx "${KEY_ROTATE_FNOX_DIR}|set WHERE_API_KEY" "${MOCK_FNOX_LOG}"
+    ! grep -qE "${KEY_A}|${KEY_B}" "${MOCK_FNOX_LOG}" || false
+}
+
+@test "fnox: without KEY_ROTATE_FNOX_DIR a rotation is refused and nothing changes; status still reads" {
+    fnox_seed "NODIR_API_KEY" "${KEY_A}"
+    fnox_seed "NODIR_API_KEY_POOL" "${KEY_A},${KEY_B}"
+    run env -u KEY_ROTATE_FNOX_DIR bash "$SCRIPT" nodir
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"fnox keys change in the folder whose fnox.toml holds NODIR_API_KEY"* ]]
+    [[ "$output" == *"KEY_ROTATE_FNOX_DIR=<that folder> mcp-key-rotate nodir"* ]]
+    [ "$(fnox_read NODIR_API_KEY)" = "${KEY_A}" ]
+    run env -u KEY_ROTATE_FNOX_DIR bash "$SCRIPT" nodir --status
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Pool: 2 keys"* ]]
+}
+
+@test "fnox: a store that fails, or does not read back as written, fails the rotation" {
+    fnox_seed "BAD_API_KEY" "${KEY_A}"
+    fnox_seed "BAD_API_KEY_POOL" "${KEY_A},${KEY_B}"
+    run env MOCK_FNOX_SET_FAILS=1 bash "$SCRIPT" bad
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"fnox could not store BAD_API_KEY"* ]]
+    [[ "$output" != *"Rotated"* ]]
+    run env MOCK_FNOX_SET_DROPS=1 bash "$SCRIPT" bad
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"does not read back as written"* ]]
+    [[ "$output" != *"Rotated"* ]]
+}
+
+@test "fnox: says whether the new key is active now or waits for a copy to update" {
+    fnox_seed "LIVE_API_KEY" "${KEY_A}"
+    fnox_seed "LIVE_API_KEY_POOL" "${KEY_A},${KEY_B}"
+    run bash "$SCRIPT" live
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"This machine reads it already"* ]]
+    # HOME reads a deployed copy, not the source the rotation wrote.
+    export MOCK_FNOX_HOME="${TEST_TMPDIR}/copy"
+    mkdir -p "${MOCK_FNOX_HOME}"
+    cp "${KEY_ROTATE_FNOX_DIR}/.store/LIVE_API_KEY" "${KEY_ROTATE_FNOX_DIR}/.store/LIVE_API_KEY_POOL" "${MOCK_FNOX_HOME}/"
+    run bash "$SCRIPT" live
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"commit and push it"* ]]
+    [ "$(fnox_read LIVE_API_KEY)" = "${KEY_A}" ]
+}
+
+@test "fnox: the MCP keys env file is never written; MCP servers read fnox at launch" {
+    fnox_seed "SYNC_API_KEY" "${KEY_A}"
+    fnox_seed "SYNC_API_KEY_POOL" "${KEY_A},${KEY_B}"
+    local envfile="${TEST_TMPDIR}/mcp-keys.env"
+    printf 'SYNC_API_KEY=%s\n' "${KEY_A}" >"${envfile}"
+    run env MCP_KEYS_ENV_FILE="${envfile}" bash "$SCRIPT" sync
+    [ "$status" -eq 0 ]
+    [ "$(cat "${envfile}")" = "SYNC_API_KEY=${KEY_A}" ]
+}
+
+@test "fnox: a name the file lacks goes to KEY_ROTATE_FNOX_PROVIDER when set" {
+    fnox_seed "PROV_API_KEY" "${KEY_A}"
+    run env KEY_ROTATE_BACKEND=fnox KEY_ROTATE_FNOX_PROVIDER=age bash "$SCRIPT" prov --add "${KEY_B}"
+    [ "$status" -eq 0 ]
+    grep -qx "${KEY_ROTATE_FNOX_DIR}|set PROV_API_KEY_POOL --provider age" "${MOCK_FNOX_LOG}"
+    [ "$(fnox_read PROV_API_KEY_POOL)" = "${KEY_B}" ]
+}
+
+@test "backend override: doppler, or any unknown name, is a usage error" {
+    for backend in doppler vault; do
+        run env KEY_ROTATE_BACKEND="${backend}" bash "$SCRIPT" any --status
+        [ "$status" -eq 2 ]
+        [[ "$output" == *"KEY_ROTATE_BACKEND is fnox, dotenv or auto, not '${backend}'"* ]]
+    done
+}
+
+# HOME reads a deployed copy that lags the source until it is pushed.
+deployed_copy() {
+    export MOCK_FNOX_HOME="${TEST_TMPDIR}/copy"
+    mkdir -p "${MOCK_FNOX_HOME}"
+    cp "${KEY_ROTATE_FNOX_DIR}"/.store/* "${MOCK_FNOX_HOME}/"
+}
+
+@test "fnox: two adds before a deploy both land in the source pool" {
+    fnox_seed "TWO_API_KEY" "${KEY_A}"
+    fnox_seed "TWO_API_KEY_POOL" "${KEY_A}"
+    deployed_copy
+    run bash "$SCRIPT" two --add "${KEY_B}"
+    [ "$status" -eq 0 ]
+    run bash "$SCRIPT" two --add "${KEY_C}"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"now 3 keys"* ]]
+    [ "$(fnox_read TWO_API_KEY_POOL)" = "${KEY_A},${KEY_B},${KEY_C}" ]
+    [ "$(cat "${MOCK_FNOX_HOME}/TWO_API_KEY_POOL")" = "${KEY_A}" ]
+}
+
+@test "fnox: two rotations before a deploy advance twice" {
+    fnox_seed "STEP_API_KEY" "${KEY_A}"
+    fnox_seed "STEP_API_KEY_POOL" "${KEY_A},${KEY_B},${KEY_C}"
+    deployed_copy
+    run bash "$SCRIPT" step
+    [ "$status" -eq 0 ]
+    [ "$(fnox_read STEP_API_KEY)" = "${KEY_B}" ]
+    run bash "$SCRIPT" step
+    [ "$status" -eq 0 ]
+    [ "$(fnox_read STEP_API_KEY)" = "${KEY_C}" ]
+    [[ "$output" == *"commit and push it"* ]]
+}
+
+@test "fnox: a first key goes in as the active key before the pool" {
+    fnox_seed "FIRST_API_KEY" ""
+    run env KEY_ROTATE_BACKEND=fnox bash "$SCRIPT" first --add "${KEY_A}"
+    [ "$status" -eq 0 ]
+    [ "$(grep -n "|set FIRST_API_KEY$" "${MOCK_FNOX_LOG}" | cut -d: -f1)" -lt "$(grep -n "|set FIRST_API_KEY_POOL$" "${MOCK_FNOX_LOG}" | cut -d: -f1)" ]
+}
+
+@test "fnox: without KEY_ROTATE_FNOX_DIR the refusal comes first, even where HOME's copy shows one key" {
+    fnox_seed "LAG_API_KEY" "${KEY_A}"
+    fnox_seed "LAG_API_KEY_POOL" "${KEY_A}"
+    run env -u KEY_ROTATE_FNOX_DIR bash "$SCRIPT" lag
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"fnox keys change in the folder"* ]]
+    [[ "$output" != *"Only 1 key"* ]]
+    run env -u KEY_ROTATE_FNOX_DIR bash "$SCRIPT" lag --add "${KEY_B}"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"fnox keys change in the folder"* ]]
+}
+
+@test "fnox: detected from the source file when HOME does not import it yet" {
+    fnox_seed "SRC_API_KEY" "${KEY_A}"
+    fnox_seed "SRC_API_KEY_POOL" "${KEY_A},${KEY_B}"
+    export MOCK_FNOX_HOME="${TEST_TMPDIR}/empty-home-store"
+    mkdir -p "${MOCK_FNOX_HOME}"
+    run bash "$SCRIPT" src --status
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"backend: fnox"* ]]
+    [[ "$output" == *"Pool: 2 keys"* ]]
 }

@@ -2,8 +2,8 @@
 # Path: lib/setup-ps/mcp.ps1
 # Dot-sourced by setup.ps1 -- do not execute directly.
 #
-# PowerShell port of lib/setup/mcp.sh
-# Adds Doppler vs envfile backend detection (missing from old setup.ps1).
+# PowerShell port of lib/setup/mcp.sh: per server, fnox when it can decrypt
+# that server's key, else the env file.
 
 # --- MCP Server Registry ---
 
@@ -28,40 +28,50 @@ $script:McpServers = @{
 
 $script:McpServerKeys = @("brave-search", "tavily")
 
-$script:DopplerProject = if ($env:MCP_DOPPLER_PROJECT) { $env:MCP_DOPPLER_PROJECT } else { "claude-code-config" }
-$script:DopplerConfig = if ($env:MCP_DOPPLER_CONFIG) { $env:MCP_DOPPLER_CONFIG } else { "dev" }
 $script:McpKeysEnvFile = if ($env:MCP_KEYS_ENV_FILE) { $env:MCP_KEYS_ENV_FILE } else { Join-Path (Get-ClaudeConfigDir) "mcp-keys.env" }
 
 # --- Backend Detection ---
 
+# Each name is asked of fnox once per run: every get decrypts.
+$script:FnoxSecretCache = @{}
+
+function Test-FnoxSecret {
+    <#
+    .SYNOPSIS
+    Whether fnox can decrypt <Name>. fnox runs from HOME, so a fnox.toml in
+    the repository setup runs from is never read; only its exit code and an
+    answer decide, never a warning it writes on stderr.
+    #>
+    param([string]$Name)
+
+    if ($script:FnoxSecretCache.ContainsKey($Name)) { return $script:FnoxSecretCache[$Name] }
+    # On 5.1, redirected native stderr is a terminating error under "Stop".
+    $ErrorActionPreference = "Continue"
+    if (-not (Get-Command fnox -ErrorAction SilentlyContinue)) { return $false }
+    Push-Location $HOME
+    try {
+        $value = & fnox get $Name 2>$null
+        $script:FnoxSecretCache[$Name] = ($LASTEXITCODE -eq 0 -and [bool]$value)
+        return $script:FnoxSecretCache[$Name]
+    }
+    catch {
+        $null = $_
+        return $false
+    }
+    finally {
+        Pop-Location
+    }
+}
+
 function Get-McpBackend {
     <#
     .SYNOPSIS
-    Detect whether to use Doppler or envfile backend.
-    Returns "doppler" or "envfile".
+    The backend for one MCP server: "fnox" when fnox can decrypt its key,
+    else "envfile".
     #>
+    param([string]$Key = "brave-search")
 
-    # On 5.1, redirected native stderr is a terminating error under "Stop".
-    $ErrorActionPreference = "Continue"
-
-    # Tier 1: Doppler CLI available and project accessible
-    $dopplerCmd = Get-Command doppler -ErrorAction SilentlyContinue
-    if ($dopplerCmd) {
-        $testVar = $script:McpServers["brave-search"].env_var
-        try {
-            $null = & doppler secrets get $testVar --plain `
-                -p $script:DopplerProject -c $script:DopplerConfig 2>$null
-            if ($LASTEXITCODE -eq 0) {
-                return "doppler"
-            }
-        }
-        catch {
-            # Doppler not configured for this project -- fall through
-            $null = $_  # Acknowledge the error to satisfy linter
-        }
-    }
-
-    # Tier 2: Fall back to env file wrapper
+    if (Test-FnoxSecret -Name $script:McpServers[$Key].env_var) { return "fnox" }
     return "envfile"
 }
 
@@ -81,16 +91,15 @@ function Install-McpServer {
         return
     }
 
-    $backend = Get-McpBackend
-    Write-Status "  MCP backend: ${backend}"
-    Write-Status ""
-
+    $anyEnvfile = $false
     foreach ($key in $script:InstallMcpServers) {
+        $backend = Get-McpBackend -Key $key
+        if ($backend -eq "envfile") { $anyEnvfile = $true }
         Install-SingleMcp -Key $key -Backend $backend
     }
 
-    # For envfile backend: create the keys env file
-    if ($backend -eq "envfile") {
+    # For servers on the envfile backend: create the keys env file
+    if ($anyEnvfile) {
         Initialize-McpKeysEnv
     }
 }
@@ -109,11 +118,12 @@ function Get-McpJson {
     $server = $script:McpServers[$Key]
     $package = $server.package
 
-    if ($Backend -eq "doppler") {
+    if ($Backend -eq "fnox") {
+        # mcp-fnox-inject passes the server only its own key, read from fnox in HOME.
         $config = @{
             type    = "stdio"
-            command = "doppler"
-            args    = @("run", "-p", $script:DopplerProject, "-c", $script:DopplerConfig, "--", "npx", "-y", $package)
+            command = "mcp-fnox-inject"
+            args    = @($server.env_var, "npx", "-y", $package)
         }
     }
     else {
@@ -230,31 +240,21 @@ function Test-McpEnvVar {
     .SYNOPSIS
     Check if MCP environment variables are set.
     #>
-    $backend = Get-McpBackend
+    $content = if (Test-Path $script:McpKeysEnvFile) { Read-Utf8Text $script:McpKeysEnvFile } else { "" }
+    foreach ($key in $script:InstallMcpServers) {
+        $server = $script:McpServers[$key]
+        $varName = $server.env_var
 
-    if ($backend -eq "doppler") {
-        Write-Status "  + Doppler backend active -- keys injected at MCP server launch" -Color Green
-        return
-    }
-
-    if (Test-Path $script:McpKeysEnvFile) {
-        $content = Read-Utf8Text $script:McpKeysEnvFile
-        foreach ($key in $script:InstallMcpServers) {
-            $server = $script:McpServers[$key]
-            $varName = $server.env_var
-
-            if ($content -match "(?m)^${varName}=") {
-                Write-Status "  + ${varName} found in $($script:McpKeysEnvFile)" -Color Green
-            }
-            else {
-                Write-Status "  ! ${varName} missing from $($script:McpKeysEnvFile)" -Color Yellow
-                Write-Status "    Add-Content '$($script:McpKeysEnvFile)' '${varName}=YOUR_KEY'" -Color DarkGray
-                Write-Status "    Get a free API key ($($server.free_limit)): $($server.signup_url)" -Color DarkGray
-            }
+        if ((Get-McpBackend -Key $key) -eq "fnox") {
+            Write-Status "  + ${varName} in fnox -- injected alone at ${key} launch" -Color Green
         }
-    }
-    else {
-        Write-Status "  ! $($script:McpKeysEnvFile) not found." -Color Yellow
-        Write-Status "    Re-run setup or create it manually with your MCP API keys." -Color DarkGray
+        elseif ($content -match "(?m)^${varName}=") {
+            Write-Status "  + ${varName} found in $($script:McpKeysEnvFile)" -Color Green
+        }
+        else {
+            Write-Status "  ! ${varName} missing from fnox and $($script:McpKeysEnvFile)" -Color Yellow
+            Write-Status "    Add-Content '$($script:McpKeysEnvFile)' '${varName}=YOUR_KEY'" -Color DarkGray
+            Write-Status "    Get a free API key ($($server.free_limit)): $($server.signup_url)" -Color DarkGray
+        }
     }
 }
