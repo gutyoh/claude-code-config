@@ -1714,9 +1714,14 @@ three_accounts() {
     mkdir -p "${bin}"
     for c in bash jq sed grep awk cut tr sort head tail cat mkdir dirname basename ps id uname readlink env \
         script sha256sum shasum sleep wc find ls mktemp date stat; do
-        # A version manager's shim works only beside its manager: link the real tool.
-        p=$(mise which "${c}" 2>/dev/null || command -v "${c}" || true)
-        [[ -z ${p} ]] || ln -sf "${p}" "${bin}/${c}"
+        # A version manager's shim works only beside its manager: link the
+        # first real copy on PATH.
+        p=$(type -ap "${c}" | grep -vF '/shims/' | head -n 1 || true)
+        if [[ -n ${p} ]]; then
+            ln -sf "${p}" "${bin}/${c}"
+        elif [[ ${c} == bash || ${c} == jq ]]; then
+            skip "${c} is reachable only through a shim"
+        fi
     done
     ln -sf "${STUB_DIR}/claude" "${bin}/claude"
     CLAUDE_AS_PICKER=gum PATH="${bin}" run on_tty "$SCRIPT" </dev/null
