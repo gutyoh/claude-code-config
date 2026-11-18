@@ -32,7 +32,7 @@ cfg=""
 case "$url" in
     http://127.0.0.1:3002/health) r="${FAKE_LOCAL_HEALTH:-}" ;;
     http://127.0.0.1:3002/v2/scrape) r="${FAKE_LOCAL:-500|}" ;;
-    *firecrawl.dev/v2/scrape) r="${FAKE_FIRECRAWL:-500|}" ;;
+    *firecrawl.dev/v2/scrape | *:3010/v2/scrape) r="${FAKE_FIRECRAWL:-500|}" ;;
     *firecrawl.dev/v2/search) r="${FAKE_FIRECRAWL_SEARCH:-500|}" ;;
     *tavily.com/extract) r="${FAKE_TAVILY:-500|}" ;;
     *tavily.com/search) r="${FAKE_TAVILY_SEARCH:-500|}" ;;
@@ -87,7 +87,7 @@ on_windows() { case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac;
     [ "$status" -eq 0 ]
     [[ "$output" == "ok    firecrawl"*"/out/01-example.com.md  https://example.com/a" ]]
     grep -q 'Real page text' "$FULL_SEARCH_OUT/01-example.com.md"
-    ! grep -q tavily "$LOG"
+    ! grep -q tavily "$LOG" || false
 }
 
 # bats test_tags=unit
@@ -131,7 +131,7 @@ on_windows() { case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac;
 # bats test_tags=unit
 @test "Bright Data is skipped without a token, used with one" {
     read_url https://example.com/a
-    ! grep -q brightdata.com "$LOG"
+    ! grep -q brightdata.com "$LOG" || false
     export BRIGHTDATA_API_TOKEN=bd-token FAKE_BRIGHTDATA="200|$long"
     read_url https://example.com/a
     [[ "$output" == "ok    brightdata"* ]]
@@ -145,7 +145,7 @@ on_windows() { case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac;
         read_url "$url"
         [[ "$output" == "ok    direct"* ]] || { echo "$url: $output"; false; }
     done
-    ! grep -qE 'firecrawl|tavily|brightdata|jina' "$LOG"
+    ! grep -qE 'firecrawl|tavily|brightdata|jina' "$LOG" || false
 }
 
 # bats test_tags=unit
@@ -154,7 +154,7 @@ on_windows() { case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac;
     export FAKE_DIRECT="200|$long"
     read_url https://tracker.dev.example.io/
     [[ "$output" == "ok    direct"* ]]
-    ! grep -q firecrawl "$LOG"
+    ! grep -q firecrawl "$LOG" || false
 }
 
 # bats test_tags=unit
@@ -162,7 +162,7 @@ on_windows() { case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac;
     export FIRECRAWL_API_KEY=fc-SECRET-1 TAVILY_API_KEY=tvly-SECRET-2
     export FAKE_FIRECRAWL='403|{}' FAKE_TAVILY="200|$(tv_ok "$long")"
     read_url https://example.com/a
-    ! grep '^ARGS' "$LOG" | grep -q SECRET
+    ! grep '^ARGS' "$LOG" | grep -q SECRET || false
     grep -q 'header = "Authorization: Bearer tvly-SECRET-2"' "$LOG"
     [[ "$output" != *SECRET* ]]
 }
@@ -352,7 +352,7 @@ on_windows() { case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac;
     export TAVILY_API_KEY=tvly-SECRETVALUE FAKE_TAVILY='432|{}'
     read_url --via tavily https://example.com/a
     [ -s "$COOL" ]
-    ! grep -q SECRETVALUE "$COOL"
+    ! grep -q SECRETVALUE "$COOL" || false
 }
 
 # bats test_tags=unit
@@ -413,7 +413,7 @@ on_windows() { case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac;
     export FIRECRAWL_API_KEY=fc-SECRETVALUE FAKE_KEY_fc_SECRETVALUE='402|{}' FAKE_FIRECRAWL_USAGE='500|'
     read_url --via firecrawl https://example.com/a
     grep 'credit-usage' "$LOG" | grep -q '^ARGS'
-    ! grep '^ARGS' "$LOG" | grep -q SECRETVALUE
+    ! grep '^ARGS' "$LOG" | grep -q SECRETVALUE || false
     grep -q 'CFG header = "Authorization: Bearer fc-SECRETVALUE"' "$LOG"
 }
 
@@ -423,7 +423,7 @@ on_windows() { case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac;
     read_url --via tavily https://example.com/a
     until=$(awk '$4 == "exhausted" {print $3}' "$COOL")
     [ "$(date -u -d "@$until" +%d%H%M 2>/dev/null || date -u -r "$until" +%d%H%M)" = 010000 ]
-    ! grep -q credit-usage "$LOG"
+    ! grep -q credit-usage "$LOG" || false
 }
 
 # bats test_tags=unit
@@ -441,7 +441,7 @@ on_windows() { case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac;
     export FIRECRAWL_API_KEY=k1 FAKE_FIRECRAWL='403|{}' FAKE_TAVILY="200|$(tv_ok "$long")"
     read_url https://www.reddit.com/r/x
     [[ "$output" == "ok    tavily"* ]]
-    ! grep -q '^firecrawl' "$COOL" 2>/dev/null
+    ! grep -q '^firecrawl' "$COOL" 2>/dev/null || false
 }
 
 # bats test_tags=unit
@@ -488,7 +488,7 @@ on_windows() { case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac;
     printf 'tavily %s %s exhausted\ntavily keyless %s throttled\n' "$(kid k1)" "$t" "$t" >"$COOL"
     read_url --via tavily https://example.com/a
     [ "$status" -eq 1 ]
-    ! grep -q tavily.com "$LOG"
+    ! grep -q tavily.com "$LOG" || false
 }
 
 # bats test_tags=unit
@@ -540,7 +540,7 @@ on_windows() { case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac;
     [[ "$output" == "ok    tavily"* ]]
     grep -q 'Bearer from-file"' "$LOG"
     [ ! -e "$HOME/sourced" ]
-    ! grep -q 'get TAVILY_API_KEY$' "$BATS_TEST_TMPDIR/fnox.log"
+    ! grep -q 'get TAVILY_API_KEY$' "$BATS_TEST_TMPDIR/fnox.log" || false
 }
 
 # bats test_tags=unit
@@ -594,7 +594,7 @@ on_windows() { case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac;
     export TAVILY_API_KEY=from-env FAKE_TAVILY="200|$(tv_ok "$long")"
     read_url --via tavily https://example.com/a
     grep -q 'Bearer from-env"' "$LOG"
-    ! grep -q 'from-file' "$LOG"
+    ! grep -q 'from-file' "$LOG" || false
 }
 
 # bats test_tags=unit
@@ -604,7 +604,7 @@ on_windows() { case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac;
     read_url --via tavily https://example.com/a
     [[ "$output" == "ok    tavily"* ]]
     grep -q 'Bearer from-fnox' "$LOG"
-    ! grep -qE '^exec' "$BATS_TEST_TMPDIR/fnox.log"
+    ! grep -qE '^exec' "$BATS_TEST_TMPDIR/fnox.log" || false
     [ -z "$(grep '^get' "$BATS_TEST_TMPDIR/fnox.log" | grep -vE 'get (FIRECRAWL_API_KEY|TAVILY_API_KEY|BRAVE_API_KEY|BRIGHTDATA_API_TOKEN)(_POOL)?$')" ]
 }
 
@@ -618,7 +618,7 @@ on_windows() { case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac;
     unset FIRECRAWL_API_KEY FIRECRAWL_API_KEY_POOL TAVILY_API_KEY TAVILY_API_KEY_POOL BRAVE_API_KEY BRAVE_API_KEY_POOL BRIGHTDATA_API_TOKEN BRIGHTDATA_API_TOKEN_POOL
     stub_bin fnox 'echo "$*" >>"$BATS_TEST_TMPDIR/fnox.log"; case "$1" in list) exit 1 ;; get) echo from-fnox ;; esac'
     read_url --via tavily https://example.com/a
-    ! grep -q '^get' "$BATS_TEST_TMPDIR/fnox.log"
+    ! grep -q '^get' "$BATS_TEST_TMPDIR/fnox.log" || false
     rm -f "$BATS_TEST_TMPDIR/fnox.log"
     FULL_SEARCH_FNOX=0 read_url --via tavily https://example.com/a
     [ ! -f "$BATS_TEST_TMPDIR/fnox.log" ]
@@ -637,7 +637,7 @@ on_windows() { case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac;
     [[ "$output" == *"...kept"* ]]
     [[ "$output" != *"...-old"* ]]
     TAVILY_API_KEY=x FAKE_TAVILY="200|$(tv_ok "$long")" read_url --via tavily https://example.com/a
-    ! grep -q 'personal' "$LOG"
+    ! grep -q 'personal' "$LOG" || false
 }
 
 # bats test_tags=unit
@@ -740,7 +740,7 @@ on_windows() { case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac;
     export FAKE_DIRECT="302 http://$(ip 10 0 0 5)/admin|"
     read_url --via direct https://public.example/start
     [ "$status" -eq 1 ]
-    ! grep -q "$(ip 10 0 0 5)" <(grep '^ARGS' "$LOG")
+    ! grep -q "$(ip 10 0 0 5)" <(grep '^ARGS' "$LOG") || false
 }
 
 # bats test_tags=unit
@@ -784,7 +784,7 @@ STUB
 
 # bats test_tags=unit
 @test "every array expansion survives bash 3.2's set -u (guarded or counted)" {
-    ! grep -nE '"\$\{[a-z_]+\[@\]\}"' "$SCRIPT" | grep -v '\[@\]+"'
+    ! grep -nE '"\$\{[a-z_]+\[@\]\}"' "$SCRIPT" | grep -v '\[@\]+"' || false
 }
 
 # bats test_tags=unit
@@ -796,7 +796,7 @@ STUB
     stub_bin getent 'printf "93.184.216.34 STREAM x\nfe80::1 STREAM x\n"'
     read_url https://mixed.example.io/
     [[ "$output" == "ok    direct"* ]]
-    ! grep -q firecrawl "$LOG"
+    ! grep -q firecrawl "$LOG" || false
 }
 
 # bats test_tags=unit
@@ -805,7 +805,7 @@ STUB
     export FAKE_DIRECT="500|"
     read_url https://intranet.corp-only.example/
     [ "$status" -eq 1 ]
-    ! grep -qE 'firecrawl|tavily' "$LOG"
+    ! grep -qE 'firecrawl|tavily' "$LOG" || false
 }
 
 # bats test_tags=unit
@@ -825,7 +825,7 @@ STUB
     [[ "$output" == *'<untrusted-web-content id="'*'</untrusted-web-content id="'* ]]
     [[ "$output" != *"$esc"* ]]
     [ ! -f "$FULL_SEARCH_OUT/01-javascript.md" ]
-    ! grep -q 'javascript:alert' "$LOG"
+    ! grep -q 'javascript:alert' "$LOG" || false
 }
 
 # bats test_tags=unit
@@ -848,7 +848,7 @@ STUB
 @test "a Bright Data 403 refuses the target, so the token does not rest" {
     export BRIGHTDATA_API_TOKEN=bd1 FAKE_BRIGHTDATA='403|{}'
     read_url --via brightdata https://example.com/a
-    ! grep -q '^brightdata' "$COOL" 2>/dev/null
+    ! grep -q '^brightdata' "$COOL" 2>/dev/null || false
 }
 
 # bats test_tags=unit
@@ -857,7 +857,7 @@ STUB
     export FAKE_KEY_b2='200|{"web":{"results":[{"title":"B","url":"https://b.example/","description":"d"}]}}'
     run bash "$SCRIPT" --via brave -q x
     [[ "$output" == "search via brave"* ]]
-    ! grep -q '^brave' "$COOL" 2>/dev/null
+    ! grep -q '^brave' "$COOL" 2>/dev/null || false
 }
 
 # bats test_tags=unit
@@ -933,7 +933,7 @@ STUB
 @test "API calls never follow redirects, so a key header cannot leave its host" {
     export TAVILY_API_KEY=k1 FAKE_TAVILY="200|$(tv_ok "$long")"
     read_url --via tavily https://example.com/a
-    ! grep '^ARGS' "$LOG" | grep -q -- ' -L '
+    ! grep '^ARGS' "$LOG" | grep -q -- ' -L ' || false
 }
 
 # --- Firecrawl Local ----------------------------------------------------------
@@ -944,10 +944,13 @@ cfg_of() { awk -v pat="$1" '/^ARGS /{p = ($0 ~ pat)} p && !/^ARGS /' "$LOG"; }
 # A running firecrawl-local serve on the default address.
 local_serve() { export FAKE_LOCAL_HEALTH='200|{"status":"ok","engine":"firecrawl-local","version":"0.1.1"}'; }
 
-# A firecrawl-local binary on PATH that logs its arguments and prints $1 (JSON).
+# A firecrawl-local binary on PATH that logs its arguments and the search
+# names in its environment, and prints $1 (JSON).
 local_bin() {
     export FIRECRAWL_LOCAL_BIN=firecrawl-local LOCAL_OUT="$1"
-    stub_bin firecrawl-local 'printf "%s\n" "$*" >>"$BATS_TEST_TMPDIR/bin.log"; printf "%s" "$LOCAL_OUT"'
+    stub_bin firecrawl-local 'printf "%s\n" "$*" >>"$BATS_TEST_TMPDIR/bin.log"
+env | grep -E "^(FIRECRAWL|TAVILY|BRAVE|BRIGHTDATA)" >>"$BATS_TEST_TMPDIR/bin.env"
+printf "%s" "$LOCAL_OUT"'
 }
 
 # bats test_tags=unit
@@ -957,9 +960,9 @@ local_bin() {
     read_url https://example.com/a
     [ "$status" -eq 0 ]
     [[ "$output" == "ok    local"*"/out/01-example.com.md  https://example.com/a" ]]
-    ! grep -q 'firecrawl.dev/v2/scrape' "$LOG"
+    ! grep -q 'firecrawl.dev/v2/scrape' "$LOG" || false
     cfg_of '127.0.0.1:3002/v2/scrape' | grep -q 'Content-Type: application/json'
-    ! cfg_of '127.0.0.1:3002/v2/scrape' | grep -q 'fc-key'
+    ! cfg_of '127.0.0.1:3002/v2/scrape' | grep -q 'fc-key' || false
 }
 
 # bats test_tags=unit
@@ -967,7 +970,7 @@ local_bin() {
     export FAKE_LOCAL_HEALTH='200|{"status":"ok"}' FAKE_LOCAL="200|$(fc_ok "$long")" FAKE_FIRECRAWL="200|$(fc_ok "$long")"
     read_url https://example.com/a
     [[ "$output" == "ok    firecrawl"* ]]
-    ! grep -q '127.0.0.1:3002/v2/scrape' "$LOG"
+    ! grep -q '127.0.0.1:3002/v2/scrape' "$LOG" || false
     grep '127.0.0.1:3002/health' "$LOG" | grep -q -- '--connect-timeout 1 --max-time 2'
 }
 
@@ -978,8 +981,8 @@ local_bin() {
     read_url https://example.com/a
     [ "$status" -eq 0 ]
     [[ "$output" == "ok    local"* ]]
-    grep -qx -- 'scrape --public-only --timeout 45000 https://example.com/a' "$BATS_TEST_TMPDIR/bin.log"
-    ! grep -q 'firecrawl.dev' "$LOG"
+    grep -qx -- 'scrape --public-only --timeout 45000 -- https://example.com/a' "$BATS_TEST_TMPDIR/bin.log"
+    ! grep -q 'firecrawl.dev' "$LOG" || false
 }
 
 # bats test_tags=unit
@@ -1033,7 +1036,7 @@ local_bin() {
     export FAKE_LOCAL="200|$(fc_ok "$long")" FAKE_DIRECT="200|<html><body>$long</body></html>"
     read_url "http://$(ip 10 0 0 7)/admin"
     [[ "$output" == "ok    direct"* ]]
-    ! grep -q '127.0.0.1:3002/v2/scrape' "$LOG"
+    ! grep -q '127.0.0.1:3002/v2/scrape' "$LOG" || false
     [ ! -e "$BATS_TEST_TMPDIR/bin.log" ]
 }
 
@@ -1045,7 +1048,7 @@ local_bin() {
     [[ "$output" == "ok    local"* ]]
     cfg_of '127.0.0.1:3002/health' | grep -q 'Bearer local-secret'
     cfg_of '127.0.0.1:3002/v2/scrape' | grep -q 'Bearer local-secret'
-    ! grep '^ARGS' "$LOG" | grep -q local-secret
+    ! grep '^ARGS' "$LOG" | grep -q local-secret || false
 }
 
 # bats test_tags=unit
@@ -1053,7 +1056,7 @@ local_bin() {
     export FAKE_LOCAL_HEALTH='401|{"success":false,"code":"UNAUTHORIZED"}' FAKE_FIRECRAWL="200|$(fc_ok "$long")"
     read_url https://example.com/a
     [[ "$output" == "ok    firecrawl"* ]]
-    ! grep -q '127.0.0.1:3002/v2/scrape' "$LOG"
+    ! grep -q '127.0.0.1:3002/v2/scrape' "$LOG" || false
 }
 
 # bats test_tags=unit
@@ -1064,7 +1067,7 @@ local_bin() {
     [[ "$output" == "ok    firecrawl"* ]]
     grep -q 'ARGS.*http://127.0.0.1:3999/health' "$LOG"
     grep -q 'ARGS.*https://mirror.firecrawl.dev/v2/scrape' "$LOG"
-    ! grep -q 'api.firecrawl.dev' "$LOG"
+    ! grep -q 'api.firecrawl.dev' "$LOG" || false
 }
 
 # bats test_tags=unit
@@ -1096,5 +1099,62 @@ local_bin() {
     export FAKE_TAVILY="200|$(tv_ok "$long")"
     read_url --via tavily https://example.com/a
     FULL_SEARCH_READ_CHAIN="tavily direct" read_url https://example.com/a
-    ! grep -q '127.0.0.1:3002' "$LOG"
+    ! grep -q '127.0.0.1:3002' "$LOG" || false
+}
+
+# bats test_tags=unit
+@test "the binary gets no provider key and its own cloud hand-off off, so it spends no credit" {
+    local_bin "$(fc_ok "$long")"
+    export FIRECRAWL_API_KEY=fc-key FIRECRAWL_API_KEY_POOL=fc-pool TAVILY_API_KEY=tv-key BRAVE_API_KEY=br-key
+    export BRIGHTDATA_API_TOKEN=bd-key FIRECRAWL_API_URL=https://mirror.firecrawl.dev FIRECRAWL_LOCAL_TOKEN=lt FIRECRAWL_CLOUD=auto
+    read_url https://example.com/a
+    [[ "$output" == "ok    local"* ]]
+    grep -qx 'FIRECRAWL_CLOUD=off' "$BATS_TEST_TMPDIR/bin.env"
+    ! grep -E '_(KEY|TOKEN|POOL|API_URL)=' "$BATS_TEST_TMPDIR/bin.env" || false
+    ! grep -E 'fc-key|fc-pool|tv-key|br-key|bd-key|=lt$|mirror' "$BATS_TEST_TMPDIR/bin.env" || false
+}
+
+# bats test_tags=unit
+@test "a page the binary was refused goes to the cloud provider, which minds its keys" {
+    local_bin "$(jq -nc '{success:true, data:{markdown:"", blocked:true, source:"local", metadata:{statusCode:403}}}')"
+    export FIRECRAWL_API_KEY=fc-key FAKE_FIRECRAWL="200|$(fc_ok "$long")"
+    read_url https://example.com/a
+    [[ "$output" == "ok    firecrawl"* ]]
+    cfg_of 'firecrawl.dev/v2/scrape' | grep -q 'Bearer fc-key'
+}
+
+# bats test_tags=unit
+@test "a page a serve fetched from the cloud is not taken as read locally" {
+    local_serve
+    export FAKE_LOCAL="200|$(jq -nc --arg m "$long" '{success:true, data:{markdown:$m, source:"firecrawl-cloud", metadata:{statusCode:200}}}')"
+    export FAKE_FIRECRAWL="200|$(fc_ok "$long")"
+    read_url https://example.com/a
+    [[ "$output" == "ok    firecrawl"* ]]
+}
+
+# bats test_tags=unit
+@test "FIRECRAWL_API_URL must be https or this machine, and a trailing slash is dropped" {
+    for bad in http://mirror.example.com http://10.0.0.5:3002 ftp://mirror.example.com mirror.example.com; do
+        FIRECRAWL_API_URL="$bad" read_url https://example.com/a
+        [ "$status" -eq 2 ] || { echo "$bad: $status"; false; }
+        [[ "$output" == *"FIRECRAWL_API_URL must be https, or http on this machine"* ]]
+    done
+    export FAKE_FIRECRAWL="200|$(fc_ok "$long")"
+    for good in http://127.0.0.1:3010/ http://localhost:3010 'http://[::1]:3010' https://mirror.firecrawl.dev/; do
+        FIRECRAWL_API_URL="$good" read_url https://example.com/a
+        [ "$status" -eq 0 ] || { echo "$good: $output"; false; }
+    done
+    grep -q 'ARGS.*http://127.0.0.1:3010/v2/scrape' "$LOG"
+    ! grep -q '//v2/' "$LOG" || false
+}
+
+# bats test_tags=unit
+@test "FIRECRAWL_LOCAL_TOKEN never travels in clear to another machine" {
+    export FIRECRAWL_LOCAL_TOKEN=local-secret FIRECRAWL_LOCAL_URL=http://box.example.com:3002
+    read_url https://example.com/a
+    grep -q 'ARGS.*http://box.example.com:3002/health' "$LOG"
+    ! grep -q local-secret "$LOG" || false
+    : >"$LOG"
+    FIRECRAWL_LOCAL_URL=https://box.example.com read_url https://example.com/a
+    cfg_of 'https://box.example.com/health' | grep -q 'Bearer local-secret'
 }

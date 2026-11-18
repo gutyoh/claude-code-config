@@ -10,9 +10,9 @@
 # Firecrawl Local (firecrawl-local) fetches pages from this machine with
 # Firecrawl's own cleaning and costs no credit: a running `firecrawl-local
 # serve` at FIRECRAWL_LOCAL_URL (default http://127.0.0.1:3002), else the
-# binary itself (FIRECRAWL_LOCAL_BIN, default firecrawl-local, run with
-# --public-only), else it is skipped. On 52 pages it read 51 to Firecrawl
-# Cloud's 50, handing the 7 that refused this machine to the cloud.
+# binary itself (FIRECRAWL_LOCAL_BIN, default firecrawl-local), else it is
+# skipped. It only reads; a page that refuses this machine goes on to the
+# next provider, so the cloud is reached only through its own keys and rests.
 #
 # Each provider tries its keys in turn, then its keyless tier. A key that is
 # out of credit, rejected or rate limited rests in a cooldown file until it can
@@ -25,13 +25,15 @@
 #   full-search -q QUERY --read N      search, then read the top N results
 #   full-search --status               keys, pools and cooldowns, masked
 #   options: --via PROVIDER  --out DIR  --min-chars N
-#   providers: local firecrawl tavily brightdata jina direct (read), tavily firecrawl brave (search)
+#   providers: local firecrawl tavily brightdata jina direct (read), tavily firecrawl brave (search);
+#   --via names one provider for both, so --via local cannot search
 #
 # Keys, all optional: FIRECRAWL_API_KEY, TAVILY_API_KEY, BRAVE_API_KEY and
 # BRIGHTDATA_API_TOKEN, each with an optional comma-separated *_POOL. Each name
 # comes from the environment, else ~/.claude/mcp-keys.env, else fnox. No key
-# goes to Firecrawl Local; FIRECRAWL_LOCAL_TOKEN is its own serve --token.
-# FIRECRAWL_API_URL points the cloud provider at another Firecrawl.
+# goes to Firecrawl Local; FIRECRAWL_LOCAL_TOKEN is its own serve --token,
+# sent only to this machine or over https. FIRECRAWL_API_URL points the cloud
+# provider at another Firecrawl: https, or http on this machine.
 #
 # Exit: 0 every page or the search succeeded, 1 some failed, 2 usage error.
 
@@ -48,7 +50,9 @@ OUT_DIR="${FULL_SEARCH_OUT:-}"
 STATE_DIR="${FULL_SEARCH_STATE:-${XDG_STATE_HOME:-${HOME}/.local/state}/full-search}"
 COOLDOWN_FILE="${STATE_DIR}/cooldown"
 FIRECRAWL_URL="${FIRECRAWL_API_URL:-https://api.firecrawl.dev}"
+FIRECRAWL_URL="${FIRECRAWL_URL%/}"
 LOCAL_URL="${FIRECRAWL_LOCAL_URL:-http://127.0.0.1:3002}"
+LOCAL_URL="${LOCAL_URL%/}"
 LOCAL_BIN="${FIRECRAWL_LOCAL_BIN:-firecrawl-local}"
 # How Firecrawl Local answers this run: serve, bin or none (see local_mode),
 # looked up only by a run that reads pages with it, or by --status.
@@ -311,8 +315,26 @@ read_firecrawl() {
     scrape_markdown
 }
 
-# The header a serve started with --token wants on every route, /health too.
-local_auth() { [[ -n "${FIRECRAWL_LOCAL_TOKEN:-}" ]] && printf 'Authorization: Bearer %s' "${FIRECRAWL_LOCAL_TOKEN}"; }
+# Whether URL $1 is fit to carry a secret: https, or http to this machine.
+secure_url() {
+    local host="${1#http://}"
+    [[ "$1" == https://* ]] && return 0
+    [[ "$1" == http://* ]] || return 1
+    host="${host%%[/?#]*}"
+    host="${host##*@}"
+    case "${host}" in
+        \[::1\] | \[::1\]:*) return 0 ;;
+    esac
+    host="${host%:*}"
+    [[ "${host}" == localhost || "${host}" =~ ^127\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
+}
+
+# The header a serve started with --token wants on every route, /health too;
+# a token never travels in clear to another machine.
+local_auth() {
+    [[ -n "${FIRECRAWL_LOCAL_TOKEN:-}" ]] && secure_url "${LOCAL_URL}" &&
+        printf 'Authorization: Bearer %s' "${FIRECRAWL_LOCAL_TOKEN}"
+}
 
 # Which Firecrawl Local answers, once per run: "serve" when FIRECRAWL_LOCAL_URL
 # answers a health check that names firecrawl-local (another service on the
@@ -329,10 +351,16 @@ local_mode() {
     fi
 }
 
-# Firecrawl Local: no key and no credit. The binary runs with --public-only
-# and serve refuses private targets by default, though read_url already keeps
-# a private address off every provider.
+# Firecrawl Local: no key and no credit. The binary runs with no provider key
+# in its environment and its own cloud hand-off off, so a refused page comes
+# back blocked and goes to the next provider, which minds its keys' credit
+# and rests. A serve's hand-off is its owner's (start it FIRECRAWL_CLOUD=off);
+# a page it fetched from the cloud is not taken as read here. The binary also
+# refuses private targets, as serve does, though read_url keeps them off
+# every provider.
 read_local() {
+    local name
+    local -a clean=()
     case "${LOCAL_MODE}" in
         serve)
             split "$(http "Content-Type: application/json
@@ -340,10 +368,13 @@ $(local_auth)" -X POST "${LOCAL_URL}/v2/scrape" --data "$(scrape_body "$1")")"
             [[ "${STATUS}" == 200 ]] || return 1
             ;;
         bin)
-            BODY=$(bounded "$((TIMEOUT + 5))" "${LOCAL_BIN}" scrape --public-only --timeout "$((TIMEOUT * 1000))" "$1") || return 1
+            for name in ${KEY_NAMES} FIRECRAWL_API_URL FIRECRAWL_LOCAL_TOKEN; do clean+=(-u "${name}"); done
+            BODY=$(bounded "$((TIMEOUT + 5))" env ${clean[@]+"${clean[@]}"} FIRECRAWL_CLOUD=off \
+                "${LOCAL_BIN}" scrape --public-only --timeout "$((TIMEOUT * 1000))" -- "$1") || return 1
             ;;
         *) return 1 ;;
     esac
+    printf '%s' "${BODY}" | jq -e '.data.source == "firecrawl-cloud"' >/dev/null 2>&1 && return 1
     scrape_markdown
 }
 
@@ -643,6 +674,8 @@ main() {
     done
     command -v curl >/dev/null 2>&1 || die "curl is required"
     command -v jq >/dev/null 2>&1 || die "jq is required"
+    # The cloud provider sends its key there.
+    secure_url "${FIRECRAWL_URL}" || die "FIRECRAWL_API_URL must be https, or http on this machine"
     if ((!show_status)); then
         [[ "${count}" =~ ^[0-9]+$ && "${read_top}" =~ ^[0-9]+$ && "${MIN_CHARS}" =~ ^[0-9]+$ ]] || die "counts must be numbers"
         [[ -n "${query}" || ${#urls[@]} -gt 0 ]] || die "give URLs, or -q QUERY (see --help)"
