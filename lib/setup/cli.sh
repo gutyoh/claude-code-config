@@ -126,14 +126,12 @@ parse_arguments() {
                 INSTALL_AGENT_TEAMS="false"
                 shift
                 ;;
-            --code-mode | --no-code-mode)
-                local asked="true"
-                [[ "$1" == --no-code-mode ]] && asked="false"
-                if [[ -n "${code_mode_asked}" && "${code_mode_asked}" != "${asked}" ]]; then
-                    echo "Error: --code-mode and --no-code-mode contradict each other"
-                    exit 1
-                fi
-                code_mode_asked="${asked}"
+            --code-mode)
+                code_mode_asked+=" true"
+                shift
+                ;;
+            --no-code-mode)
+                code_mode_asked+=" false"
                 shift
                 ;;
             --minimal)
@@ -317,5 +315,12 @@ parse_arguments() {
                 ;;
         esac
     done
-    [[ -z "${code_mode_asked}" ]] || INSTALL_CODE_MODE="${code_mode_asked}"
+    case "${code_mode_asked}" in
+        *true*false* | *false*true*)
+            echo "Error: --code-mode and --no-code-mode contradict each other"
+            exit 1
+            ;;
+        *true*) INSTALL_CODE_MODE="true" ;;
+        *false*) INSTALL_CODE_MODE="false" ;;
+    esac
 }

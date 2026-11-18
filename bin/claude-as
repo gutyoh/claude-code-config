@@ -513,18 +513,23 @@ remote_control_on() {
     [[ -n ${on} ]]
 }
 
-# A flag as Claude Code reads one: 1, true, yes or on is on; 0, false, no or
-# off is off; anything else is neither.
+# A flag as Claude Code reads one, case and surrounding blanks aside: 1,
+# true, yes or on is on; 0, false, no or off is off; anything else is neither.
+flag_word() {
+    local word
+    word=$(lower "$1")
+    printf '%s' "${word//[[:space:]]/}"
+}
 flag_on() {
-    case $(lower "$1") in 1 | true | yes | on) return 0 ;; *) return 1 ;; esac
+    case $(flag_word "$1") in 1 | true | yes | on) return 0 ;; *) return 1 ;; esac
 }
 flag_off() {
-    case $(lower "$1") in 0 | false | no | off) return 0 ;; *) return 1 ;; esac
+    case $(flag_word "$1") in 0 | false | no | off) return 0 ;; *) return 1 ;; esac
 }
 
 # CLAUDE_CODE_EXPERIMENTAL_CODE_MODE as settings file <file> sets it.
 code_mode_setting() {
-    jq -r '.env.CLAUDE_CODE_EXPERIMENTAL_CODE_MODE // empty | tostring' "$1" 2>/dev/null || true
+    jq -r '.env.CLAUDE_CODE_EXPERIMENTAL_CODE_MODE | if . == null then empty else tostring end' "$1" 2>/dev/null || true
 }
 
 # Whether Code Mode is kept off for <home>: off in the environment, the

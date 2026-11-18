@@ -1710,11 +1710,13 @@ three_accounts() {
 @test "a picker named but not installed says so, rather than reading as a cancel" {
     three_accounts
     need_tty
-    local bin="${BATS_TEST_TMPDIR}/nopick"
+    local bin="${BATS_TEST_TMPDIR}/nopick" p
     mkdir -p "${bin}"
     for c in bash jq sed grep awk cut tr sort head tail cat mkdir dirname basename ps id uname readlink env \
         script sha256sum shasum sleep wc find ls mktemp date stat; do
-        command -v "${c}" >/dev/null 2>&1 && ln -sf "$(command -v "${c}")" "${bin}/${c}"
+        # A version manager's shim works only beside its manager: link the real tool.
+        p=$(mise which "${c}" 2>/dev/null || command -v "${c}" || true)
+        [[ -z ${p} ]] || ln -sf "${p}" "${bin}/${c}"
     done
     ln -sf "${STUB_DIR}/claude" "${bin}/claude"
     CLAUDE_AS_PICKER=gum PATH="${bin}" run on_tty "$SCRIPT" </dev/null
@@ -2007,10 +2009,22 @@ repl_mode() {
     CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=off run "$SCRIPT" --relink
     [[ ${output} != *accepted* ]]
     code_mode false
-    CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=yes run "$SCRIPT" --relink
+    CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=" yes " run "$SCRIPT" --relink
+    [[ ${output} != *accepted* ]]
+    jq '.env.CLAUDE_CODE_EXPERIMENTAL_CODE_MODE = false' "${HOME}/.claude/settings.json" >"${HOME}/cm.json"
+    mv "${HOME}/cm.json" "${HOME}/.claude/settings.json"
+    CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1 run "$SCRIPT" --relink
     [[ ${output} != *accepted* ]]
     code_mode On
     run "$SCRIPT" --relink
+    accepted "${HOME}/.claude-home/.claude.json"
+    # Blanks around the word count for nothing, as Claude Code trims them.
+    jq 'del(.codeModeCaveatsAcceptedV1, .codeModeAutoModeCaveatAcceptedV1)' \
+        "${HOME}/.claude-home/.claude.json" >"${HOME}/a.json"
+    mv "${HOME}/a.json" "${HOME}/.claude-home/.claude.json"
+    echo '{}' >"${HOME}/.claude/settings.json"
+    CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=" on " run "$SCRIPT" --relink
+    [ "$status" -eq 0 ]
     accepted "${HOME}/.claude-home/.claude.json"
 }
 
