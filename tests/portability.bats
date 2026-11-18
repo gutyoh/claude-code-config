@@ -599,7 +599,7 @@ tracked_text_files() {
 # bats test_tags=unit,portability
 @test "no test pins the platform that statusline modules branch on, unless it says why" {
     local hits
-    hits="$(cd "$REPO_ROOT" && grep -nE '^[[:space:]]*PLATFORM=["'\'']?(linux|macos|windows)["'\'']?([[:space:]]|$)' tests/*.bats |
+    hits="$(cd "$REPO_ROOT" && grep -nE '^[[:space:]]*((local|export|declare|readonly)[[:space:]]+(-[a-z]+[[:space:]]+)?)?PLATFORM=["'\'']?(linux|macos|windows)["'\'']?([[:space:]]|$)' tests/*.bats tests/helpers.bash |
         grep -v '# pinned: ' || true)"
     [ -z "$hits" ] || {
         echo "Use PLATFORM=\"\$(detect_test_platform)\" (helpers.bash), or end the line with # pinned: <why>:"
