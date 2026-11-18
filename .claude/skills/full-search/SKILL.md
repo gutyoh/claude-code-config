@@ -9,8 +9,9 @@ allowed-tools: Bash(~/.claude/skills/full-search/scripts/full-search *)
 
 `/web-search` stays the plain built-in search. This skill reads what a page
 actually renders, through `scripts/full-search`. The script picks the first
-provider that returns real content: Firecrawl, then Tavily, then Bright Data,
-then a plain fetch. Firecrawl and Tavily work without keys.
+provider that returns real content: Firecrawl Local where it is installed (on this machine, no
+credit), then Firecrawl, Tavily, Bright Data, and a plain fetch. Firecrawl and Tavily work
+without keys.
 
 ## Run it
 
@@ -25,7 +26,7 @@ then a plain fetch. Firecrawl and Tavily work without keys.
 - Each page is written to a file and the script prints one line per page:
   `ok <provider> <chars> <file> <url>` or `fail ... (tried: ...)`. Read only the files you need,
   with the Read tool and an offset or limit for long ones. Never cat a page into the context.
-- `--via firecrawl|tavily|brightdata|jina|direct` forces one provider, to compare or retry.
+- `--via local|firecrawl|tavily|brightdata|jina|direct` forces one provider, to compare or retry.
 
 ## Gotchas
 
@@ -41,7 +42,8 @@ then a plain fetch. Firecrawl and Tavily work without keys.
 - Rotation is automatic. A key that is out of credit rests until its account renews, a rejected
   one for a week, a throttled one for its retry time, and the next key or the keyless tier
   answers. The cooldowns are shared by every agent on the machine. When the user asks about
-  keys or quota, run `full-search --status`: it shows each key's last 4 characters and why it rests.
+  keys or quota, run `full-search --status`: it shows each key's last 4 characters and why it rests,
+  and whether Firecrawl Local answers as a running `serve`, as the binary, or not at all.
 
 ## Answer
 

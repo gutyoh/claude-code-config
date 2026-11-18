@@ -5,7 +5,9 @@
 # full-search reads a page through the first provider that returns real content
 # and never sends a private address or a key where it should not go. A fake
 # curl answers per provider from FAKE_<PROVIDER> ("status|body") and logs every
-# call's arguments and the header config it read on stdin.
+# call's arguments and the header config it read on stdin. Firecrawl Local's
+# serve answers on 127.0.0.1:3002 from FAKE_LOCAL_HEALTH and FAKE_LOCAL; unset,
+# nothing listens there, and no firecrawl-local binary is found.
 
 SCRIPT="$BATS_TEST_DIRNAME/../.claude/skills/full-search/scripts/full-search"
 
@@ -15,6 +17,9 @@ setup() {
     isolate_home
     export FULL_SEARCH_OUT="$BATS_TEST_TMPDIR/out" LOG="$BATS_TEST_TMPDIR/curl.log"
     unset FIRECRAWL_API_KEY TAVILY_API_KEY BRIGHTDATA_API_TOKEN BRAVE_API_KEY FIRECRAWL_API_KEY_POOL TAVILY_API_KEY_POOL BRAVE_API_KEY_POOL BRIGHTDATA_API_TOKEN_POOL
+    unset FIRECRAWL_API_URL FIRECRAWL_LOCAL_URL FIRECRAWL_LOCAL_TOKEN FULL_SEARCH_READ_CHAIN
+    # A firecrawl-local installed on the machine running the tests stays out of them.
+    export FIRECRAWL_LOCAL_BIN="$BATS_TEST_TMPDIR/no-firecrawl-local"
     export FULL_SEARCH_FNOX=0 COOL="$HOME/.local/state/full-search/cooldown"
     long=$(printf 'Real page text. %.0s' $(seq 1 40))
     dns_public
@@ -25,6 +30,8 @@ cfg=""
 [[ " $* " == *" --config - "* ]] && cfg=$(cat)
 { printf 'ARGS %s\n' "$*"; printf 'CFG %s\n' "$cfg"; } >>"$LOG"
 case "$url" in
+    http://127.0.0.1:3002/health) r="${FAKE_LOCAL_HEALTH:-}" ;;
+    http://127.0.0.1:3002/v2/scrape) r="${FAKE_LOCAL:-500|}" ;;
     *firecrawl.dev/v2/scrape) r="${FAKE_FIRECRAWL:-500|}" ;;
     *firecrawl.dev/v2/search) r="${FAKE_FIRECRAWL_SEARCH:-500|}" ;;
     *tavily.com/extract) r="${FAKE_TAVILY:-500|}" ;;
@@ -52,7 +59,14 @@ if [[ "$cfg" != *Authorization* && "$cfg" != *Subscription* ]]; then
 fi
 # Firecrawl's credit balance answers from FAKE_FIRECRAWL_USAGE, whatever the key.
 [[ "$url" == *firecrawl.dev/v2/team/credit-usage ]] && r="${FAKE_FIRECRAWL_USAGE:-500|}"
-printf '%s\n%s|%s|%s' "${r#*|}" "${r%%|*}" "${FAKE_RETRY_AFTER:-}" "${FAKE_RL_RESET:-}"
+# Nothing listening: curl's "connection refused".
+[[ -n "$r" ]] || exit 7
+# As real curl: the status trailer only where -w asks for it.
+if [[ " $* " == *" -w "* ]]; then
+    printf '%s\n%s|%s|%s' "${r#*|}" "${r%%|*}" "${FAKE_RETRY_AFTER:-}" "${FAKE_RL_RESET:-}"
+else
+    printf '%s' "${r#*|}"
+fi
 EOF
 }
 
@@ -920,4 +934,167 @@ STUB
     export TAVILY_API_KEY=k1 FAKE_TAVILY="200|$(tv_ok "$long")"
     read_url --via tavily https://example.com/a
     ! grep '^ARGS' "$LOG" | grep -q -- ' -L '
+}
+
+# --- Firecrawl Local ----------------------------------------------------------
+
+# The stdin header config of each logged call whose arguments match $1.
+cfg_of() { awk -v pat="$1" '/^ARGS /{p = ($0 ~ pat)} p && !/^ARGS /' "$LOG"; }
+
+# A running firecrawl-local serve on the default address.
+local_serve() { export FAKE_LOCAL_HEALTH='200|{"status":"ok","engine":"firecrawl-local","version":"0.1.1"}'; }
+
+# A firecrawl-local binary on PATH that logs its arguments and prints $1 (JSON).
+local_bin() {
+    export FIRECRAWL_LOCAL_BIN=firecrawl-local LOCAL_OUT="$1"
+    stub_bin firecrawl-local 'printf "%s\n" "$*" >>"$BATS_TEST_TMPDIR/bin.log"; printf "%s" "$LOCAL_OUT"'
+}
+
+# bats test_tags=unit
+@test "a running Firecrawl Local answers first, with no key and no credit" {
+    local_serve
+    export FIRECRAWL_API_KEY=fc-key FAKE_LOCAL="200|$(fc_ok "$long")" FAKE_FIRECRAWL="200|$(fc_ok "$long")"
+    read_url https://example.com/a
+    [ "$status" -eq 0 ]
+    [[ "$output" == "ok    local"*"/out/01-example.com.md  https://example.com/a" ]]
+    ! grep -q 'firecrawl.dev/v2/scrape' "$LOG"
+    cfg_of '127.0.0.1:3002/v2/scrape' | grep -q 'Content-Type: application/json'
+    ! cfg_of '127.0.0.1:3002/v2/scrape' | grep -q 'fc-key'
+}
+
+# bats test_tags=unit
+@test "its health check is short, and a service on the port that is not Firecrawl Local is not used" {
+    export FAKE_LOCAL_HEALTH='200|{"status":"ok"}' FAKE_LOCAL="200|$(fc_ok "$long")" FAKE_FIRECRAWL="200|$(fc_ok "$long")"
+    read_url https://example.com/a
+    [[ "$output" == "ok    firecrawl"* ]]
+    ! grep -q '127.0.0.1:3002/v2/scrape' "$LOG"
+    grep '127.0.0.1:3002/health' "$LOG" | grep -q -- '--connect-timeout 1 --max-time 2'
+}
+
+# bats test_tags=unit
+@test "without a serve, the binary reads the page, public targets only, within the timeout" {
+    local_bin "$(fc_ok "$long")"
+    export FULL_SEARCH_TIMEOUT=45
+    read_url https://example.com/a
+    [ "$status" -eq 0 ]
+    [[ "$output" == "ok    local"* ]]
+    grep -qx -- 'scrape --public-only --timeout 45000 https://example.com/a' "$BATS_TEST_TMPDIR/bin.log"
+    ! grep -q 'firecrawl.dev' "$LOG"
+}
+
+# bats test_tags=unit
+@test "a serve outranks the binary" {
+    local_serve
+    local_bin "$(fc_ok "from the binary $long")"
+    export FAKE_LOCAL="200|$(fc_ok "$long")"
+    read_url https://example.com/a
+    [[ "$output" == "ok    local"* ]]
+    [ ! -e "$BATS_TEST_TMPDIR/bin.log" ]
+}
+
+# bats test_tags=unit
+@test "a page Firecrawl Local cannot read, or that every fetcher refused, falls through to the cloud" {
+    local_bin '{"success":false,"code":"FETCH_FAILED","error":"timed out"}'
+    export FAKE_FIRECRAWL="200|$(fc_ok "$long")"
+    read_url https://example.com/a
+    [[ "$output" == "ok    firecrawl"* ]]
+    local_serve
+    export FAKE_LOCAL="200|$(jq -nc --arg m "$long" '{success:true, data:{markdown:$m, blocked:true, metadata:{statusCode:200}}}')"
+    read_url https://example.com/b
+    [[ "$output" == "ok    firecrawl"* ]]
+    export FAKE_LOCAL="200|$(jq -nc --arg m "$long" '{success:true, data:{markdown:$m, metadata:{statusCode:404}}}')"
+    read_url https://example.com/c
+    [[ "$output" == "ok    firecrawl"* ]]
+}
+
+# bats test_tags=unit
+@test "a binary that hangs is stopped at the timeout and the next provider answers" {
+    export FIRECRAWL_LOCAL_BIN=firecrawl-local FULL_SEARCH_TIMEOUT=1 FAKE_FIRECRAWL="200|$(fc_ok "$long")"
+    stub_bin firecrawl-local 'sleep 30'
+    SECONDS=0
+    read_url https://example.com/a
+    [[ "$output" == "ok    firecrawl"* ]]
+    ((SECONDS < 15))
+}
+
+# bats test_tags=unit
+@test "Firecrawl Local where none is found is skipped unlisted; asked for with --via, it says so" {
+    read_url https://example.com/a
+    [[ "$output" == *"(tried: firecrawl tavily brightdata direct)" ]]
+    read_url --via local https://example.com/a
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"(tried: local)" ]]
+}
+
+# bats test_tags=unit
+@test "a private address never reaches Firecrawl Local, served or run" {
+    local_serve
+    local_bin "$(fc_ok "$long")"
+    export FAKE_LOCAL="200|$(fc_ok "$long")" FAKE_DIRECT="200|<html><body>$long</body></html>"
+    read_url "http://$(ip 10 0 0 7)/admin"
+    [[ "$output" == "ok    direct"* ]]
+    ! grep -q '127.0.0.1:3002/v2/scrape' "$LOG"
+    [ ! -e "$BATS_TEST_TMPDIR/bin.log" ]
+}
+
+# bats test_tags=unit
+@test "FIRECRAWL_LOCAL_TOKEN reaches serve's health check and scrape in the stdin config, never in the arguments" {
+    local_serve
+    export FIRECRAWL_LOCAL_TOKEN=local-secret FAKE_LOCAL="200|$(fc_ok "$long")"
+    read_url https://example.com/a
+    [[ "$output" == "ok    local"* ]]
+    cfg_of '127.0.0.1:3002/health' | grep -q 'Bearer local-secret'
+    cfg_of '127.0.0.1:3002/v2/scrape' | grep -q 'Bearer local-secret'
+    ! grep '^ARGS' "$LOG" | grep -q local-secret
+}
+
+# bats test_tags=unit
+@test "a serve that refuses the health check, such as one wanting a token, is not used" {
+    export FAKE_LOCAL_HEALTH='401|{"success":false,"code":"UNAUTHORIZED"}' FAKE_FIRECRAWL="200|$(fc_ok "$long")"
+    read_url https://example.com/a
+    [[ "$output" == "ok    firecrawl"* ]]
+    ! grep -q '127.0.0.1:3002/v2/scrape' "$LOG"
+}
+
+# bats test_tags=unit
+@test "FIRECRAWL_LOCAL_URL and FIRECRAWL_API_URL point each provider elsewhere" {
+    export FIRECRAWL_LOCAL_URL=http://127.0.0.1:3999 FIRECRAWL_API_URL=https://mirror.firecrawl.dev
+    export FAKE_FIRECRAWL="200|$(fc_ok "$long")"
+    read_url https://example.com/a
+    [[ "$output" == "ok    firecrawl"* ]]
+    grep -q 'ARGS.*http://127.0.0.1:3999/health' "$LOG"
+    grep -q 'ARGS.*https://mirror.firecrawl.dev/v2/scrape' "$LOG"
+    ! grep -q 'api.firecrawl.dev' "$LOG"
+}
+
+# bats test_tags=unit
+@test "--status says how Firecrawl Local answers: serve, binary, or not found" {
+    run bash "$SCRIPT" --status
+    [[ "$output" == "local"$'\n'"  not found    no serve at http://127.0.0.1:3002, no "*"no-firecrawl-local on PATH"* ]]
+    local_bin x
+    run bash "$SCRIPT" --status
+    [[ "$output" == "local"$'\n'"  binary       $STUB_DIR/firecrawl-local"* ]]
+    local_serve
+    run bash "$SCRIPT" --status
+    [[ "$output" == "local"$'\n'"  serve        http://127.0.0.1:3002"* ]]
+}
+
+# bats test_tags=unit
+@test "--help ends at the exit codes" {
+    run bash "$SCRIPT" --help
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Firecrawl Local"* ]]
+    [[ "${output##*$'\n'}" == "Exit: 0 every page or the search succeeded, 1 some failed, 2 usage error." ]]
+}
+
+# bats test_tags=unit
+@test "a run that reads no page with Firecrawl Local never looks for it" {
+    local_serve
+    export TAVILY_API_KEY=t1 FAKE_TAVILY_SEARCH='200|{"results":[{"title":"T","url":"https://t.example/","content":"c"}]}'
+    run bash "$SCRIPT" -q x
+    [[ "$output" == "search via tavily"* ]]
+    export FAKE_TAVILY="200|$(tv_ok "$long")"
+    read_url --via tavily https://example.com/a
+    FULL_SEARCH_READ_CHAIN="tavily direct" read_url https://example.com/a
+    ! grep -q '127.0.0.1:3002' "$LOG"
 }
