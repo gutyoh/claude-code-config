@@ -249,7 +249,9 @@ herdr pane `--check` runs in, so the pane keeps its own session.
   `--add` and `--relink` record that answer, so a session started unattended
   does not stop at it. A session started in Code Mode resumes in it, even once
   Code Mode is off for new sessions, and without Remote Control, which does
-  not run in Code Mode.
+  not run in Code Mode. Where `remoteControlAtStartup` is on but Code Mode is
+  on too, `--check` notes it: those sessions never appear in other machines'
+  `ListAgents`, so `SendMessage` cannot reach them.
 - `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`,
   `ANTHROPIC_PROFILE` and the cloud provider switches outrank every login.
   `claude-as` warns when one is set.

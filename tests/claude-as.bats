@@ -2130,3 +2130,38 @@ filler() { head -c "$1" /dev/zero | tr '\0' 'x' | fold -w 1000 && echo; }
     run "$SCRIPT" -r "${id}"
     [[ ${output} == *"CODEMODE=unset"* ]]
 }
+
+# --- --check: Code Mode where Remote Control is meant to start ---------------
+
+@test "--check notes a home whose new sessions start in Code Mode instead of Remote Control" {
+    two_accounts
+    rc_on
+    code_mode
+    run "$SCRIPT" --check
+    [ "$status" -eq 0 ]
+    [ "$(grep -c 'note  new sessions here start in Code Mode, without Remote Control: setup.sh --no-code-mode turns it off' <<<"${output}")" -eq 2 ]
+}
+
+@test "--check says nothing of Code Mode when it is off, kept off, or Remote Control is not meant to start" {
+    two_accounts
+    code_mode
+    run "$SCRIPT" --check
+    [ "$status" -eq 0 ]
+    [[ ${output} != *"Code Mode"* ]]
+    rc_on
+    code_mode
+    CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=0 run "$SCRIPT" --check
+    [[ ${output} != *"Code Mode"* ]]
+    code_mode 0
+    run "$SCRIPT" --check
+    [[ ${output} != *"Code Mode"* ]]
+}
+
+@test "--check names the environment when Code Mode comes from there alone" {
+    two_accounts
+    rc_on
+    CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1 run "$SCRIPT" --check
+    [ "$status" -eq 0 ]
+    [[ ${output} == *"note  new sessions here start in Code Mode, without Remote Control: CLAUDE_CODE_EXPERIMENTAL_CODE_MODE in this environment turns it on"* ]]
+    [[ ${output} != *"setup.sh --no-code-mode"* ]]
+}
