@@ -88,7 +88,7 @@ stop_own() {
 @test "the login travels in the stdin config, never in the arguments" {
     fire
     grep -q 'CFG .*Authorization: Bearer sk-ant-oat-SECRETVALUE' "$LOG"
-    ! grep '^ARGS' "$LOG" | grep -q SECRETVALUE
+    ! grep '^ARGS' "$LOG" | grep -q SECRETVALUE || false
 }
 
 # bats test_tags=unit
@@ -175,7 +175,7 @@ stop_own() {
     fire
     kill "${live}"
     grep -q 'sessions/cse_01LIVEone' "$LOG"
-    ! grep -q 'cse_01ABCdef' "$LOG"
+    ! grep -q 'cse_01ABCdef' "$LOG" || false
 }
 
 # bats test_tags=unit
@@ -188,7 +188,7 @@ stop_own() {
     other=$!
     echo "${other}" >"${STATE}/${SID}.lock/pid"
     for _ in $(seq 1 40); do kill -0 "${first}" 2>/dev/null || break; sleep 0.5; done
-    ! kill -0 "${first}" 2>/dev/null
+    ! kill -0 "${first}" 2>/dev/null || false
     [ "$(cat "${STATE}/${SID}.lock/pid")" = "${other}" ]
     kill "${other}"
 }
@@ -201,7 +201,7 @@ stop_own() {
     touch -t 202601010000 "${HOME}/.claude/sessions/1111.json"
     fire
     grep -q 'sessions/cse_01ABCdef' "$LOG"
-    ! grep -q 'cse_01OLDgone' "$LOG"
+    ! grep -q 'cse_01OLDgone' "$LOG" || false
 }
 
 # bats test_tags=unit
@@ -211,7 +211,7 @@ stop_own() {
         >"${HOME}/.claude/sessions/9999.json"
     fire
     [ "$(grep -c '^ARGS' "$LOG")" -eq 1 ]
-    ! grep -q 'cse_01OTHER\|other-name' "$LOG"
+    ! grep -q 'cse_01OTHER\|other-name' "$LOG" || false
 }
 
 # bats test_tags=unit
@@ -307,7 +307,7 @@ stop_own() {
 # bats test_tags=unit
 @test "the statusline's proxy override applies, its own wins, and empty means direct" {
     fire
-    ! grep -q 'proxy = ' "$LOG"
+    ! grep -q 'proxy = ' "$LOG" || false
     rm -rf "${STATE}" "$LOG"
     STATUSLINE_HTTPS_PROXY= fire
     grep -q 'CFG proxy = ""' "$LOG"
@@ -344,7 +344,7 @@ stop_own() {
     wait
     [ "$(grep -c '^ARGS' "$LOG")" -eq 1 ]
     grep -q "\"title\":\"${NAME}\"" "$LOG"
-    ! grep -q unicorn "$LOG"
+    ! grep -q unicorn "$LOG" || false
 }
 
 # bats test_tags=unit

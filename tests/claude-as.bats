@@ -450,7 +450,7 @@ EOF
     local h="${HOME}/.claude-b@x.example"
     [ "$(cat "${HOME}/keychain/$(service_of "${h}")")" = '{"t":"s3cr\"et"}' ]
     [ "$(find "${HOME}/keychain" -type f | wc -l | tr -d ' ')" -eq 1 ]
-    ! grep -q 's3cr' "${HOME}/security.argv"
+    ! grep -q 's3cr' "${HOME}/security.argv" || false
     grep -q 's3cr' "${HOME}/security.stdin"
 }
 
@@ -1000,7 +1000,7 @@ move_setup() {
     grep -q "RAN set=1 home=${HOME}/.claude-home args=--dangerously-skip-permissions --resume ${SID}" "${HOME}/pane-out"
     # How to finish it is written down before /exit, and dropped once it runs.
     grep -qF "w1:p1	${SID}	CLAUDE_AS_CONFIRMED=${SID} ${ME} me@home.example --resume ${SID}" "${HOME}/at-exit"
-    ! compgen -G "${XDG_STATE_HOME}/claude-as/*.resume"
+    ! compgen -G "${XDG_STATE_HOME}/claude-as/*.resume" || false
 }
 
 @test "--move keeps bypass on with other flags, as claude reads it, and leaves a launcher's --settings behind" {
@@ -1012,7 +1012,7 @@ move_setup() {
     grep -qF "${ME} me@home.example -a --model='opus' --resume ${SID}" "${HOME}/herdr.log"
     # What claude itself receives: the bypass flag, never a bare -a.
     grep -q "args=--dangerously-skip-permissions --model=opus --resume ${SID}$" "${HOME}/pane-out"
-    ! grep -q -- " -a \|--settings\|--mcp-config" "${HOME}/pane-out"
+    ! grep -q -- " -a \|--settings\|--mcp-config" "${HOME}/pane-out" || false
     # A mode the session switched to since goes first as well.
     : >"${HOME}/panes" && : >"${HOME}/pane-out"
     pane w1:p1 idle "${SID}" "claude --model opus --resume ${SID}"
@@ -1046,7 +1046,7 @@ move_setup() {
     run "$SCRIPT" --move me@home.example
     [ "$status" -eq 0 ]
     [[ ${output} == *"left alone: herdr names session ${SID}, but its claude (pid ${pid}) runs 4c3b2a1d-0000-4000-8000-000000000001"* ]]
-    ! grep -q "agent prompt" "${HOME}/herdr.log"
+    ! grep -q "agent prompt" "${HOME}/herdr.log" || false
     # When they agree, it moves.
     printf '{"pid":%s,"sessionId":"%s"}\n' "${pid}" "${SID}" >"${HOME}/.claude/sessions/${pid}.json"
     run "$SCRIPT" --move me@home.example
@@ -1061,7 +1061,7 @@ move_setup() {
     run "$SCRIPT" --move me@home.example
     [ "$status" -eq 0 ]
     [[ ${output} == *"keeps no record of its session to check herdr against"* ]]
-    ! grep -q "agent prompt" "${HOME}/herdr.log"
+    ! grep -q "agent prompt" "${HOME}/herdr.log" || false
     run "$SCRIPT" --move me@home.example --pane w1:p1 --force
     [[ ${output} == *"w1:p1: ${SID} moved to me@home.example"* ]]
 }
@@ -1084,7 +1084,7 @@ move_setup() {
     run "$SCRIPT" --move me@home.example
     [ "$status" -eq 0 ]
     [[ ${output} == *"${SID} left alone: it has no transcript to resume"* ]]
-    ! grep -q "agent prompt" "${HOME}/herdr.log"
+    ! grep -q "agent prompt" "${HOME}/herdr.log" || false
 }
 
 @test "--move leaves a session already on that account alone" {
@@ -1094,7 +1094,7 @@ move_setup() {
     run "$SCRIPT" --move me@home.example
     [ "$status" -eq 0 ]
     [[ ${output} == *"already runs as me@home.example"* ]]
-    ! grep -q "agent prompt" "${HOME}/herdr.log"
+    ! grep -q "agent prompt" "${HOME}/herdr.log" || false
 }
 
 @test "--move --dry-run says what it would run and touches nothing" {
@@ -1105,7 +1105,7 @@ move_setup() {
     [ "$status" -eq 0 ]
     [[ ${output} == *"w1:p1: would move ${SID} from me@work.example to me@home.example"* ]]
     [[ ${output} == *"by running: CLAUDE_AS_CONFIRMED=${SID} ${ME} me@home.example --resume ${SID}"* ]]
-    ! grep -q "agent prompt\|pane run" "${HOME}/herdr.log"
+    ! grep -q "agent prompt\|pane run" "${HOME}/herdr.log" || false
 }
 
 @test "--move resumes in the permission mode the session is in now, not the one it started in" {
@@ -1162,7 +1162,7 @@ move_setup() {
     [ "$status" -eq 0 ]
     [[ ${output} == *"left alone: its Bash tool runs jobs that would end with it"* ]]
     [[ ${output} == *"ng serve --port 4200"* ]]
-    ! grep -q "agent prompt" "${HOME}/herdr.log"
+    ! grep -q "agent prompt" "${HOME}/herdr.log" || false
     run "$SCRIPT" --move me@home.example --pane w1:p1 --force
     [[ ${output} == *"w1:p1: ${SID} moved to me@home.example"* ]]
 }
@@ -1173,7 +1173,7 @@ move_setup() {
     pane w1:p1 idle "${SID}" -
     run "$SCRIPT" --move me@home.example
     [[ ${output} == *"herdr shows no claude process, so its jobs cannot be checked"* ]]
-    ! grep -q "agent prompt" "${HOME}/herdr.log"
+    ! grep -q "agent prompt" "${HOME}/herdr.log" || false
     run "$SCRIPT" --move me@home.example --pane w1:p1 --force
     [[ ${output} == *"moved to me@home.example"* ]]
 }
@@ -1186,7 +1186,7 @@ move_setup() {
     [ "$status" -eq 1 ]
     [[ ${output} == *"still busy after 0 s, or gone; left alone"* ]]
     [[ ${output} == *"1 session(s) not moved"* ]]
-    ! grep -q "agent prompt" "${HOME}/herdr.log"
+    ! grep -q "agent prompt" "${HOME}/herdr.log" || false
 }
 
 @test "--move stopped while it waits for a busy agent stops at once and moves no other" {
@@ -1203,11 +1203,11 @@ move_setup() {
         kill -0 "${pid}" 2>/dev/null || break
         sleep 0.5
     done
-    ! kill -0 "${pid}" 2>/dev/null
+    ! kill -0 "${pid}" 2>/dev/null || false
     grep -q "w1:p1: ${SID} left alone: stopping" "${HOME}/out"
     grep -q "stopped; the sessions after w1:p1 were not moved" "${HOME}/out"
-    ! grep -q "w1:p2" "${HOME}/out"
-    ! grep -q "agent prompt" "${HOME}/herdr.log"
+    ! grep -q "w1:p2" "${HOME}/out" || false
+    ! grep -q "agent prompt" "${HOME}/herdr.log" || false
 }
 
 @test "--move leaves an agent at a dialog as it was" {
@@ -1218,9 +1218,9 @@ move_setup() {
     run "$SCRIPT" --move me@home.example
     [ "$status" -eq 1 ]
     [[ ${output} == *"did not take /exit (a dialog open?); left as it was"* ]]
-    ! grep -q "pane run" "${HOME}/herdr.log"
+    ! grep -q "pane run" "${HOME}/herdr.log" || false
     # It never exited, so there is nothing to resume.
-    ! compgen -G "${XDG_STATE_HOME}/claude-as/*.resume"
+    ! compgen -G "${XDG_STATE_HOME}/claude-as/*.resume" || false
     [[ ${output} != *"exited and not resumed"* ]]
 }
 
@@ -1456,7 +1456,7 @@ EOF
     [ "$(cat "${HOME}/keychain/$(service_of "${new}")")" = work-secret ]
     [ ! -e "${HOME}/keychain/$(service_of "${old}")" ]
     [ ! -e "${HOME}/keychain/$(service_of "${HOME}/.claude-me@work.example-2")" ]
-    ! grep -q secret "${HOME}/security.argv"
+    ! grep -q secret "${HOME}/security.argv" || false
 }
 
 @test "--tidy with the Keychain locked says so and still moves a file login" {
@@ -1640,7 +1640,7 @@ three_accounts() {
     [ "$(cat "${HOME}/keychain/$(service_of "${old}")")" = "${long}" ]
     [ ! -e "${HOME}/keychain/$(service_of "${HOME}/.claude-me@work.example")" ]
     [ ! -e "${HOME}/security.stdin" ]
-    ! grep -q kkkk "${HOME}/security.argv"
+    ! grep -q kkkk "${HOME}/security.argv" || false
 }
 
 @test "--tidy copies a login that fits exactly on one security -i line" {
@@ -1759,7 +1759,7 @@ EOF
     [ "$(cat "${HOME}/keychain/$(service_of "${old}")")" = work-secret ]
     [ ! -e "${HOME}/keychain/$(service_of "${new}")" ]
     # The old login was only read, never written.
-    ! grep -q "$(service_of "${old}")" "${HOME}/security.stdin"
+    ! grep -q "$(service_of "${old}")" "${HOME}/security.stdin" || false
 }
 
 @test "who holds a home leaves out a process that ended between the two looks" {

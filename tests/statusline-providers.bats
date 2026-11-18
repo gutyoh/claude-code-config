@@ -158,7 +158,7 @@ field() { printf '%s' "$1" | cut -f"$2"; }
     body '{"rate_limit":{"primary_window":{"used_percent":8,"limit_window_seconds":604800,"reset_at":1}}}'
     run fetch_openai_usage
     [ "$status" -eq 0 ]
-    ! grep -q "tok-openai-secret" "$BATS_TEST_TMPDIR/curl.argv"
+    ! grep -q "tok-openai-secret" "$BATS_TEST_TMPDIR/curl.argv" || false
     grep -q 'header = "Authorization: Bearer tok-openai-secret"' "$BATS_TEST_TMPDIR/curl.stdin"
     grep -q "ChatGPT-Account-Id: acct-1" "$BATS_TEST_TMPDIR/curl.argv"
     grep -q "https://chatgpt.com/backend-api/wham/usage" "$BATS_TEST_TMPDIR/curl.argv"
@@ -188,7 +188,7 @@ field() { printf '%s' "$1" | cut -f"$2"; }
     body '{"rate_limit":{"primary_window":{"used_percent":8,"limit_window_seconds":604800,"reset_at":1}}}'
     run fetch_openai_usage
     [ "$status" -eq 0 ]
-    ! grep -q '^proxy' "$BATS_TEST_TMPDIR/curl.stdin"
+    ! grep -q '^proxy' "$BATS_TEST_TMPDIR/curl.stdin" || false
 }
 
 @test "Claude's OAuth request honours STATUSLINE_HTTPS_PROXY too" {
@@ -198,7 +198,7 @@ field() { printf '%s' "$1" | cut -f"$2"; }
     run fetch_api_usage "tok-claude"
     grep -qx 'proxy = ""' "$BATS_TEST_TMPDIR/curl.stdin"
     grep -q 'Bearer tok-claude' "$BATS_TEST_TMPDIR/curl.stdin"
-    ! grep -q "tok-claude" "$BATS_TEST_TMPDIR/curl.argv"
+    ! grep -q "tok-claude" "$BATS_TEST_TMPDIR/curl.argv" || false
 }
 
 # curl stub that answers <status> with <headers...>, through -D as curl does.
@@ -382,7 +382,7 @@ claude_oauth_login() {
     run fetch_muse_usage
     [ "$status" -eq 0 ]
     grep -q "dca:router-secret" "$BATS_TEST_TMPDIR/curl.stdin"
-    ! grep -q "router-secret" "$BATS_TEST_TMPDIR/curl.argv"
+    ! grep -q "router-secret" "$BATS_TEST_TMPDIR/curl.argv" || false
     grep -q -- "-X" "$BATS_TEST_TMPDIR/curl.argv"
     grep -q "x-api-version: 1.0.0" "$BATS_TEST_TMPDIR/curl.argv"
 }
@@ -418,7 +418,7 @@ claude_oauth_login() {
 @test "login lookup leaves the caller's nullglob as it was" {
     shopt -u nullglob
     _first_file "$BATS_TEST_TMPDIR/nope/*" || true
-    ! shopt -q nullglob
+    ! shopt -q nullglob || false
     shopt -s nullglob
     _first_file "$BATS_TEST_TMPDIR/nope/*" || true
     shopt -q nullglob
@@ -498,7 +498,7 @@ claude_oauth_login() {
     body '{"rate_limit":{"primary_window":{"used_percent":8,"limit_window_seconds":604800,"reset_at":1}}}'
     get_provider_usage openai >/dev/null
     ls "$XDG_STATE_HOME"/claude-code/statusline/usage-openai-* >/dev/null
-    ! ls "$_TMP_DIR"/usage-openai-* 2>/dev/null | grep -qv '\.\(lock\|backoff\)$'
+    ! ls "$_TMP_DIR"/usage-openai-* 2>/dev/null | grep -qv '\.\(lock\|backoff\)$' || false
 }
 
 @test "a carried weekly reading survives a wiped temp directory" {

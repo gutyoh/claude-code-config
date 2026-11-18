@@ -305,7 +305,7 @@ EOF
 
     if [[ -z "${color_out_expected}" ]]; then
         # Expected no color line at all
-        ! grep -q "^color:" "${OPENCODE_CONFIG_DIR_OVERRIDE}/agents/${name}.md"
+        ! grep -q "^color:" "${OPENCODE_CONFIG_DIR_OVERRIDE}/agents/${name}.md" || false
     else
         [[ "$out" == *"color: ${color_out_expected}"* ]]
     fi
@@ -707,8 +707,8 @@ EOF
     # Agent translated
     [ -f "${OPENCODE_AGENTS_DIR}/sample.md" ]
     grep -q "mode: subagent" "${OPENCODE_AGENTS_DIR}/sample.md"
-    ! grep -q "model: inherit" "${OPENCODE_AGENTS_DIR}/sample.md"
-    ! grep -q "^name:" "${OPENCODE_AGENTS_DIR}/sample.md"
+    ! grep -q "model: inherit" "${OPENCODE_AGENTS_DIR}/sample.md" || false
+    ! grep -q "^name:" "${OPENCODE_AGENTS_DIR}/sample.md" || false
     # opencode.json valid
     python3 -m json.tool < "${OPENCODE_JSON}" > /dev/null
     # AGENTS.md symlinked

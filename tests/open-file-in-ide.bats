@@ -131,7 +131,7 @@ run_hook() {
     wait_for_file "$MARKER"
     grep -q "^code " "$MARKER"
     # VSCode-style invocation should NOT use --line flag
-    ! grep -q -- "--line" "$MARKER"
+    ! grep -q -- "--line" "$MARKER" || false
 }
 
 @test "CLAUDE_IDE env: JetBrains family uses --line flag" {
@@ -195,7 +195,7 @@ run_hook() {
     [ "$status" -eq 0 ]
     wait_for_file "$MARKER"
     grep -q "^code " "$MARKER"
-    ! grep -q "^pycharm" "$MARKER"
+    ! grep -q "^pycharm" "$MARKER" || false
 }
 
 # ============================================================================
@@ -225,7 +225,7 @@ run_hook() {
     wait_for_file "$MARKER"
     grep -q "/absolute/path/to/file.py" "$MARKER"
     # Must NOT contain the file:// prefix as an argument
-    ! grep -q "file:///" "$MARKER"
+    ! grep -q "file:///" "$MARKER" || false
 }
 
 @test "accepts a bare absolute path (no file:// prefix)" {

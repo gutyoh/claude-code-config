@@ -285,7 +285,7 @@ stub_proxy() {
 
     local prof="${BATS_TEST_TMPDIR}/smokehome/.profile"
     [ -f "$prof" ]
-    ! grep -qE '^[[:space:]]*local[[:space:]]' "$prof"
+    ! grep -qE '^[[:space:]]*local[[:space:]]' "$prof" || false
 
     local snippet="${BATS_TEST_TMPDIR}/smoke-snippet.sh"
     {

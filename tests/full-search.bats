@@ -225,6 +225,8 @@ on_windows() { case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac;
     odd='Cost: $HOME `id` 100% C:\path \n'"$long"
     export FAKE_FIRECRAWL="200|$(fc_ok "$odd")"
     read_url https://example.com/a
+    # A failed read prints the script's own lines, so a flake shows its cause.
+    [ "$status" -eq 0 ]
     grep -qF 'Cost: $HOME `id` 100% C:\path \n' "$FULL_SEARCH_OUT/01-example.com.md"
 }
 
@@ -687,7 +689,9 @@ on_windows() { case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) return 0 ;; esac;
     export FULL_SEARCH_FNOX=1
     start=$(date +%s)
     run bash "$SCRIPT" --status
-    [ "$(($(date +%s) - start))" -lt 19 ]
+    # Two 9 s gets fill the budget; a third would take the run to 27 s or more.
+    # The margin covers process start-up on slow runners (Windows on arm64).
+    [ "$(($(date +%s) - start))" -lt 25 ]
     [ "$(grep -c '^get' "$BATS_TEST_TMPDIR/fnox.log")" -eq 2 ]
 }
 

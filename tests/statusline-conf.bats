@@ -39,7 +39,7 @@ setup() {
     printf 'theme=light\n' >"${CLAUDE_DIR}/statusline.conf"
     run configure_statusline_conf "true"
     [ "$status" -eq 0 ]
-    ! grep -qE '^icon_(claude|openai|muse)=' "${CLAUDE_DIR}/statusline.conf"
+    ! grep -qE '^icon_(claude|openai|muse)=' "${CLAUDE_DIR}/statusline.conf" || false
 }
 
 # bats test_tags=unit
@@ -47,7 +47,7 @@ setup() {
     run configure_statusline_conf "true"
     [ "$status" -eq 0 ]
     grep -qx 'theme=dark' "${CLAUDE_DIR}/statusline.conf"
-    ! grep -qE '^icon_(claude|openai|muse)=' "${CLAUDE_DIR}/statusline.conf"
+    ! grep -qE '^icon_(claude|openai|muse)=' "${CLAUDE_DIR}/statusline.conf" || false
 }
 
 # bats test_tags=unit
