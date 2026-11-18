@@ -75,16 +75,21 @@ fnox_get() {
     fi
 }
 
+# A change needs the source file, and is refused before anything is read
+# without it: HOME's copy may lag, and show a pool the source has outgrown.
+fnox_require_dir() {
+    [[ -z "${FNOX_DIR}" || ! -f "${FNOX_DIR}/fnox.toml" ]] || return 0
+    echo "Error: fnox keys change in the folder whose fnox.toml holds ${KEY_VAR}:" >&2
+    echo "  KEY_ROTATE_FNOX_DIR=<that folder> mcp-key-rotate ${SERVICE} ..., then commit and push it." >&2
+    echo "  HOME may read a deployed copy of that file, which a write would be lost from." >&2
+    exit 1
+}
+
 # The value goes in on stdin, never on the command line, where `ps` shows it,
 # and is read back from the same file before the rotation counts.
 fnox_set() {
     local name="$1" value="$2" back
-    if [[ -z "${FNOX_DIR}" || ! -f "${FNOX_DIR}/fnox.toml" ]]; then
-        echo "Error: fnox keys change in the folder whose fnox.toml holds ${name}:" >&2
-        echo "  KEY_ROTATE_FNOX_DIR=<that folder> mcp-key-rotate ${SERVICE} ..., then commit and push it." >&2
-        echo "  HOME may read a deployed copy of that file, which a write would be lost from." >&2
-        exit 1
-    fi
+    fnox_require_dir
     local -a with_provider=()
     [[ -z "${FNOX_PROVIDER}" ]] || with_provider=(--provider "${FNOX_PROVIDER}")
     if ! printf '%s' "${value}" | (cd "${FNOX_DIR}" && fnox set "${name}" ${with_provider[@]+"${with_provider[@]}"} >/dev/null 2>&1); then
@@ -154,8 +159,8 @@ detect_backend() {
             ;;
     esac
 
-    # Tier 1: fnox holds the active key
-    if command -v fnox &>/dev/null && [[ -n "$(fnox_live "${KEY_VAR}")" ]]; then
+    # Tier 1: fnox holds the active key, here or in the named source file
+    if command -v fnox &>/dev/null && [[ -n "$(fnox_live "${KEY_VAR}")" || -n "$(fnox_get "${KEY_VAR}")" ]]; then
         echo "fnox"
         return
     fi
@@ -455,6 +460,7 @@ cmd_status() {
 
 cmd_rotate() {
     local current pool
+    [[ "${BACKEND}" != "fnox" ]] || fnox_require_dir
     current="$(secret_get "${KEY_VAR}")"
     pool="$(secret_get "${POOL_VAR}")"
 
@@ -557,6 +563,7 @@ cmd_quota() {
 cmd_add() {
     local new_key="$1"
     local pool
+    [[ "${BACKEND}" != "fnox" ]] || fnox_require_dir
     pool="$(secret_get "${POOL_VAR}")"
 
     if [[ -z "${pool}" ]]; then

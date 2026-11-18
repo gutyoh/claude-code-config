@@ -961,3 +961,26 @@ deployed_copy() {
     [ "$status" -eq 0 ]
     [ "$(grep -n "|set FIRST_API_KEY$" "${MOCK_FNOX_LOG}" | cut -d: -f1)" -lt "$(grep -n "|set FIRST_API_KEY_POOL$" "${MOCK_FNOX_LOG}" | cut -d: -f1)" ]
 }
+
+@test "fnox: without KEY_ROTATE_FNOX_DIR the refusal comes first, even where HOME's copy shows one key" {
+    fnox_seed "LAG_API_KEY" "${KEY_A}"
+    fnox_seed "LAG_API_KEY_POOL" "${KEY_A}"
+    run env -u KEY_ROTATE_FNOX_DIR bash "$SCRIPT" lag
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"fnox keys change in the folder"* ]]
+    [[ "$output" != *"Only 1 key"* ]]
+    run env -u KEY_ROTATE_FNOX_DIR bash "$SCRIPT" lag --add "${KEY_B}"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"fnox keys change in the folder"* ]]
+}
+
+@test "fnox: detected from the source file when HOME does not import it yet" {
+    fnox_seed "SRC_API_KEY" "${KEY_A}"
+    fnox_seed "SRC_API_KEY_POOL" "${KEY_A},${KEY_B}"
+    export MOCK_FNOX_HOME="${TEST_TMPDIR}/empty-home-store"
+    mkdir -p "${MOCK_FNOX_HOME}"
+    run bash "$SCRIPT" src --status
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"backend: fnox"* ]]
+    [[ "$output" == *"Pool: 2 keys"* ]]
+}
