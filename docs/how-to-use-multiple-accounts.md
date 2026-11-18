@@ -27,11 +27,17 @@ builds on that:
 claude-as --add you@example.com
 ```
 
-This creates the home and opens Claude Code's own sign-in for that email. On a
-machine without a browser, open the printed link elsewhere and paste the code
-back. Use a private browser window when the browser is signed in to another
-Claude account. Arguments after the email go to `claude auth login`, for
-example `--sso` for an Enterprise login.
+This opens Claude Code's own sign-in for that email. On a machine without a
+browser, open the printed link elsewhere and paste the code back. Arguments
+after the email go to `claude auth login`, for example `--sso` for an
+Enterprise login.
+
+The sign-in happens in a staging folder. The home gets its name,
+`~/.claude-you@example.com`, only once the login is known to be that email. If
+the browser signs in another account, or the sign-in is left unfinished,
+nothing is kept: sign out of the other account in the browser, or use a
+private window, and run it again. A second organization of the same email gets
+`~/.claude-you@example.com-<organization>`. No home is ever named `-2` or `-3`.
 
 Each account signs in once per machine. Never copy a credentials file between
 machines: Claude Code rotates the token, so both copies stop working.
@@ -39,7 +45,9 @@ machines: Claude Code rotates the token, so both copies stop working.
 ## Use an account
 
 ```bash
-claude-as                              # list accounts: email, plan, organization, home
+claude-as                              # at a terminal: pick the account, then start it
+claude-as --pick --continue            # pick, then pass claude's arguments on
+claude-as --list                       # list accounts: email, plan, organization, home
 claude-as you@example.com              # start Claude Code as that account
 claude-as you@example.com --continue   # claude's own arguments follow the email
 claude-as you@example.com --yolo       # the same; bypass permissions is the default
@@ -65,7 +73,23 @@ Ambiguous names list every match and run nothing. `--add` prints the shortest
 name that is whole. A home's path names it directly: `claude-as ~/.claude-work`.
 One account signed in to two homes runs from `~/.claude`, or else the first.
 
-Plain `claude` keeps using `~/.claude`.
+Plain `claude` keeps using `~/.claude`, so it runs as whatever account
+`~/.claude` itself signed in with; `--check` names it. To be asked every time,
+start Claude Code with `claude-as` instead, or alias `claude` to it in your
+shell.
+
+### Pick an account
+
+At a terminal, `claude-as` with no arguments shows every signed-in account
+once, by the name it takes on the command line, with its plan and
+organization, and starts the one you pick. It uses
+[gum](https://github.com/charmbracelet/gum) when installed, else
+[fzf](https://github.com/junegunn/fzf), else a numbered menu that needs
+nothing; `CLAUDE_AS_PICKER=gum|fzf|menu` chooses. Cancelling starts nothing.
+
+Without a terminal (a script, a pipe, a launchd job) it never asks: it lists
+the accounts as before, and `--pick` refuses with status 2 rather than wait.
+With `CLAUDE_AS` set it runs that account without asking.
 
 ## Resume a session as its account
 
@@ -178,9 +202,38 @@ On another machine, run it there: `ssh <host> claude-as --move other@example.com
 ## Check every account
 
 ```bash
-claude-as --check    # signed in, links in place, sees the shared history
-claude-as --relink   # link what a home is missing; anything else is left alone
+claude-as --check            # signed in, named after its login, links in place, sees the shared history
+claude-as --relink           # link what a home is missing; anything else is left alone
+claude-as --tidy --dry-run   # what --tidy would do
+claude-as --tidy             # one home per account, each named after it
 ```
+
+`--tidy` repairs homes that older versions of `claude-as` left behind:
+
+- A home that is not signed in, or that holds the same account and
+  organization as an earlier one, is archived to
+  `~/.local/state/claude-as/removed/`. Its prompt history is kept, and its
+  credentials are deleted (not revoked, so the home that stays remains signed
+  in). Sessions recorded there resume in the home that stays.
+- A home whose name holds another email, or a retry number such as `-3`, is
+  renamed after its login, along with its Keychain entry on macOS. The entry
+  is copied, read back, and the old one deleted only once the renamed home is
+  signed in; any failure leaves the old home and its entry as they were.
+  `security -i` reads one command per 4096-byte line
+  ([anthropics/claude-code#28901](https://github.com/anthropics/claude-code/issues/28901)),
+  so a login too long for one line, which would be stored cut, keeps its home
+  where it is. Over SSH or from an agent session the Keychain shows the entry
+  but refuses its secret, so such a home also stays; run `--tidy` from a
+  terminal of the desktop session. There, macOS may ask to allow `security`
+  access to the entry, and `--tidy` waits until you answer.
+- A name without an email, such as `~/.claude-work`, is your own choice and
+  stays.
+- A home a running session uses is never archived. It is renamed only when its
+  login is the home's `.credentials.json` (Linux, or macOS over SSH): the
+  session goes on through a link at the old path, and a later `--tidy` drops
+  the link once the session ends. A Keychain login cannot be shared that way,
+  so that home is left alone until its sessions end. `claude-as --move` ends
+  and resumes them for you.
 
 `--check` makes no model request. It writes a small canary session to the
 shared history and asks each home to find it, so a Claude Code release that
