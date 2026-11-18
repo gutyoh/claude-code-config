@@ -222,7 +222,10 @@ claude-as --tidy             # one home per account, each named after it
   `security -i` reads one command per 4096-byte line
   ([anthropics/claude-code#28901](https://github.com/anthropics/claude-code/issues/28901)),
   so a login too long for one line, which would be stored cut, keeps its home
-  where it is.
+  where it is. Over SSH or from an agent session the Keychain shows the entry
+  but refuses its secret, so such a home also stays; run `--tidy` from a
+  terminal of the desktop session. There, macOS may ask to allow `security`
+  access to the entry, and `--tidy` waits until you answer.
 - A name without an email, such as `~/.claude-work`, is your own choice and
   stays.
 - A home a running session uses is never archived. It is renamed only when its
