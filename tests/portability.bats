@@ -582,8 +582,13 @@ tracked_text_files() {
     # bash exempts a negated command from errexit, so a bare `! cmd` fails a
     # test only on its last line. `! cmd || false` (or `|| { …; false; }`) fails
     # it anywhere.
+    # A negation that starts the line, or follows `&&` or `;` outside a
+    # condition, must end in `|| false`, `|| {` or `|| { …; false; }`:
+    # `|| true` fails nothing either.
     local hits
-    hits="$(cd "$REPO_ROOT" && grep -nE '^[[:space:]]+! ' tests/*.bats | grep -v '||' || true)"
+    hits="$(cd "$REPO_ROOT" && grep -nE '^[[:space:]]+! |(&&|;)[[:space:]]*! ' tests/*.bats tests/helpers.bash |
+        grep -vE '^[^:]+:[0-9]+:[[:space:]]*(if|elif|while|until)[[:space:]]' |
+        grep -vE '[|][|][[:space:]]*(false|[{]|[{].*false;?[[:space:]]*[}])[[:space:]]*$' || true)"
     [ -z "$hits" ] || {
         echo "Bare negations never fail a bats test; end each with || false:"
         echo "$hits"
