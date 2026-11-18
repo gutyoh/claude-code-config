@@ -1179,7 +1179,9 @@ check() {
             if flag_on "$(code_mode_setting "${home}/settings.json")"; then
                 printf '  note  new sessions here start in Code Mode, without Remote Control: setup.sh --no-code-mode turns it off\n'
             else
-                printf '  note  new sessions here start in Code Mode, without Remote Control: CLAUDE_CODE_EXPERIMENTAL_CODE_MODE in this environment turns it on\n'
+                # A session started while the settings turned it on passes
+                # it to its child shells, which keep it once it is removed.
+                printf '  note  sessions started from this shell start in Code Mode, without Remote Control: CLAUDE_CODE_EXPERIMENTAL_CODE_MODE is set here (a session started while settings turned it on passes it down)\n'
             fi
         fi
         if [[ ${home} != "${shared}" ]]; then

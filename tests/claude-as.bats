@@ -2162,6 +2162,6 @@ filler() { head -c "$1" /dev/zero | tr '\0' 'x' | fold -w 1000 && echo; }
     rc_on
     CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1 run "$SCRIPT" --check
     [ "$status" -eq 0 ]
-    [[ ${output} == *"note  new sessions here start in Code Mode, without Remote Control: CLAUDE_CODE_EXPERIMENTAL_CODE_MODE in this environment turns it on"* ]]
+    [[ ${output} == *"note  sessions started from this shell start in Code Mode, without Remote Control: CLAUDE_CODE_EXPERIMENTAL_CODE_MODE is set here (a session started while settings turned it on passes it down)"* ]]
     [[ ${output} != *"setup.sh --no-code-mode"* ]]
 }
