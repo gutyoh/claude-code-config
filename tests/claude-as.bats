@@ -1712,7 +1712,8 @@ three_accounts() {
     need_tty
     local bin="${BATS_TEST_TMPDIR}/nopick"
     mkdir -p "${bin}"
-    for c in bash jq sed grep awk cut tr sort head cat mkdir dirname basename ps id uname readlink env script sha256sum shasum; do
+    for c in bash jq sed grep awk cut tr sort head tail cat mkdir dirname basename ps id uname readlink env \
+        script sha256sum shasum sleep wc find ls mktemp date stat; do
         command -v "${c}" >/dev/null 2>&1 && ln -sf "$(command -v "${c}")" "${bin}/${c}"
     done
     ln -sf "${STUB_DIR}/claude" "${bin}/claude"
@@ -1979,12 +1980,15 @@ repl_mode() {
 @test "--relink records no answer where Code Mode is off, or a 0 keeps it off" {
     two_accounts
     run "$SCRIPT" --relink
+    [ "$status" -eq 0 ]
     [[ ${output} != *accepted* ]]
     code_mode 0
     CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1 run "$SCRIPT" --relink
+    [ "$status" -eq 0 ]
     [[ ${output} != *accepted* ]]
     code_mode 1
     CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=0 run "$SCRIPT" --relink
+    [ "$status" -eq 0 ]
     [[ ${output} != *accepted* ]]
     run jq -e 'has("codeModeCaveatsAcceptedV1")' "${HOME}/.claude-home/.claude.json"
     [ "$status" -ne 0 ]
@@ -1994,6 +1998,19 @@ repl_mode() {
     two_accounts
     CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1 run "$SCRIPT" --relink
     [ "$status" -eq 0 ]
+    accepted "${HOME}/.claude-home/.claude.json"
+}
+
+@test "Code Mode reads true, yes and on as on, and false, no and off as off, as Claude Code does" {
+    two_accounts
+    code_mode TRUE
+    CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=off run "$SCRIPT" --relink
+    [[ ${output} != *accepted* ]]
+    code_mode false
+    CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=yes run "$SCRIPT" --relink
+    [[ ${output} != *accepted* ]]
+    code_mode On
+    run "$SCRIPT" --relink
     accepted "${HOME}/.claude-home/.claude.json"
 }
 
@@ -2050,10 +2067,47 @@ repl_mode() {
     [[ ${output} == *"CODEMODE=unset"* ]]
 }
 
-@test "a 0 set for a Code Mode resume stays: claude-as never overrides it" {
+@test "a 0 kept for a Code Mode session stays, and so does its Remote Control name" {
     two_accounts
+    rc_on
+    titled "${SID}" claude-dev-20261018T0100Z-x-3f2a9c1e
     repl_mode "${SID}" true
     ran "${SID}" "${HOME}/.claude-home"
     CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=0 run "$SCRIPT" -r "${SID}"
     [[ ${output} == *"CODEMODE=0"* ]]
+    [[ ${output} == *"--remote-control claude-dev-20261018T0100Z-x-3f2a9c1e"* ]]
+    jq '.env.CLAUDE_CODE_EXPERIMENTAL_CODE_MODE = "0"' "${HOME}/.claude/settings.json" >"${HOME}/cm.json"
+    mv "${HOME}/cm.json" "${HOME}/.claude/settings.json"
+    run "$SCRIPT" -r "${SID}"
+    [[ ${output} == *"CODEMODE=unset"* ]]
+    [[ ${output} == *"--remote-control claude-dev-20261018T0100Z-x-3f2a9c1e"* ]]
+    run "$SCRIPT" --rc-name --resume "${SID}"
+    [ "$output" = "claude-dev-20261018T0100Z-x-3f2a9c1e" ]
+}
+
+# filler <bytes>: that many bytes of transcript lines that are not repl-mode.
+filler() { head -c "$1" /dev/zero | tr '\0' 'x' | fold -w 1000 && echo; }
+
+@test "a long transcript is read at its two ends only" {
+    two_accounts
+    local dir="${HOME}/.claude/projects/-work" id
+    mkdir -p "${dir}"
+    # An entry at the start, then a long session: found in the first 2 MB.
+    id=00000000-0000-4000-8000-0000000000a1
+    { jq -nc '{type: "repl-mode", replMode: true}'; filler 5000000; } >"${dir}/${id}.jsonl"
+    ran "${id}" "${HOME}/.claude-home"
+    run "$SCRIPT" -r "${id}"
+    [[ ${output} == *"CODEMODE=1"* ]]
+    # Only at the end: found in the last 4 MB.
+    id=00000000-0000-4000-8000-0000000000a2
+    { filler 5000000; jq -nc '{type: "repl-mode", replMode: true}'; } >"${dir}/${id}.jsonl"
+    ran "${id}" "${HOME}/.claude-home"
+    run "$SCRIPT" -r "${id}"
+    [[ ${output} == *"CODEMODE=1"* ]]
+    # Only between the two ends: not read.
+    id=00000000-0000-4000-8000-0000000000a3
+    { filler 3000000; jq -nc '{type: "repl-mode", replMode: true}'; filler 5000000; } >"${dir}/${id}.jsonl"
+    ran "${id}" "${HOME}/.claude-home"
+    run "$SCRIPT" -r "${id}"
+    [[ ${output} == *"CODEMODE=unset"* ]]
 }

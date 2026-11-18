@@ -189,6 +189,10 @@ if ($Mcp) {
 }
 if ($AgentTeams) { $script:InstallAgentTeamsFlag = $true }
 if ($NoAgentTeams) { $script:InstallAgentTeamsFlag = $false }
+if ($CodeMode -and $NoCodeMode) {
+    Write-Status "Error: -CodeMode and -NoCodeMode contradict each other" -Color Red
+    exit 1
+}
 if ($CodeMode) { $script:InstallCodeModeFlag = $true }
 if ($NoCodeMode) { $script:InstallCodeModeFlag = $false }
 if ($ProxyPath) { $script:InstallProxyPath = $true }
@@ -529,6 +533,9 @@ elseif ($script:SettingsMode -eq "merge") {
 else {
     $step++
     Write-Status "Step ${step}: Skipping settings.json configuration (not selected)" -Color DarkGray
+    if ($null -ne $script:InstallCodeModeFlag) {
+        Write-Status "  ! -CodeMode and -NoCodeMode do nothing with -SkipSettings: settings.json is left alone" -Color Yellow
+    }
 }
 
 Write-Status ""

@@ -360,8 +360,9 @@ PYTHON_SCRIPT
     fi
 }
 
-# Sets env.<name> to "1" in settings.json when <enabled> is true, removes it
-# otherwise (and an env left empty): one switch per experimental feature.
+# Sets env.<name> to "1" in settings.json when <enabled> is true (a value
+# Claude Code already reads as on stays), removes it otherwise, and an env
+# left empty: one switch per experimental feature.
 # Usage: set_settings_env <true|false> <name> <label>
 set_settings_env() {
     python3 - "${SETTINGS_JSON}" "$@" <<'PYTHON_SCRIPT'
@@ -369,13 +370,14 @@ import json
 import sys
 
 settings_file, enabled, name, label = sys.argv[1], sys.argv[2] == 'true', sys.argv[3], sys.argv[4]
+ON = ('1', 'true', 'yes', 'on')  # what Claude Code reads as on
 
 try:
     with open(settings_file) as f:
         data = json.load(f)
 
     env = data.get('env', {})
-    if enabled and env.get(name) == '1':
+    if enabled and str(env.get(name, '')).strip().lower() in ON:
         print(f"  ✓ {label} already enabled")
         sys.exit(0)
     if not enabled and name not in env:
@@ -403,7 +405,7 @@ configure_agent_teams() {
     set_settings_env "${INSTALL_AGENT_TEAMS}" CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS "Agent teams"
 }
 
-# Whether settings.json sets env.<name> to "1".
+# Whether settings.json turns env.<name> on, read as Claude Code reads a flag.
 settings_env_on() {
     python3 - "${SETTINGS_JSON}" "$1" <<'PYTHON_SCRIPT' 2>/dev/null
 import json
@@ -411,7 +413,8 @@ import sys
 
 try:
     with open(sys.argv[1]) as f:
-        sys.exit(0 if json.load(f).get('env', {}).get(sys.argv[2]) == '1' else 1)
+        value = str(json.load(f).get('env', {}).get(sys.argv[2], '')).strip().lower()
+    sys.exit(0 if value in ('1', 'true', 'yes', 'on') else 1)
 except Exception:
     sys.exit(1)
 PYTHON_SCRIPT

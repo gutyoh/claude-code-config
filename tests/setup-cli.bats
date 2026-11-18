@@ -88,12 +88,25 @@ setup() {
     [ "$INSTALL_AGENTS_SKILLS" = "false" ]
 }
 
-@test "parse_arguments: --code-mode and --no-code-mode set the Code Mode choice, the last one winning" {
-    parse_arguments --code-mode
+@test "parse_arguments: --code-mode and --no-code-mode set the Code Mode choice" {
+    parse_arguments --code-mode --code-mode
     [ "$INSTALL_CODE_MODE" = "true" ]
     parse_arguments --no-code-mode
     [ "$INSTALL_CODE_MODE" = "false" ]
-    parse_arguments --no-code-mode --code-mode
+}
+
+@test "parse_arguments: asking for Code Mode on and off at once is refused" {
+    run parse_arguments --no-code-mode --code-mode
+    [ "$status" -eq 1 ]
+    [[ ${output} == *"--code-mode and --no-code-mode contradict each other"* ]]
+}
+
+@test "parse_arguments: --code-mode outranks --minimal in either order, as -CodeMode does" {
+    parse_arguments --code-mode --minimal
+    [ "$INSTALL_CODE_MODE" = "true" ]
+    [ "$INSTALL_AGENT_TEAMS" = "false" ]
+    INSTALL_CODE_MODE=""
+    parse_arguments --minimal --code-mode
     [ "$INSTALL_CODE_MODE" = "true" ]
 }
 

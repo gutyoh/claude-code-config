@@ -41,6 +41,18 @@ env_of() { jq -c '.env // "none"' "$SETTINGS_JSON"; }
 }
 
 # bats test_tags=unit
+@test "a value Claude Code reads as on counts as on, and stays as it was written" {
+    printf '{"env": {"CLAUDE_CODE_EXPERIMENTAL_CODE_MODE": " Yes "}}\n' >"$SETTINGS_JSON"
+    settings_env_on CLAUDE_CODE_EXPERIMENTAL_CODE_MODE
+    run set_settings_env true CLAUDE_CODE_EXPERIMENTAL_CODE_MODE "Code Mode"
+    [[ ${output} == *"Code Mode already enabled"* ]]
+    [ "$(env_of)" = '{"CLAUDE_CODE_EXPERIMENTAL_CODE_MODE":" Yes "}' ]
+    printf '{"env": {"CLAUDE_CODE_EXPERIMENTAL_CODE_MODE": "0"}}\n' >"$SETTINGS_JSON"
+    run settings_env_on CLAUDE_CODE_EXPERIMENTAL_CODE_MODE
+    [ "$status" -ne 0 ]
+}
+
+# bats test_tags=unit
 @test "set_settings_env turns a switch off, dropping an env left empty" {
     printf '{"env": {"CLAUDE_CODE_EXPERIMENTAL_CODE_MODE": "1"}}\n' >"$SETTINGS_JSON"
     run set_settings_env false CLAUDE_CODE_EXPERIMENTAL_CODE_MODE "Code Mode"
@@ -107,4 +119,7 @@ env_of() { jq -c '.env // "none"' "$SETTINGS_JSON"; }
     [ "$(grep -c '^ *Update-CodeMode$' "${REPO_DIR}/setup.ps1")" -eq 2 ]
     grep -q '^INSTALL_CODE_MODE=""' "${REPO_DIR}/setup.sh"
     grep -q '^\$script:InstallCodeModeFlag = \$null' "${REPO_DIR}/setup.ps1"
+    grep -q 'do nothing with --skip-settings' "${REPO_DIR}/setup.sh"
+    grep -q 'do nothing with -SkipSettings' "${REPO_DIR}/setup.ps1"
+    grep -q 'CodeMode -and \$NoCodeMode' "${REPO_DIR}/setup.ps1"
 }

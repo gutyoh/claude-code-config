@@ -61,6 +61,9 @@ show_usage() {
 }
 
 parse_arguments() {
+    # Applied after the loop, so --code-mode outranks --minimal in any order,
+    # as -CodeMode does in setup.ps1; asking for both is refused in both.
+    local code_mode_asked=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -y | --yes)
@@ -123,12 +126,14 @@ parse_arguments() {
                 INSTALL_AGENT_TEAMS="false"
                 shift
                 ;;
-            --code-mode)
-                INSTALL_CODE_MODE="true"
-                shift
-                ;;
-            --no-code-mode)
-                INSTALL_CODE_MODE="false"
+            --code-mode | --no-code-mode)
+                local asked="true"
+                [[ "$1" == --no-code-mode ]] && asked="false"
+                if [[ -n "${code_mode_asked}" && "${code_mode_asked}" != "${asked}" ]]; then
+                    echo "Error: --code-mode and --no-code-mode contradict each other"
+                    exit 1
+                fi
+                code_mode_asked="${asked}"
                 shift
                 ;;
             --minimal)
@@ -312,4 +317,5 @@ parse_arguments() {
                 ;;
         esac
     done
+    [[ -z "${code_mode_asked}" ]] || INSTALL_CODE_MODE="${code_mode_asked}"
 }

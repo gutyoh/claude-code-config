@@ -330,11 +330,15 @@ function Update-Statusline {
     }
 }
 
+# What Claude Code reads as an on flag.
+$script:FlagOnValues = @("1", "true", "yes", "on")
+
 function Set-SettingsEnvFlag {
     <#
     .SYNOPSIS
-    Set env.<Name> to "1" in settings.json when -Enabled, remove it otherwise
-    (and an env left empty): one switch per experimental feature.
+    Set env.<Name> to "1" in settings.json when -Enabled (a value Claude Code
+    already reads as on stays), remove it otherwise, and an env left empty:
+    one switch per experimental feature.
     #>
     param(
         [string]$Name,
@@ -347,7 +351,7 @@ function Set-SettingsEnvFlag {
         $present = $settings.env -and $settings.env.PSObject.Properties[$Name]
 
         if ($Enabled) {
-            if ($present -and $settings.env.$Name -eq "1") {
+            if ($present -and $script:FlagOnValues -contains "$($settings.env.$Name)".Trim().ToLower()) {
                 Write-Status "  + ${Label} already enabled" -Color Green
                 return
             }
@@ -386,13 +390,13 @@ function Update-AgentTeam {
 function Test-SettingsEnvFlag {
     <#
     .SYNOPSIS
-    Whether settings.json sets env.<Name> to "1".
+    Whether settings.json turns env.<Name> on, read as Claude Code reads a flag.
     #>
     param([string]$Name)
 
     try {
         $settings = Read-Utf8Text $script:SettingsJson | ConvertFrom-Json
-        return [bool]($settings.env -and $settings.env.$Name -eq "1")
+        return [bool]($settings.env -and $script:FlagOnValues -contains "$($settings.env.$Name)".Trim().ToLower())
     }
     catch {
         return $false

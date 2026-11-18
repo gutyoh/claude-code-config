@@ -513,28 +513,45 @@ remote_control_on() {
     [[ -n ${on} ]]
 }
 
-# Whether Code Mode is on for <home>: CLAUDE_CODE_EXPERIMENTAL_CODE_MODE is 1
-# in the environment or the home's user settings, and 0 in none of those nor
-# in managed settings (Claude Code reads a 0 anywhere as off).
-code_mode_on() {
-    local home=$1 on="" value file
-    for file in "${home}/settings.json" /etc/claude-code/managed-settings.json \
+# A flag as Claude Code reads one: 1, true, yes or on is on; 0, false, no or
+# off is off; anything else is neither.
+flag_on() {
+    case $(lower "$1") in 1 | true | yes | on) return 0 ;; *) return 1 ;; esac
+}
+flag_off() {
+    case $(lower "$1") in 0 | false | no | off) return 0 ;; *) return 1 ;; esac
+}
+
+# CLAUDE_CODE_EXPERIMENTAL_CODE_MODE as settings file <file> sets it.
+code_mode_setting() {
+    jq -r '.env.CLAUDE_CODE_EXPERIMENTAL_CODE_MODE // empty | tostring' "$1" 2>/dev/null || true
+}
+
+# Whether Code Mode is kept off for <home>: off in the environment, the
+# home's user settings or managed settings, where an off wins over any on.
+code_mode_off() {
+    local file
+    flag_off "${CLAUDE_CODE_EXPERIMENTAL_CODE_MODE-}" && return 0
+    for file in "$1/settings.json" /etc/claude-code/managed-settings.json \
         "/Library/Application Support/ClaudeCode/managed-settings.json"; do
-        value=$(jq -r '.env.CLAUDE_CODE_EXPERIMENTAL_CODE_MODE // empty' "${file}" 2>/dev/null || true)
-        [[ ${value} == 0 ]] && return 1
-        [[ ${value} == 1 && ${file} == "${home}/settings.json" ]] && on=1
+        flag_off "$(code_mode_setting "${file}")" && return 0
     done
-    case ${CLAUDE_CODE_EXPERIMENTAL_CODE_MODE-} in
-        0) return 1 ;;
-        1) on=1 ;;
-    esac
-    [[ -n ${on} ]]
+    return 1
+}
+
+# Whether Code Mode is on for <home>'s new sessions: on in the environment or
+# the home's user settings, and not kept off. Managed settings can only turn
+# it off, and Claude Code ignores it in project settings.
+code_mode_on() {
+    ! code_mode_off "$1" || return 1
+    flag_on "${CLAUDE_CODE_EXPERIMENTAL_CODE_MODE-}" || flag_on "$(code_mode_setting "$1/settings.json")"
 }
 
 # Code Mode asks each account once, before its first session; a session a
 # launcher starts unattended would stop at that question. Where Code Mode is
 # on, <home>'s answer is recorded up front. The file is written beside itself
-# and renamed over, as Claude Code writes it; a linked one is left alone.
+# and renamed over, as Claude Code writes it, which rereads it before each
+# write and so keeps the answer; a linked one is left alone.
 accept_code_mode() {
     local file tmp
     file=$(account_file "$1")
@@ -552,13 +569,26 @@ accept_code_mode() {
     return 1
 }
 
-# Whether session <id> runs in Code Mode: the last repl-mode entry of its
-# transcript says so (Claude Code keeps only the last).
+# Whether session <id> was started in Code Mode: its transcript's last
+# repl-mode entry says so. Claude Code writes one near the start of such a
+# session and again as it goes on, so the file's two ends are enough.
 code_mode_session() {
-    local file
+    local file last
     file=$(session_transcript "$1")
     [[ -n ${file} ]] || return 1
-    [[ $(grep -F '"type":"repl-mode"' "${file}" | tail -n 1 | jq -r '.replMode // false' 2>/dev/null) == true ]]
+    last=$(tail -c 4000000 "${file}" | grep -F '"type":"repl-mode"' | tail -n 1 || true)
+    [[ -n ${last} ]] || last=$(head -c 2000000 "${file}" | grep -F '"type":"repl-mode"' | tail -n 1 || true)
+    [[ $(jq -r '.replMode // false' <<<"${last}" 2>/dev/null) == true ]]
+}
+
+# Whether these claude arguments resume, in <home>, a session that then runs
+# in Code Mode: one started in it, unless Code Mode is kept off there (Claude
+# Code then refuses the resume). A session started without stays without.
+resumes_in_code_mode() {
+    local home=$1 id
+    shift
+    id=$(full_id "$(resumed_id "$@")")
+    [[ -n ${id} ]] && code_mode_session "${id}" && ! code_mode_off "${home}"
 }
 
 # The name Remote Control should keep for the session these claude arguments
@@ -567,10 +597,15 @@ code_mode_session() {
 # another account is registered anew. Only a name given with
 # --remote-control survives that, so a resume passes the session's own:
 # -n/--name when given, else its newest title. Nothing for --print, a fork
-# (a new session), a Remote Control choice already made, a Code Mode session
-# (Remote Control does not run in one), or a name the command line would
-# read as an option.
+# (a new session), a Remote Control choice already made, a session resumed
+# in Code Mode (Remote Control does not run there), or a name the command
+# line would read as an option.
 rc_name() {
+    resumes_in_code_mode "$@" || rc_title "$@"
+}
+
+# rc_name for a resume known to run outside Code Mode.
+rc_title() {
     local home=$1 arg prev="" given="" id file newest title=""
     shift
     for arg in "$@"; do
@@ -584,7 +619,6 @@ rc_name() {
     remote_control_on "${home}" || return 0
     id=$(full_id "$(resumed_id "$@")")
     [[ -n ${id} ]] || return 0
-    ! code_mode_session "${id}" || return 0
     title=${given}
     if [[ -z ${title} ]]; then
         # A folder moved or renamed keeps an older copy under its old name:
@@ -638,19 +672,19 @@ in_home() {
 # arguments name a mode (launch_mode); a first -a, --yolo, --unsafe, --bypass
 # or -adskp is dropped.
 run_in() {
-    local home=$1 name mode rc alias id
+    local home=$1 name mode rc alias
     shift
     case ${1:-} in
         -a | --yolo | --unsafe | --bypass | -adskp) shift ;;
     esac
     mode=$(launch_mode "$@")
-    rc=$(rc_name "${home}" "$@")
-    [[ -z ${rc} ]] || set -- --remote-control "${rc}" "$@"
-    # A Code Mode session resumes only with Code Mode on, even once it was
-    # turned off for new sessions; a 0 set anywhere still keeps it off.
-    id=$(full_id "$(resumed_id "$@")")
-    if [[ -n ${id} && -z ${CLAUDE_CODE_EXPERIMENTAL_CODE_MODE+set} ]] && code_mode_session "${id}"; then
-        export CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1
+    # A session started in Code Mode resumes only with Code Mode on, even once
+    # it is off for new sessions, and runs without Remote Control there.
+    if resumes_in_code_mode "${home}" "$@"; then
+        flag_on "${CLAUDE_CODE_EXPERIMENTAL_CODE_MODE-}" || export CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1
+    else
+        rc=$(rc_title "${home}" "$@")
+        [[ -z ${rc} ]] || set -- --remote-control "${rc}" "$@"
     fi
     set -- "${mode}" "$@"
     # Remote Control's made-up names start with the machine's short name.

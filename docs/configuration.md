@@ -153,7 +153,9 @@ on Windows the command is `~/.claude/scripts/file-suggestion.ps1`.
 Code Mode sessions cannot use Remote Control, Claude in Chrome or computer use,
 so setup never turns it on or off by itself: `--code-mode` and
 `--no-code-mode` do, and a rerun without either leaves `settings.json` as it
-is. Where it is on, `claude-as` records each account's one-time "Yes, turn on
+is (`--minimal` turns it off unless `--code-mode` is given too). Values are
+read as Claude Code reads them: `1`, `true`, `yes` or `on` is on, and an off
+value in the environment, user or managed settings wins. Where it is on, `claude-as` records each account's one-time "Yes, turn on
 Code Mode" answer, and resumes a session started in Code Mode with it on, even
 after it is turned off for new sessions.
 
@@ -262,8 +264,8 @@ Without the variable they keep the literal `~/.claude/...`, exactly as before.
 | `--agent-teams` | — | Enable experimental agent teams |
 | `--no-agent-teams` | — | Disable agent teams |
 | `--code-mode` | — | Turn on Code Mode (its sessions run without Remote Control) |
-| `--no-code-mode` | — | Turn off Code Mode; without either flag it stays as it is |
-| `--minimal` | — | Core only: no agents, skills, MCP, agent teams, Code Mode, proxy PATH or OpenCode |
+| `--no-code-mode` | — | Turn off Code Mode; without either flag it stays as it is, and both at once are refused |
+| `--minimal` | — | Core only: no agents, skills, MCP, agent teams, Code Mode (unless `--code-mode`), proxy PATH or OpenCode |
 | `--overwrite-settings` | — | Overwrite existing settings.json |
 | `--skip-settings` | — | Do not modify settings.json |
 | `--theme` | `dark`, `light`, `colorblind`, `none` | Statusline color theme |

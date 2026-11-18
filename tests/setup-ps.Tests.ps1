@@ -445,6 +445,14 @@ Describe "Settings JSON manipulation" {
             Test-SettingsEnvFlag -Name "CLAUDE_CODE_EXPERIMENTAL_CODE_MODE" | Should -BeTrue
         }
 
+        It "reads a value Claude Code reads as on as on, and keeps it as written" {
+            '{"env": {"CLAUDE_CODE_EXPERIMENTAL_CODE_MODE": " Yes "}}' | Set-Content $script:SettingsJson
+            Test-SettingsEnvFlag -Name "CLAUDE_CODE_EXPERIMENTAL_CODE_MODE" | Should -BeTrue
+            $script:InstallCodeModeFlag = $true
+            Update-CodeMode
+            (Get-Content $script:SettingsJson -Raw | ConvertFrom-Json).env.CLAUDE_CODE_EXPERIMENTAL_CODE_MODE | Should -Be " Yes "
+        }
+
         It "reads a missing or broken settings file as off" {
             'not json' | Set-Content $script:SettingsJson
             Test-SettingsEnvFlag -Name "CLAUDE_CODE_EXPERIMENTAL_CODE_MODE" | Should -BeFalse

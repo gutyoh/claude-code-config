@@ -398,6 +398,8 @@ main() {
     else
         step=$((step + 1))
         echo "Step ${step}: Skipping settings.json configuration (not selected)"
+        [[ -z "${INSTALL_CODE_MODE}" ]] \
+            || echo "  ⚠ --code-mode and --no-code-mode do nothing with --skip-settings: settings.json is left alone"
     fi
 
     echo ""
