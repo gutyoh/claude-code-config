@@ -1172,6 +1172,18 @@ check() {
             printf '  FAIL  not signed in: claude-as --add <email> signs one in, claude-as --tidy archives it\n'
             problems=$((problems + 1))
         fi
+        # A home meant to start Remote Control whose new sessions start in
+        # Code Mode instead drops out of other machines' ListAgents. A choice
+        # the person may have made, so a note, not a fault.
+        if remote_control_on "${home}" && code_mode_on "${home}"; then
+            if flag_on "$(code_mode_setting "${home}/settings.json")"; then
+                printf '  note  new sessions here start in Code Mode, without Remote Control: setup.sh --no-code-mode turns it off\n'
+            else
+                # A session started while the settings turned it on passes
+                # it to its child shells, which keep it once it is removed.
+                printf '  note  sessions started from this shell start in Code Mode, without Remote Control: CLAUDE_CODE_EXPERIMENTAL_CODE_MODE is set here (a session started while settings turned it on passes it down)\n'
+            fi
+        fi
         if [[ ${home} != "${shared}" ]]; then
             for name in ${CLAUDE_AS_SHARE:-${SHARE}}; do
                 src="${shared}/${name}"
