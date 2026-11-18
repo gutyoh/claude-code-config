@@ -32,21 +32,27 @@ $script:McpKeysEnvFile = if ($env:MCP_KEYS_ENV_FILE) { $env:MCP_KEYS_ENV_FILE } 
 
 # --- Backend Detection ---
 
+# Each name is asked of fnox once per run: every get decrypts.
+$script:FnoxSecretCache = @{}
+
 function Test-FnoxSecret {
     <#
     .SYNOPSIS
     Whether fnox can decrypt <Name>. fnox runs from HOME, so a fnox.toml in
-    the repository setup runs from is never read.
+    the repository setup runs from is never read; only its exit code and an
+    answer decide, never a warning it writes on stderr.
     #>
     param([string]$Name)
 
+    if ($script:FnoxSecretCache.ContainsKey($Name)) { return $script:FnoxSecretCache[$Name] }
     # On 5.1, redirected native stderr is a terminating error under "Stop".
     $ErrorActionPreference = "Continue"
     if (-not (Get-Command fnox -ErrorAction SilentlyContinue)) { return $false }
     Push-Location $HOME
     try {
         $value = & fnox get $Name 2>$null
-        return ($LASTEXITCODE -eq 0 -and [bool]$value)
+        $script:FnoxSecretCache[$Name] = ($LASTEXITCODE -eq 0 -and [bool]$value)
+        return $script:FnoxSecretCache[$Name]
     }
     catch {
         $null = $_

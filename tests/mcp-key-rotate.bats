@@ -842,13 +842,14 @@ REPO_ROOT="$BATS_TEST_DIRNAME/.."
     [[ "$output" == *"backend: dotenv"* ]]
 }
 
-@test "fnox: reads run from HOME, writes in KEY_ROTATE_FNOX_DIR, and no key is ever an argument" {
+@test "fnox: detection reads HOME, a change reads and writes KEY_ROTATE_FNOX_DIR, and no key is ever an argument" {
     fnox_seed "WHERE_API_KEY" "${KEY_A}"
     fnox_seed "WHERE_API_KEY_POOL" "${KEY_A},${KEY_B}"
     run bash "$SCRIPT" where
     [ "$status" -eq 0 ]
     [ "$(fnox_read WHERE_API_KEY)" = "${KEY_B}" ]
     grep -qx "${HOME}|get WHERE_API_KEY" "${MOCK_FNOX_LOG}"
+    grep -qx "${KEY_ROTATE_FNOX_DIR}|get WHERE_API_KEY_POOL" "${MOCK_FNOX_LOG}"
     grep -qx "${KEY_ROTATE_FNOX_DIR}|set WHERE_API_KEY" "${MOCK_FNOX_LOG}"
     ! grep -qE "${KEY_A}|${KEY_B}" "${MOCK_FNOX_LOG}" || false
 }
@@ -858,7 +859,8 @@ REPO_ROOT="$BATS_TEST_DIRNAME/.."
     fnox_seed "NODIR_API_KEY_POOL" "${KEY_A},${KEY_B}"
     run env -u KEY_ROTATE_FNOX_DIR bash "$SCRIPT" nodir
     [ "$status" -eq 1 ]
-    [[ "$output" == *"set KEY_ROTATE_FNOX_DIR to the folder whose fnox.toml holds NODIR_API_KEY"* ]]
+    [[ "$output" == *"fnox keys change in the folder whose fnox.toml holds NODIR_API_KEY"* ]]
+    [[ "$output" == *"KEY_ROTATE_FNOX_DIR=<that folder> mcp-key-rotate nodir"* ]]
     [ "$(fnox_read NODIR_API_KEY)" = "${KEY_A}" ]
     run env -u KEY_ROTATE_FNOX_DIR bash "$SCRIPT" nodir --status
     [ "$status" -eq 0 ]
@@ -883,7 +885,7 @@ REPO_ROOT="$BATS_TEST_DIRNAME/.."
     fnox_seed "LIVE_API_KEY_POOL" "${KEY_A},${KEY_B}"
     run bash "$SCRIPT" live
     [ "$status" -eq 0 ]
-    [[ "$output" == *"Active now"* ]]
+    [[ "$output" == *"This machine reads it already"* ]]
     # HOME reads a deployed copy, not the source the rotation wrote.
     export MOCK_FNOX_HOME="${TEST_TMPDIR}/copy"
     mkdir -p "${MOCK_FNOX_HOME}"
@@ -918,4 +920,44 @@ REPO_ROOT="$BATS_TEST_DIRNAME/.."
         [ "$status" -eq 2 ]
         [[ "$output" == *"KEY_ROTATE_BACKEND is fnox, dotenv or auto, not '${backend}'"* ]]
     done
+}
+
+# HOME reads a deployed copy that lags the source until it is pushed.
+deployed_copy() {
+    export MOCK_FNOX_HOME="${TEST_TMPDIR}/copy"
+    mkdir -p "${MOCK_FNOX_HOME}"
+    cp "${KEY_ROTATE_FNOX_DIR}"/.store/* "${MOCK_FNOX_HOME}/"
+}
+
+@test "fnox: two adds before a deploy both land in the source pool" {
+    fnox_seed "TWO_API_KEY" "${KEY_A}"
+    fnox_seed "TWO_API_KEY_POOL" "${KEY_A}"
+    deployed_copy
+    run bash "$SCRIPT" two --add "${KEY_B}"
+    [ "$status" -eq 0 ]
+    run bash "$SCRIPT" two --add "${KEY_C}"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"now 3 keys"* ]]
+    [ "$(fnox_read TWO_API_KEY_POOL)" = "${KEY_A},${KEY_B},${KEY_C}" ]
+    [ "$(cat "${MOCK_FNOX_HOME}/TWO_API_KEY_POOL")" = "${KEY_A}" ]
+}
+
+@test "fnox: two rotations before a deploy advance twice" {
+    fnox_seed "STEP_API_KEY" "${KEY_A}"
+    fnox_seed "STEP_API_KEY_POOL" "${KEY_A},${KEY_B},${KEY_C}"
+    deployed_copy
+    run bash "$SCRIPT" step
+    [ "$status" -eq 0 ]
+    [ "$(fnox_read STEP_API_KEY)" = "${KEY_B}" ]
+    run bash "$SCRIPT" step
+    [ "$status" -eq 0 ]
+    [ "$(fnox_read STEP_API_KEY)" = "${KEY_C}" ]
+    [[ "$output" == *"commit and push it"* ]]
+}
+
+@test "fnox: a first key goes in as the active key before the pool" {
+    fnox_seed "FIRST_API_KEY" ""
+    run env KEY_ROTATE_BACKEND=fnox bash "$SCRIPT" first --add "${KEY_A}"
+    [ "$status" -eq 0 ]
+    [ "$(grep -n "|set FIRST_API_KEY$" "${MOCK_FNOX_LOG}" | cut -d: -f1)" -lt "$(grep -n "|set FIRST_API_KEY_POOL$" "${MOCK_FNOX_LOG}" | cut -d: -f1)" ]
 }

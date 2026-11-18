@@ -15,12 +15,13 @@
 # Backends: fnox (auto-detected), dotenv (.env file)
 # Override: KEY_ROTATE_BACKEND=fnox|dotenv
 #
-# fnox: keys are read from HOME, as mcp-fnox-inject reads them at server
-# launch, so a repository's fnox.toml is never read. A rotation is written
-# to the fnox.toml in KEY_ROTATE_FNOX_DIR (the file the keys come from, such
-# as a checkout that machines import a deployed copy of), then read back. A
-# name that file does not hold yet goes to KEY_ROTATE_FNOX_PROVIDER (fnox's
-# default_provider when unset).
+# fnox: KEY_ROTATE_FNOX_DIR names the folder whose fnox.toml the keys come
+# from (such as a checkout that machines import a deployed copy of). Every
+# read and write of a change goes there, so two changes before a deploy
+# build on each other. Without it, keys are read from HOME, as mcp-fnox-inject
+# reads them at server launch, and a change is refused: HOME may read a
+# deployed copy that a write would be lost from. A name that file does not
+# hold yet goes to KEY_ROTATE_FNOX_PROVIDER (fnox's default_provider when unset).
 
 set -euo pipefail
 
@@ -55,11 +56,23 @@ readonly KEY_VAR="${SERVICE_UPPER}_API_KEY"
 readonly POOL_VAR="${SERVICE_UPPER}_API_KEY_POOL"
 
 # --- Backend: fnox ---
-# Reads run from HOME with no stdin, so neither a repository's fnox.toml nor
-# a prompt is involved. A name fnox does not hold reads as empty, as the
-# dotenv backend reads one its file lacks.
+# fnox's value of <name> as read from folder <dir>, with no stdin, so neither
+# a prompt nor another repository's fnox.toml is involved. A name fnox does not
+# hold reads as empty, as the dotenv backend reads one its file lacks.
+fnox_get_in() {
+    (cd "$1" && fnox get "$2" </dev/null 2>/dev/null) || true
+}
+
+# What machines read: fnox from HOME, as mcp-fnox-inject does at launch.
+fnox_live() { fnox_get_in "${HOME}" "$1"; }
+
+# The source of truth: KEY_ROTATE_FNOX_DIR's fnox.toml when named, else HOME.
 fnox_get() {
-    (cd "${HOME}" && fnox get "$1" </dev/null 2>/dev/null) || true
+    if [[ -n "${FNOX_DIR}" && -f "${FNOX_DIR}/fnox.toml" ]]; then
+        fnox_get_in "${FNOX_DIR}" "$1"
+    else
+        fnox_live "$1"
+    fi
 }
 
 # The value goes in on stdin, never on the command line, where `ps` shows it,
@@ -67,18 +80,18 @@ fnox_get() {
 fnox_set() {
     local name="$1" value="$2" back
     if [[ -z "${FNOX_DIR}" || ! -f "${FNOX_DIR}/fnox.toml" ]]; then
-        echo "Error: set KEY_ROTATE_FNOX_DIR to the folder whose fnox.toml holds ${name}." >&2
-        echo "  fnox reads it from HOME through an import, which may be a deployed copy" >&2
-        echo "  that a write would be lost from; the source is where rotations go." >&2
+        echo "Error: fnox keys change in the folder whose fnox.toml holds ${name}:" >&2
+        echo "  KEY_ROTATE_FNOX_DIR=<that folder> mcp-key-rotate ${SERVICE} ..., then commit and push it." >&2
+        echo "  HOME may read a deployed copy of that file, which a write would be lost from." >&2
         exit 1
     fi
     local -a with_provider=()
     [[ -z "${FNOX_PROVIDER}" ]] || with_provider=(--provider "${FNOX_PROVIDER}")
     if ! printf '%s' "${value}" | (cd "${FNOX_DIR}" && fnox set "${name}" ${with_provider[@]+"${with_provider[@]}"} >/dev/null 2>&1); then
-        echo "Error: fnox could not store ${name} in ${FNOX_DIR}/fnox.toml." >&2
+        echo "Error: fnox could not store ${name} in ${FNOX_DIR}/fnox.toml; check that fnox can decrypt there." >&2
         exit 1
     fi
-    back="$(cd "${FNOX_DIR}" && fnox get "${name}" </dev/null 2>/dev/null)" || back=""
+    back="$(fnox_get_in "${FNOX_DIR}" "${name}")"
     if [[ "${back}" != "${value}" ]]; then
         echo "Error: ${name} in ${FNOX_DIR}/fnox.toml does not read back as written." >&2
         exit 1
@@ -87,8 +100,8 @@ fnox_set() {
 
 # Where a change to <name> stored in KEY_ROTATE_FNOX_DIR takes effect.
 fnox_where() {
-    if [[ "$(fnox_get "$1")" == "$(cd "${FNOX_DIR}" && fnox get "$1" </dev/null 2>/dev/null)" ]]; then
-        echo "Active now: MCP servers read it at their next start."
+    if [[ "$(fnox_live "$1")" == "$(fnox_get_in "${FNOX_DIR}" "$1")" ]]; then
+        echo "This machine reads it already: MCP servers use it at their next start."
     else
         echo "Stored in ${FNOX_DIR}/fnox.toml. Machines read a copy of it: commit and push it,"
         echo "and each machine uses the new key once its copy updates."
@@ -142,7 +155,7 @@ detect_backend() {
     esac
 
     # Tier 1: fnox holds the active key
-    if command -v fnox &>/dev/null && [[ -n "$(fnox_get "${KEY_VAR}")" ]]; then
+    if command -v fnox &>/dev/null && [[ -n "$(fnox_live "${KEY_VAR}")" ]]; then
         echo "fnox"
         return
     fi
@@ -547,9 +560,10 @@ cmd_add() {
     pool="$(secret_get "${POOL_VAR}")"
 
     if [[ -z "${pool}" ]]; then
-        # Initialize pool with just the new key and set it as active
-        secret_set "${POOL_VAR}" "${new_key}"
+        # Initialize pool with just the new key and set it as active. The
+        # active key first: if the pool write then fails, the key still works.
         secret_set "${KEY_VAR}" "${new_key}"
+        secret_set "${POOL_VAR}" "${new_key}"
         echo "Initialized ${SERVICE} pool with $(mask_key "${new_key}") (backend: ${BACKEND})"
         [[ "${BACKEND}" != "fnox" ]] || fnox_where "${POOL_VAR}"
         return

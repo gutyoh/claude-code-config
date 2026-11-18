@@ -488,6 +488,10 @@ Describe "MCP module" {
     }
 
     Context "Backend detection" {
+        BeforeEach {
+            $script:FnoxSecretCache = @{}
+        }
+
         AfterEach {
             Remove-Item Function:\global:fnox -ErrorAction SilentlyContinue
         }
@@ -513,8 +517,22 @@ Describe "MCP module" {
         It "reads a failed or empty answer from fnox as no key" {
             function global:fnox { $global:LASTEXITCODE = 1 }
             Test-FnoxSecret -Name "BRAVE_API_KEY" | Should -BeFalse
+            $script:FnoxSecretCache = @{}
             function global:fnox { $global:LASTEXITCODE = 0; "" }
             Test-FnoxSecret -Name "BRAVE_API_KEY" | Should -BeFalse
+        }
+
+        It "asks fnox once per name per run, and a warning on stderr does not hide the key" {
+            function global:fnox {
+                Add-Content (Join-Path $TestDrive "fnox-calls") "get"
+                [Console]::Error.WriteLine("warning: something")
+                $global:LASTEXITCODE = 0
+                "secret-value"
+            }
+            $ErrorActionPreference = "Stop"
+            Test-FnoxSecret -Name "TAVILY_API_KEY" | Should -BeTrue
+            Test-FnoxSecret -Name "TAVILY_API_KEY" | Should -BeTrue
+            @(Get-Content (Join-Path $TestDrive "fnox-calls")).Count | Should -Be 1
         }
 
         It "builds an mcp-fnox-inject command that passes only the server's own key" {
