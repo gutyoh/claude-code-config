@@ -92,7 +92,7 @@ my-server)
 
 If your server supports multiple API keys, add a key pool for rotation:
 
-1. Add multiple keys to `.env` or Doppler:
+1. Add multiple keys to `.env` or fnox:
 
 ```bash
 MY_API_KEY=key1

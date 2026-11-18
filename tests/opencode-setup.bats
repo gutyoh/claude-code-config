@@ -32,7 +32,7 @@ setup() {
     # shellcheck source=../lib/setup/opencode.sh
     source "$OPENCODE_SH"
 
-    # Force envfile backend by default — tests that need doppler override locally.
+    # Force envfile backend by default — tests that need fnox override locally.
     detect_mcp_backend() { echo "envfile"; }
 
     unset OPENCODE_FORCE

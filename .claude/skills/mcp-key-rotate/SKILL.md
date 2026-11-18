@@ -17,7 +17,7 @@ Check quota and rotate API keys for MCP servers (Brave Search, Tavily, etc.).
 
 ## Description
 
-This command manages API key rotation for MCP servers. It supports checking per-key credit usage, rotating to the next key in the pool, and adding new keys. Auto-detects the secrets backend (Doppler or `.env` file).
+This command manages API key rotation for MCP servers. It supports checking per-key credit usage, rotating to the next key in the pool, and adding new keys. Auto-detects the secrets backend (fnox or `.env` file).
 
 ## Arguments
 
@@ -61,7 +61,7 @@ mcp-key-rotate <service> --add <KEY>
 ## Prerequisites
 
 - `mcp-key-rotate` script on PATH (installed by `setup.sh`)
-- Doppler CLI configured (personal computer) OR `.env` file with pool vars (work computer)
+- fnox holding `{SERVICE}_API_KEY` and `{SERVICE}_API_KEY_POOL`, with `KEY_ROTATE_FNOX_DIR` naming the folder whose `fnox.toml` they come from (rotations are written there), OR a `.env` file with the pool vars
 
 ## After Rotation
 

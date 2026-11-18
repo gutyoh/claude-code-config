@@ -25,32 +25,21 @@ setup() {
     export TEST_DOTENV="${TEST_TMPDIR}/.env"
     export MCP_KEYS_ENV_FILE="${TEST_TMPDIR}/mcp-keys.env"
 
-    # Create a mock doppler script in temp dir
-    export MOCK_DOPPLER="${TEST_TMPDIR}/doppler"
-    export MOCK_DOPPLER_STORE="${TEST_TMPDIR}/doppler_store"
-    mkdir -p "${MOCK_DOPPLER_STORE}"
-
-    cat > "${MOCK_DOPPLER}" <<'MOCK_EOF'
+    # A mock fnox that reads and writes flat files, from HOME and from the
+    # rotation's source folder alike: HOME imports the source live.
+    export HOME="${TEST_TMPDIR}/home" KEY_ROTATE_FNOX_DIR="${TEST_TMPDIR}/src"
+    mkdir -p "${HOME}" "${KEY_ROTATE_FNOX_DIR}/.store"
+    : >"${KEY_ROTATE_FNOX_DIR}/fnox.toml"
+    cat > "${TEST_TMPDIR}/fnox" <<'MOCK_EOF'
 #!/usr/bin/env bash
-set -euo pipefail
-if [[ "${1:-}" == "secrets" ]]; then
-    if [[ "${2:-}" == "get" ]]; then
-        local_name="${3:-}"
-        store_file="${MOCK_DOPPLER_STORE}/${local_name}"
-        if [[ -f "${store_file}" ]]; then
-            cat "${store_file}"
-        else
-            exit 1
-        fi
-    elif [[ "${2:-}" == "set" ]]; then
-        local_pair="${3:-}"
-        local_name="${local_pair%%=*}"
-        local_value="${local_pair#*=}"
-        echo -n "${local_value}" > "${MOCK_DOPPLER_STORE}/${local_name}"
-    fi
-fi
+store="${KEY_ROTATE_FNOX_DIR}/.store"
+case "${1:-}" in
+    get) [[ -f "${store}/$2" ]] && cat "${store}/$2" || exit 1 ;;
+    set) printf '%s' "$(cat)" >"${store}/$2" ;;
+    *) exit 1 ;;
+esac
 MOCK_EOF
-    chmod +x "${MOCK_DOPPLER}"
+    chmod +x "${TEST_TMPDIR}/fnox"
 
     export PATH="${TEST_TMPDIR}:${PATH}"
 }
@@ -60,9 +49,9 @@ teardown() {
 }
 
 # --- Helpers ---
-doppler_seed() {
+fnox_seed() {
     local name="$1" value="$2"
-    echo -n "${value}" > "${MOCK_DOPPLER_STORE}/${name}"
+    printf '%s' "${value}" >"${KEY_ROTATE_FNOX_DIR}/.store/${name}"
 }
 
 dotenv_seed() {
@@ -178,17 +167,17 @@ EOF
     [ "${val}" = "${KEY_B}" ]
 }
 
-@test "auto-sync: rotation does NOT sync for doppler backend" {
-    doppler_seed "SVC_API_KEY" "${KEY_A}"
-    doppler_seed "SVC_API_KEY_POOL" "${KEY_A},${KEY_B}"
+@test "auto-sync: rotation does NOT sync for fnox backend" {
+    fnox_seed "SVC_API_KEY" "${KEY_A}"
+    fnox_seed "SVC_API_KEY_POOL" "${KEY_A},${KEY_B}"
     touch "${MCP_KEYS_ENV_FILE}"
 
-    run env KEY_ROTATE_BACKEND=doppler \
+    run env KEY_ROTATE_BACKEND=fnox \
         MCP_KEYS_ENV_FILE="${MCP_KEYS_ENV_FILE}" \
         bash "$ROTATE_SCRIPT" svc
     [ "$status" -eq 0 ]
     [[ "$output" == *"Rotated svc"* ]]
-    # Should NOT contain "Synced" — Doppler injects keys live
+    # Should NOT contain "Synced" — mcp-fnox-inject reads fnox at launch
     [[ "$output" != *"Synced"* ]]
 
     # mcp-keys.env should be empty (untouched)

@@ -221,7 +221,9 @@ All optional: without them the search servers stay off, `/web-search` uses the b
 | `LANGFUSE_HOST` | — | Langfuse host URL |
 | `SONARQUBE_TOKEN` | — | SonarQube server authentication |
 | `SONARQUBE_URL` | — | SonarQube server URL |
-| `KEY_ROTATE_BACKEND` | Auto-detected | Force `doppler` or `dotenv` for key rotation |
+| `KEY_ROTATE_BACKEND` | Auto-detected | Force `fnox` or `dotenv` for key rotation |
+| `KEY_ROTATE_FNOX_DIR` | — | Folder whose `fnox.toml` holds the keys; fnox rotations are written there |
+| `KEY_ROTATE_FNOX_PROVIDER` | fnox's `default_provider` | Provider for a key name that `fnox.toml` does not hold yet, such as `age` |
 | `KEY_ROTATE_DOTENV` | `$REPO_ROOT/.env` | Path to .env file for key rotation |
 | `MCP_KEY_ROTATE_CACHE_DIR` | `/tmp/mcp-key-rotate-cache` | Cache directory for quota checks |
 | `MCP_KEY_ROTATE_CACHE_TTL` | `300` | Cache TTL in seconds for quota checks |
