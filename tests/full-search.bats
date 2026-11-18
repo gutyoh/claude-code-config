@@ -1134,7 +1134,7 @@ printf "%s" "$LOCAL_OUT"'
 
 # bats test_tags=unit
 @test "FIRECRAWL_API_URL must be https or this machine, and a trailing slash is dropped" {
-    for bad in http://mirror.example.com http://10.0.0.5:3002 ftp://mirror.example.com mirror.example.com; do
+    for bad in http://mirror.example.com "http://$(ip 10 0 0 5):3002" ftp://mirror.example.com mirror.example.com; do
         FIRECRAWL_API_URL="$bad" read_url https://example.com/a
         [ "$status" -eq 2 ] || { echo "$bad: $status"; false; }
         [[ "$output" == *"FIRECRAWL_API_URL must be https, or http on this machine"* ]]
