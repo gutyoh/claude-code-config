@@ -3,9 +3,16 @@
 # Path: .claude/skills/full-search/scripts/full-search
 #
 # Reads web pages as rendered Markdown, or searches and lists results, through
-# whichever provider answers: Firecrawl, Tavily, Bright Data, then a plain
-# fetch. Measured on 32 pages, Firecrawl alone read 28 and Tavily read the
-# ones it refuses (Reddit, LinkedIn, NYTimes), so that order covers 31.
+# whichever provider answers: Firecrawl Local, Firecrawl, Tavily, Bright Data,
+# then a plain fetch. Measured on 32 pages, Firecrawl alone read 28 and Tavily
+# read the ones it refuses (Reddit, LinkedIn, NYTimes), so that order covers 31.
+#
+# Firecrawl Local (firecrawl-local) fetches pages from this machine with
+# Firecrawl's own cleaning and costs no credit: a running `firecrawl-local
+# serve` at FIRECRAWL_LOCAL_URL (default http://127.0.0.1:3002), else the
+# binary itself (FIRECRAWL_LOCAL_BIN, default firecrawl-local), else it is
+# skipped. It only reads; a page that refuses this machine goes on to the
+# next provider, so the cloud is reached only through its own keys and rests.
 #
 # Each provider tries its keys in turn, then its keyless tier. A key that is
 # out of credit, rejected or rate limited rests in a cooldown file until it can
@@ -18,11 +25,15 @@
 #   full-search -q QUERY --read N      search, then read the top N results
 #   full-search --status               keys, pools and cooldowns, masked
 #   options: --via PROVIDER  --out DIR  --min-chars N
-#   providers: firecrawl tavily brightdata jina direct (read), tavily firecrawl brave (search)
+#   providers: local firecrawl tavily brightdata jina direct (read), tavily firecrawl brave (search);
+#   --via names one provider for both, so --via local cannot search
 #
 # Keys, all optional: FIRECRAWL_API_KEY, TAVILY_API_KEY, BRAVE_API_KEY and
 # BRIGHTDATA_API_TOKEN, each with an optional comma-separated *_POOL. Each name
-# comes from the environment, else ~/.claude/mcp-keys.env, else fnox.
+# comes from the environment, else ~/.claude/mcp-keys.env, else fnox. No key
+# goes to Firecrawl Local; FIRECRAWL_LOCAL_TOKEN is its own serve --token,
+# sent only to this machine or over https. FIRECRAWL_API_URL points the cloud
+# provider at another Firecrawl: https, or http on this machine.
 #
 # Exit: 0 every page or the search succeeded, 1 some failed, 2 usage error.
 
@@ -31,13 +42,21 @@ set +x
 unset BASH_ENV
 umask 077
 
-READ_CHAIN="${FULL_SEARCH_READ_CHAIN:-firecrawl tavily brightdata direct}"
+READ_CHAIN="${FULL_SEARCH_READ_CHAIN:-local firecrawl tavily brightdata direct}"
 SEARCH_CHAIN="${FULL_SEARCH_SEARCH_CHAIN:-tavily firecrawl brave}"
 TIMEOUT="${FULL_SEARCH_TIMEOUT:-60}"
 MIN_CHARS=300
 OUT_DIR="${FULL_SEARCH_OUT:-}"
 STATE_DIR="${FULL_SEARCH_STATE:-${XDG_STATE_HOME:-${HOME}/.local/state}/full-search}"
 COOLDOWN_FILE="${STATE_DIR}/cooldown"
+FIRECRAWL_URL="${FIRECRAWL_API_URL:-https://api.firecrawl.dev}"
+FIRECRAWL_URL="${FIRECRAWL_URL%/}"
+LOCAL_URL="${FIRECRAWL_LOCAL_URL:-http://127.0.0.1:3002}"
+LOCAL_URL="${LOCAL_URL%/}"
+LOCAL_BIN="${FIRECRAWL_LOCAL_BIN:-firecrawl-local}"
+# How Firecrawl Local answers this run: serve, bin or none (see local_mode),
+# looked up only by a run that reads pages with it, or by --status.
+LOCAL_MODE=none
 UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140 Safari/537.36"
 
 die() {
@@ -186,7 +205,7 @@ firecrawl_rest() {
     local left end t
     t=$(now)
     if [[ -n "${KEY}" ]]; then
-        split "$(http "$(auth_bearer)" "https://api.firecrawl.dev/v2/team/credit-usage")"
+        split "$(http "$(auth_bearer)" "${FIRECRAWL_URL}/v2/team/credit-usage")"
         if [[ "${STATUS}" == 200 ]]; then
             read -r left end < <(printf '%s' "${BODY}" | jq -r '.data
                 | [(.remainingCredits // 0 | floor),
@@ -257,7 +276,7 @@ auth_bearer() { [[ -n "${KEY}" ]] && printf 'Authorization: Bearer %s' "${KEY}";
 
 call_firecrawl() { # endpoint body
     http "Content-Type: application/json
-$(auth_bearer)" -X POST "https://api.firecrawl.dev/v2/$1" --data "$2"
+$(auth_bearer)" -X POST "${FIRECRAWL_URL}/v2/$1" --data "$2"
 }
 
 call_tavily() { # endpoint body
@@ -279,11 +298,84 @@ call_brave() { # query count
 X-Subscription-Token: ${KEY}" "https://api.search.brave.com/res/v1/web/search?q=${q}&count=$2"
 }
 
+# A Firecrawl v2 scrape of one page, as markdown of its main content.
+scrape_body() { jq -nc --arg u "$1" '{url:$u, formats:["markdown"], onlyMainContent:true}'; }
+
+# The markdown of a Firecrawl scrape answer in BODY, from the cloud, a serve
+# or the binary alike. Firecrawl answers 200 for a page that was itself an
+# error, and Firecrawl Local marks a page every fetcher was refused.
+scrape_markdown() {
+    printf '%s' "${BODY}" | jq -er '.data
+        | select((.metadata.statusCode // 200) < 400 and (.blocked // false) == false)
+        | .markdown // empty'
+}
+
 read_firecrawl() {
-    with_keys firecrawl FIRECRAWL_API_KEY yes scrape \
-        "$(jq -nc --arg u "$1" '{url:$u, formats:["markdown"], onlyMainContent:true}')" || return 1
-    # Firecrawl answers 200 for a page that was itself an error.
-    printf '%s' "${BODY}" | jq -er '.data | select((.metadata.statusCode // 200) < 400) | .markdown // empty'
+    with_keys firecrawl FIRECRAWL_API_KEY yes scrape "$(scrape_body "$1")" || return 1
+    scrape_markdown
+}
+
+# Whether URL $1 is fit to carry a secret: https, or http to this machine.
+secure_url() {
+    local host="${1#http://}"
+    [[ "$1" == https://* ]] && return 0
+    [[ "$1" == http://* ]] || return 1
+    host="${host%%[/?#]*}"
+    host="${host##*@}"
+    case "${host}" in
+        \[::1\] | \[::1\]:*) return 0 ;;
+    esac
+    host="${host%:*}"
+    [[ "${host}" == localhost || "${host}" =~ ^127\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
+}
+
+# The header a serve started with --token wants on every route, /health too;
+# a token never travels in clear to another machine.
+local_auth() {
+    [[ -n "${FIRECRAWL_LOCAL_TOKEN:-}" ]] && secure_url "${LOCAL_URL}" &&
+        printf 'Authorization: Bearer %s' "${FIRECRAWL_LOCAL_TOKEN}"
+}
+
+# Which Firecrawl Local answers, once per run: "serve" when FIRECRAWL_LOCAL_URL
+# answers a health check that names firecrawl-local (another service on the
+# port is not one), else "bin" when the binary is on PATH, else "none". A
+# server that is down refuses the connection at once; one that hangs costs 2 s.
+local_mode() {
+    split "$(http "$(local_auth)" --connect-timeout 1 --max-time 2 "${LOCAL_URL}/health")"
+    if printf '%s' "${BODY}" | jq -e '.engine == "firecrawl-local"' >/dev/null 2>&1; then
+        printf 'serve'
+    elif command -v "${LOCAL_BIN}" >/dev/null 2>&1; then
+        printf 'bin'
+    else
+        printf 'none'
+    fi
+}
+
+# Firecrawl Local: no key and no credit. The binary runs with no provider key
+# in its environment and its own cloud hand-off off, so a refused page comes
+# back blocked and goes to the next provider, which minds its keys' credit
+# and rests. A serve's hand-off is its owner's (start it FIRECRAWL_CLOUD=off);
+# a page it fetched from the cloud is not taken as read here. The binary also
+# refuses private targets, as serve does, though read_url keeps them off
+# every provider.
+read_local() {
+    local name
+    local -a clean=()
+    case "${LOCAL_MODE}" in
+        serve)
+            split "$(http "Content-Type: application/json
+$(local_auth)" -X POST "${LOCAL_URL}/v2/scrape" --data "$(scrape_body "$1")")"
+            [[ "${STATUS}" == 200 ]] || return 1
+            ;;
+        bin)
+            for name in ${KEY_NAMES} FIRECRAWL_API_URL FIRECRAWL_LOCAL_TOKEN; do clean+=(-u "${name}"); done
+            BODY=$(bounded "$((TIMEOUT + 5))" env ${clean[@]+"${clean[@]}"} FIRECRAWL_CLOUD=off \
+                "${LOCAL_BIN}" scrape --public-only --timeout "$((TIMEOUT * 1000))" -- "$1") || return 1
+            ;;
+        *) return 1 ;;
+    esac
+    printf '%s' "${BODY}" | jq -e '.data.source == "firecrawl-cloud"' >/dev/null 2>&1 && return 1
+    scrape_markdown
 }
 
 read_tavily() {
@@ -417,6 +509,8 @@ read_url() {
     ORIGIN_PRIVATE=0
     private_host "${host}" && chain="direct" && ORIGIN_PRIVATE=1
     for provider in ${chain}; do
+        # Firecrawl Local where it is not installed was never tried, unless asked for.
+        [[ "${provider}" == local && "${LOCAL_MODE}" == none && -z "${VIA}" ]] && continue
         tried="${tried} ${provider}"
         text=$("read_${provider}" "${url}") || continue
         looks_blocked "${text}" && continue
@@ -429,6 +523,12 @@ read_url() {
 
 status() {
     local p var keyless key id left until reason
+    printf 'local\n'
+    case "${LOCAL_MODE}" in
+        serve) printf '  serve        %s\n' "${LOCAL_URL}" ;;
+        bin) printf '  binary       %s\n' "$(command -v "${LOCAL_BIN}")" ;;
+        *) printf '  not found    no serve at %s, no %s on PATH\n' "${LOCAL_URL}" "${LOCAL_BIN}" ;;
+    esac
     for p in firecrawl:FIRECRAWL_API_KEY:yes tavily:TAVILY_API_KEY:yes brave:BRAVE_API_KEY:no brightdata:BRIGHTDATA_API_TOKEN:no; do
         IFS=: read -r p var keyless <<<"${p}"
         printf '%s\n' "${p}"
@@ -566,7 +666,7 @@ main() {
             --out) OUT_DIR="${2:-}" && shift ;;
             --min-chars) MIN_CHARS="${2:-}" && shift ;;
             --status) show_status=1 ;;
-            -h | --help) sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//' && exit 0 ;;
+            -h | --help) sed -n '2,/^# Exit:/p' "$0" | sed 's/^# \{0,1\}//' && exit 0 ;;
             -*) die "unknown option $1" ;;
             *) urls+=("$1") ;;
         esac
@@ -574,6 +674,8 @@ main() {
     done
     command -v curl >/dev/null 2>&1 || die "curl is required"
     command -v jq >/dev/null 2>&1 || die "jq is required"
+    # The cloud provider sends its key there.
+    secure_url "${FIRECRAWL_URL}" || die "FIRECRAWL_API_URL must be https, or http on this machine"
     if ((!show_status)); then
         [[ "${count}" =~ ^[0-9]+$ && "${read_top}" =~ ^[0-9]+$ && "${MIN_CHARS}" =~ ^[0-9]+$ ]] || die "counts must be numbers"
         [[ -n "${query}" || ${#urls[@]} -gt 0 ]] || die "give URLs, or -q QUERY (see --help)"
@@ -584,7 +686,7 @@ main() {
     # Keys load after the checks, so --help and usage errors never wait on fnox.
     maybe_keys_file
     maybe_fnox
-    ((show_status)) && status && exit 0
+    ((show_status)) && LOCAL_MODE=$(local_mode) && status && exit 0
     # Each run writes to its own private directory unless one is named.
     if [[ -n "${OUT_DIR}" ]]; then
         mkdir -p "${OUT_DIR}" || die "cannot create ${OUT_DIR}"
@@ -621,6 +723,9 @@ main() {
         ((${#urls[@]})) && printf '\n'
     fi
     declare -F "read_${VIA}" >/dev/null 2>&1 || VIA=""
+    if ((${#urls[@]})) && [[ " ${VIA:-${READ_CHAIN}} " == *" local "* ]]; then
+        LOCAL_MODE=$(local_mode)
+    fi
     # bash 3.2, macOS's /bin/bash, calls an empty array unbound under set -u.
     for url in ${urls[@]+"${urls[@]}"}; do
         index=$((index + 1))

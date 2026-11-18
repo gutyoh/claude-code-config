@@ -232,6 +232,11 @@ All optional: without them the search servers stay off, `/web-search` uses the b
 | `FULL_SEARCH_FNOX` | `1` | `0` stops `/full-search` from asking fnox for keys |
 | `FULL_SEARCH_STATE` | `${XDG_STATE_HOME:-~/.local/state}/full-search` | Where `/full-search` keeps its key cooldowns |
 | `FULL_SEARCH_TIMEOUT` | `60` | Seconds one `/full-search` provider call may take |
+| `FULL_SEARCH_READ_CHAIN` | `local firecrawl tavily brightdata direct` | The providers `/full-search` reads a page with, in order |
+| `FIRECRAWL_LOCAL_URL` | `http://127.0.0.1:3002` | Where `/full-search` looks for a running `firecrawl-local serve` |
+| `FIRECRAWL_LOCAL_BIN` | `firecrawl-local` | The Firecrawl Local binary `/full-search` runs when no server answers |
+| `FIRECRAWL_LOCAL_TOKEN` | — | The `--token` a `firecrawl-local serve` was started with; sent only to this machine or over https |
+| `FIRECRAWL_API_URL` | `https://api.firecrawl.dev` | The Firecrawl that `/full-search`'s cloud provider calls: https, or http on this machine |
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Claude Code's config dir; setup, the statusline, the hooks and the MCP key tools follow it |
 | `CLAUDE_SESSION_NAME_TZ` | `UTC` | IANA time zone for [session names](#session-names) |
 | `CLAUDE_SESSION_NAME` | — | `off` disables [session names](#session-names) |

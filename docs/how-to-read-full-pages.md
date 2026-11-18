@@ -17,15 +17,45 @@ a block page or a bot challenge:
 
 | Order | Provider | Key | Used for |
 |-------|----------|-----|----------|
-| 1 | Firecrawl | optional | Most pages, JavaScript and PDFs included |
-| 2 | Tavily | optional | Sites Firecrawl refuses, such as Reddit and LinkedIn |
-| 3 | Bright Data | required | Only when `BRIGHTDATA_API_TOKEN` is set |
-| 4 | Direct fetch | none | Static pages; the only route for private addresses |
+| 1 | [Firecrawl Local](#run-firecrawl-local) | none | Every page, fetched from this machine at no credit, when it is installed |
+| 2 | Firecrawl | optional | Most pages, JavaScript and PDFs included |
+| 3 | Tavily | optional | Sites Firecrawl refuses, such as Reddit and LinkedIn |
+| 4 | Bright Data | required | Only when `BRIGHTDATA_API_TOKEN` is set |
+| 5 | Direct fetch | none | Static pages; the only route for private addresses |
 
 Searches go to Tavily, then Firecrawl, then Brave when `BRAVE_API_KEY` is set.
 
 Private and tailnet addresses, and names that do not resolve, are fetched directly and never sent to a
 provider. A public page that redirects to a private address is refused.
+
+## Run Firecrawl Local
+
+[Firecrawl Local](https://github.com/firecrawl/firecrawl/tree/main/apps/local) is one binary that
+fetches and cleans pages on your machine with the same code as the Firecrawl API. Pages it reads cost
+no credit, and no provider sees the URL. A page that refuses your machine goes on to the next
+provider, so Firecrawl Cloud is reached only through its own keys, rotation and rests. On 52 pages of
+every kind it read 51, against Firecrawl Cloud's 50, and its text matched the cloud's (median word
+overlap 0.93).
+
+```sh
+cargo install firecrawl-local     # needs Rust and a C compiler; Chrome or Chromium renders JavaScript pages
+```
+
+The script finds it on its own, in this order, and skips it at no cost when neither is there:
+
+1. **A running server**, `firecrawl-local serve`, at `FIRECRAWL_LOCAL_URL` (default
+   `http://127.0.0.1:3002`). It is used only when its `/health` names `firecrawl-local`, so another
+   service on that port is never sent a page. Start it with `FIRECRAWL_CLOUD=off`: its own hand-off
+   to the cloud would use the login it was given, and a page it fetches from the cloud is not taken
+   as read locally anyway. A server started with `--token` takes the same token in
+   `FIRECRAWL_LOCAL_TOKEN`, sent only to this machine or over `https`; no search key is ever sent to it.
+2. **The binary**, `FIRECRAWL_LOCAL_BIN` (default `firecrawl-local` on `PATH`), run once per page with
+   `--public-only`, `FIRECRAWL_CLOUD=off` and no provider key in its environment. No server is
+   needed: on the same 52 pages the binary read 50 at a median of 0.5 s, and a server 50 at 0.7 s.
+
+Private addresses never reach it: like every provider, it only sees public pages. It only reads, so
+`--via local` cannot search. `FIRECRAWL_API_URL` points the cloud provider at another Firecrawl, such
+as a self-hosted one; it must be `https`, or `http` on this machine, since the key goes there.
 
 ## Add keys (optional)
 
