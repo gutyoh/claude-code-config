@@ -64,7 +64,7 @@ jobs:
       # installs are reproducible and never hit the unauthenticated rate limit.
       # --locked fails loudly if the lockfile does not cover this platform,
       # which is the whole point of committing it.
-      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+      - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # v5.2.9
         with:
           install_args: --locked
 
@@ -96,7 +96,7 @@ jobs:
           # later commit is still published by the earlier one.
           fetch-depth: 0
 
-      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+      - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # v5.2.9
         with:
           install_args: --locked
 
@@ -220,7 +220,7 @@ jobs:
           # behind in .git/config where any later step could read it.
           persist-credentials: false
 
-      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+      - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # v5.2.9
         with:
           install_args: --locked
 
